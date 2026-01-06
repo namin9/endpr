@@ -1,3 +1,16 @@
+# ⚠️ 변경 금지 규칙 (Hard Rules)
+
+이 문서(read.md)에 정의된 다음 항목은 **명시적 합의 없이는 변경 금지**한다.
+
+- Public URL 구조 (/slug, /posts/page/n, /category/...)
+- slug 정책 및 예약어 목록
+- 테넌트별 Pages 프로젝트 전제
+- build_token 기반 build 인증 방식
+- D1 스키마의 핵심 컬럼(status, tenant_id, slug 등)
+- preview/share의 noindex,nofollow 정책
+
+※ 구현 편의를 이유로 한 임의 변경은 허용되지 않는다.
+
 Enterprise Multi-Tenant Headless CMS + PR Suite
 최종 아키텍처 & 계약면 명세서 v1.1 (Tenant-per-Pages)
 0. 목표(불변)
