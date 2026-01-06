@@ -83,3 +83,12 @@
 - [ ] **계약/스키마 변경 절차**: 스키마 또는 API 인터페이스 변경은 전용 브랜치/PR 1건으로 처리 후, 다른 역할 브랜치들이 rebase.
 - [ ] **병합/리뷰**: 병합 전 `git fetch && git rebase <base>` 필수, Fast-forward 우선. 역할별 커밋은 기능 단위로 작게 유지하여 diff 범위를 최소화.
 - [ ] **조정/의존 순서**: 스키마 → Worker API → CMS/Blog/PR UI 순서로 작업 병렬화. 공유 리소스 변경 즉시 공지(슬랙/노션 등).
+
+## 역할별 개발 순서(권장 실행 플로우)
+1) **GPT-DB**: D1 스키마/시드 확정 및 머지 → 공유 통보  
+2) **GPT-API**: 확정된 스키마 기반으로 인증/RBAC, posts CRUD/publish, deploy_jobs, build endpoints, scheduled publish 구현 → API 계약 고정 후 알림  
+3) **GPT-BLOG**: API 빌드 데이터 계약을 사용해 permalink/페이지네이션/sitemap/robots 정적 산출물 구현(슬러그 예약어·noindex 규칙 준수)  
+4) **GPT-CMS**: API 계약 소비하여 로그인/autosave/preview(noindex)/publish 상태/카테고리·테마/print 구현. API 변경 필요 시 GPT-API와 먼저 합의 후 단일 PR로 처리  
+5) **GPT-PR**: 확정된 스키마/API를 소비해 캠페인·mentions·reports 화면 구현. 스키마/계약 변경 필요 시 GPT-DB/GPT-API와 공통 PR 선반영  
+6) **합류 단계**: 모든 역할 브랜치는 병합 전 `git fetch && git rebase <base>` 실행, 충돌 없는 상태에서 Fast-forward 또는 필요 시 squash 병합  
+7) **후속 검증**: 공통 규칙(빌드 토큰 헤더, 슬러그 정책, noindex, 예약어 차단) 재점검 후 최종 QA
