@@ -214,6 +214,38 @@ ${entries}
   }
 }
 
+async function generateHomepage(posts) {
+  const hasPosts = posts.length > 0;
+  const latestPosts = posts.slice(0, PAGE_SIZE);
+  const latestList = latestPosts
+    .map(
+      (post) =>
+        `<li><a href="/${post.slug}/">${escapeHtml(
+          post.title || post.slug
+        )}</a></li>`
+    )
+    .join("\n");
+
+  const content = `<section>
+  <p><a href="/posts/page/1/">View all posts →</a></p>
+  ${
+    hasPosts
+      ? `<h2>Latest posts</h2>
+  <ul>
+${latestList}
+  </ul>`
+      : `<p>No posts published yet. Check back soon.</p>`
+  }
+</section>`;
+
+  const html = layoutHtml({
+    title: "Home",
+    content,
+  });
+
+  await writeHtml(path.join(DIST_DIR, "index.html"), html);
+}
+
 async function generateCategoryPages(posts, categories) {
   const enabledCategories = categories.filter(
     (category) => category.enabled !== false
@@ -344,6 +376,7 @@ async function build() {
   const posts = sortPosts(rawPosts);
 
   await resetDist();
+  await generateHomepage(posts);
   await generatePostPages(posts);
   await generatePostListPages(posts);
   await generateCategoryPages(posts, categories);
