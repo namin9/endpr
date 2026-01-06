@@ -1,0 +1,10 @@
+{
+  "name": "endpr-blog-template",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node src/build.js",
+    "build:mock": "BUILD_TOKEN=dummy PUBLIC_API_BASE=http://localhost:8787 MOCK_BUILD_DATA_PATH=./fixtures/sample.json node src/build.js --mock"
+  }
+}
