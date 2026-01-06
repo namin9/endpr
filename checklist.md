@@ -71,3 +71,15 @@
 - [ ] CMS 핵심 UX 구현(autosave, preview, publish 상태 표시, print)
 - [ ] Blog 템플릿 페이지/페이지네이션/SEO 산출물 구현
 - [ ] PR 모듈 초기 화면(캠페인, mentions, reports) 구현
+
+## 다중 GPT 협업 및 브랜치 전략
+- [ ] GPT 역할 분담을 명시: 예) `GPT-A(Worker/API)`, `GPT-B(CMS UI/UX)`, `GPT-C(Blog 템플릿/빌드)`, `GPT-D(PR 모듈/리포트)`
+- [ ] 공통 베이스 브랜치 지정 후 역할별 작업 브랜치 네이밍: `gpt-<role>/<task>` (예: `gpt-worker/auth-crud`)
+- [ ] 각 브랜치는 `read.md` 계약면을 소스 오브 트루스로 삼아 범위 일치 여부 체크
+- [ ] 커밋 단위는 기능/문서 단위로 작게 유지하고, 역할별 변경 파일 범위를 최소화하여 충돌 예방
+- [ ] 병합 전 `git fetch` + `git rebase <base>`로 최신 반영 후 CI/테스트 확인
+- [ ] 스키마/타입 정의 등 공유 리소스 변경 시 슬랙/노션 등 공통 채널에 즉시 알림
+- [ ] 인터페이스/계약 변경(PRD, API 스펙, DB 스키마)은 별도 단일 PR에서 먼저 병합 후 역할 브랜치들이 이를 rebase
+- [ ] 종속 순서 정리: 스키마/타입 → Worker API → CMS/Blog 소비 계층 → PR 리포트 뷰
+- [ ] 컨벤션 공유: 슬러그 정책·예약어·빌드 토큰 처리 등 공통 규칙을 체크리스트로 재검증
+- [ ] 병합 전략: Fast-forward 우선, 필요 시 squash 병합으로 역할별 히스토리 단순화
