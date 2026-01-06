@@ -1,0 +1,10 @@
+# apps/api/wrangler.toml
+name = 'endpr-api'
+main = "src/index.ts"
+compatibility_date = "2024-08-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "endpr-local-db"
+database_id = "01f10310-cfd5-4c12-a8c3-100bf31c80e8"
+migrations_dir = "migrations"
