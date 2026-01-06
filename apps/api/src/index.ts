@@ -3,8 +3,11 @@ import authRoutes from './routes/auth';
 import postRoutes from './routes/posts';
 import deployJobRoutes from './routes/deploy_jobs';
 import buildRoutes from './routes/build';
+import { corsMiddleware } from './middleware/cors';
 
 const app = new Hono();
+
+app.use('*', corsMiddleware);
 
 app.route('/', authRoutes);
 app.route('/', postRoutes);
