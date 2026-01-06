@@ -68,7 +68,7 @@
 ## 운영 우선순위(실행 체크리스트 순서)
 - [ ] D1 스키마 v1.1 확정 및 시드(tenant/user)
 - [ ] Worker 핵심 기능 구현(인증, posts, deploy_jobs, build endpoints)
-- [ ] CMS 핵심 UX 구현(autosave, preview, publish 상태 표시, print)
+- [ ] CMS 핵심 UX 구현(로그인, autosave, preview, publish 상태 표시, print)
 - [ ] Blog 템플릿 페이지/페이지네이션/SEO 산출물 구현
 - [ ] PR 모듈 초기 화면(캠페인, mentions, reports) 구현
 
