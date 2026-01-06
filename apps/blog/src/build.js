@@ -58,8 +58,24 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
     };
   }
 
-  const postsIndex = await fetchJson(`${apiBase}/build/posts`, buildToken);
-  const categories = await fetchJson(`${apiBase}/build/categories`, buildToken);
+  const postsResp = await fetchJson(`${apiBase}/build/posts`, buildToken);
+  const postsIndex = Array.isArray(postsResp)
+    ? postsResp
+    : postsResp.posts ?? [];
+  if (!Array.isArray(postsIndex)) {
+    throw new Error("Invalid /build/posts response shape");
+  }
+
+  const categoriesResp = await fetchJson(
+    `${apiBase}/build/categories`,
+    buildToken
+  );
+  const categories = Array.isArray(categoriesResp)
+    ? categoriesResp
+    : categoriesResp.categories ?? categoriesResp.items ?? [];
+  if (!Array.isArray(categories)) {
+    throw new Error("Invalid /build/categories response shape");
+  }
 
   const posts = await Promise.all(
     postsIndex.map(async (post) => {
