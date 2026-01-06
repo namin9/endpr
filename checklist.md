@@ -72,14 +72,14 @@
 - [ ] Blog 템플릿 페이지/페이지네이션/SEO 산출물 구현
 - [ ] PR 모듈 초기 화면(캠페인, mentions, reports) 구현
 
-## 다중 GPT 협업 및 브랜치 전략
-- [ ] GPT 역할 분담을 명시: 예) `GPT-A(Worker/API)`, `GPT-B(CMS UI/UX)`, `GPT-C(Blog 템플릿/빌드)`, `GPT-D(PR 모듈/리포트)`
-- [ ] 공통 베이스 브랜치 지정 후 역할별 작업 브랜치 네이밍: `gpt-<role>/<task>` (예: `gpt-worker/auth-crud`)
-- [ ] 각 브랜치는 `read.md` 계약면을 소스 오브 트루스로 삼아 범위 일치 여부 체크
-- [ ] 커밋 단위는 기능/문서 단위로 작게 유지하고, 역할별 변경 파일 범위를 최소화하여 충돌 예방
-- [ ] 병합 전 `git fetch` + `git rebase <base>`로 최신 반영 후 CI/테스트 확인
-- [ ] 스키마/타입 정의 등 공유 리소스 변경 시 슬랙/노션 등 공통 채널에 즉시 알림
-- [ ] 인터페이스/계약 변경(PRD, API 스펙, DB 스키마)은 별도 단일 PR에서 먼저 병합 후 역할 브랜치들이 이를 rebase
-- [ ] 종속 순서 정리: 스키마/타입 → Worker API → CMS/Blog 소비 계층 → PR 리포트 뷰
-- [ ] 컨벤션 공유: 슬러그 정책·예약어·빌드 토큰 처리 등 공통 규칙을 체크리스트로 재검증
-- [ ] 병합 전략: Fast-forward 우선, 필요 시 squash 병합으로 역할별 히스토리 단순화
+## 영역별 개발 분담 체크리스트(충돌 방지 원칙 포함)
+- [ ] **공통 원칙**: 모든 영역은 `read.md` 계약면을 변경 없이 준수. 슬러그 정책·예약어·빌드 토큰·noindex 규칙을 공유 규칙으로 재검증.
+- [ ] **DB/스키마 담당(GPT-DB)**: D1 스키마 정의/마이그레이션/시드만 담당. 스키마 변경 시 전 영역에 사전 공지 후 단일 PR 선머지.
+- [ ] **Worker/API 담당(GPT-API)**: 인증, RBAC, posts CRUD/publish, deploy_jobs, build endpoints, scheduled publish. 스키마 변경 없이 API 계약 범위 내 구현.
+- [ ] **CMS 프런트엔드 담당(GPT-CMS)**: 로그인, autosave, preview/share(noindex), publish 상태 표시, 카테고리/테마 UI, window.print. API 계약 변경 금지, 필요 시 API 담당자와 먼저 합의.
+- [ ] **Blog 템플릿 담당(GPT-BLOG)**: 정적 빌드 산출물(permalink, posts/category pagination, sitemap, robots). API 응답/빌드 데이터 계약을 소비만 하고 확장/변경 금지.
+- [ ] **PR 모듈 담당(GPT-PR)**: 캠페인/mentions/reports 화면 및 관련 API 소비. 스키마/계약 변경 필요 시 DB/API 담당과 단일 PR로 선반영.
+- [ ] **분리 원칙**: 역할별 브랜치는 `gpt-<role>/<task>` 네이밍 사용(예: `gpt-api/auth-rbac`, `gpt-cms/autosave-ui`). 다른 영역 파일은 원칙적으로 수정 금지.
+- [ ] **계약/스키마 변경 절차**: 스키마 또는 API 인터페이스 변경은 전용 브랜치/PR 1건으로 처리 후, 다른 역할 브랜치들이 rebase.
+- [ ] **병합/리뷰**: 병합 전 `git fetch && git rebase <base>` 필수, Fast-forward 우선. 역할별 커밋은 기능 단위로 작게 유지하여 diff 범위를 최소화.
+- [ ] **조정/의존 순서**: 스키마 → Worker API → CMS/Blog/PR UI 순서로 작업 병렬화. 공유 리소스 변경 즉시 공지(슬랙/노션 등).
