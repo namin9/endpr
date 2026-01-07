@@ -10,9 +10,12 @@ $TenantSlug = "<tenant-slug>"
 $AdminEmail = "<admin-email>"
 $AdminPassword = "<admin-password>"
 $Origin = "https://cms.ourcompany.com"
+$PagesOrigin = "https://endpr.pages.dev"
 $BlockedOrigin = "https://evil.com"
 $Session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
 ```
+
+> Note: Because the CMS UI and the Worker API are on different sites (e.g., `cms.ourcompany.com` → `*.workers.dev` or `endpr.pages.dev`), the session cookie must use `SameSite=None; Secure` so browsers will send it on cross-site `fetch` requests with `credentials: include`.
 
 ## 1) CORS preflight
 
@@ -29,6 +32,20 @@ $preflightOk.Headers
 ```
 
 Expected: **204** with `Access-Control-Allow-Origin: https://cms.ourcompany.com`, `Access-Control-Allow-Methods: GET,POST,OPTIONS`, `Access-Control-Allow-Headers: Content-Type,x-build-token`, `Access-Control-Allow-Credentials: true`, and `Vary: Origin`.
+
+Allowed test origin (`endpr.pages.dev`):
+
+```powershell
+$preflightPages = Invoke-WebRequest -Uri "$BaseUrl/cms/auth/login" -Method Options -Headers @{
+  "Origin" = $PagesOrigin
+  "Access-Control-Request-Method" = "POST"
+  "Access-Control-Request-Headers" = "content-type"
+}
+$preflightPages.StatusCode
+$preflightPages.Headers
+```
+
+Expected: **204** with the same `Access-Control-*` headers echoing `https://endpr.pages.dev`.
 
 Blocked origin:
 
@@ -58,7 +75,7 @@ $loginResp.StatusCode
 $Session.Cookies.GetCookies($BaseUrl)
 ```
 
-Expected: **200**, JSON `{ user: { id, email, role }, tenant: { id, slug, name } }`, and `Set-Cookie: session=...; HttpOnly; Secure; SameSite=Lax`.
+Expected: **200**, JSON `{ user: { id, email, role }, tenant: { id, slug, name } }`, and `Set-Cookie: session=...; HttpOnly; Secure; SameSite=None`.
 
 ## 3) `/cms/auth/me` with same session
 

@@ -54,6 +54,6 @@ export async function refreshSessionCookie(c: Ctx, session: SessionData) {
   const token = await createSessionToken(session, c.env.SESSION_SECRET);
   c.header(
     'Set-Cookie',
-    `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=${SESSION_MAX_AGE}`
+    `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=None; Secure; Max-Age=${SESSION_MAX_AGE}`
   );
 }
