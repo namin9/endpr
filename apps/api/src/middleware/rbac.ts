@@ -20,6 +20,10 @@ function ensureSessionSecret(env: EnvBindings) {
 }
 
 export const sessionMiddleware = async (c: Ctx, next: Next) => {
+  if (c.req.method === 'OPTIONS') {
+    await next();
+    return;
+  }
   ensureSessionSecret(c.env);
   const token = getCookie(c, SESSION_COOKIE);
   if (!token) return c.json({ error: 'Unauthorized' }, 401);
@@ -36,6 +40,10 @@ export const sessionMiddleware = async (c: Ctx, next: Next) => {
 };
 
 export const buildTokenMiddleware = async (c: Ctx, next: Next) => {
+  if (c.req.method === 'OPTIONS') {
+    await next();
+    return;
+  }
   const token = c.req.header('x-build-token');
   if (!token) return c.json({ error: 'Missing x-build-token' }, 401);
   const tenant = await getTenantByBuildToken(c.env.DB, token);
