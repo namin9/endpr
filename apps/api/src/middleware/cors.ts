@@ -8,10 +8,6 @@ function isAllowed(origin: string | undefined): origin is string {
   return !!origin && ALLOWED_ORIGINS.includes(origin);
 }
 
-function isAllowed(origin: string | undefined): origin is string {
-  return !!origin && ALLOWED_ORIGINS.includes(origin);
-}
-
 export async function corsMiddleware(c: Context, next: Next) {
   const origin = c.req.header('origin');
   const isAllowedOrigin = isAllowed(origin);
