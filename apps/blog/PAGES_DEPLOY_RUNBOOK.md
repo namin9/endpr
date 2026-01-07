@@ -20,6 +20,7 @@ Set these in the Pages project for each tenant:
     --command "SELECT build_token FROM tenants WHERE slug='<tenant_slug>';"
   ```
   Use the returned value in the Pages environment variable.
+- `SITE_BASE_URL` — public tenant URL used for sitemap `loc` entries (e.g. `https://blog.example.com`).
 
 ## 3) Verification checklist (pre-deploy)
 

@@ -18,10 +18,15 @@ const RESERVED_SLUGS = [
   "robots.txt",
 ];
 
-const siteBaseUrl =
-  (process.env.SITE_BASE_URL ||
-    process.env.PUBLIC_SITE_BASE ||
-    "https://example.com").replace(/\/$/, "");
+function resolveSiteBaseUrl() {
+  const baseUrl =
+    process.env.SITE_BASE_URL ||
+    process.env.CF_PAGES_URL ||
+    "https://endpr.pages.dev";
+  return baseUrl.replace(/\/$/, "");
+}
+
+const siteBaseUrl = resolveSiteBaseUrl();
 
 function assertSlugAllowed(slug, entityType) {
   const normalized = `${slug}`.toLowerCase();
@@ -159,8 +164,36 @@ function paginate(items, pageSize) {
   });
 }
 
+function normalizeTimestamp(value) {
+  if (!Number.isFinite(value)) return null;
+  const normalized = value < 1e12 ? value * 1000 : value;
+  return new Date(normalized);
+}
+
 function formatDate(value) {
   if (!value) return "";
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? "" : value.toISOString();
+  }
+
+  if (typeof value === "number") {
+    const date = normalizeTimestamp(value);
+    return date && !Number.isNaN(date.getTime()) ? date.toISOString() : "";
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    if (/^\d+(\.\d+)?$/.test(trimmed)) {
+      const numeric = normalizeTimestamp(Number(trimmed));
+      return numeric && !Number.isNaN(numeric.getTime())
+        ? numeric.toISOString()
+        : "";
+    }
+    const date = new Date(trimmed);
+    return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+  }
+
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
@@ -312,7 +345,6 @@ async function generateSitemap(posts, categories) {
   for (const page of postPages) {
     urls.push({
       loc: `${siteBaseUrl}/posts/page/${page.page}/`,
-      lastmod: formatDate(),
     });
   }
 
@@ -327,7 +359,6 @@ async function generateSitemap(posts, categories) {
     for (const page of categoryPages) {
       urls.push({
         loc: `${siteBaseUrl}/category/${category.slug}/page/${page.page}/`,
-        lastmod: formatDate(),
       });
     }
   }
