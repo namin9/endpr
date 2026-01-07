@@ -1,11 +1,9 @@
 const API_BASE = window.__API_BASE__ || window.API_BASE || 'https://endpr.ni041372.workers.dev';
+const BLOG_BASE = window.__BLOG_BASE__ || window.BLOG_BASE || 'https://endpr.pages.dev';
 
 const SESSION_KEY = 'cms-session';
 const DRAFT_KEY = 'cms-draft';
-const CATEGORY_KEY = 'cms-categories';
-const SHARE_KEY = 'cms-share-token';
 const JOB_KEY = 'cms-jobs';
-const THEME_KEY = 'cms-theme';
 
 const loginForm = document.getElementById('loginForm');
 const sessionStatus = document.getElementById('sessionStatus');
@@ -16,19 +14,24 @@ const autosaveStatus = document.getElementById('autosaveStatus');
 const clearDraftBtn = document.getElementById('clearDraftBtn');
 const publishBtn = document.getElementById('publishBtn');
 const publishMessage = document.getElementById('publishMessage');
+const publishLink = document.getElementById('publishLink');
 const deployJobsEl = document.getElementById('deployJobs');
 const previewPane = document.getElementById('previewPane');
-const shareBtn = document.getElementById('shareBtn');
-const revokeBtn = document.getElementById('revokeBtn');
-const shareLinkEl = document.getElementById('shareLink');
-const categoryForm = document.getElementById('categoryForm');
-const categoryList = document.getElementById('categoryList');
-const themeSelect = document.getElementById('themeSelect');
+const manualSaveBtn = document.getElementById('manualSaveBtn');
+const retrySaveBtn = document.getElementById('retrySaveBtn');
+const postsListEl = document.getElementById('postsList');
+const postsStatusEl = document.getElementById('postsStatus');
+const refreshPostsBtn = document.getElementById('refreshPostsBtn');
+const refreshJobsBtn = document.getElementById('refreshJobsBtn');
+const jobDetailEl = document.getElementById('jobDetail');
+const selectedPostMeta = document.getElementById('selectedPostMeta');
 const printBtn = document.getElementById('printBtn');
 
 let autosaveTimer = null;
-let currentDraft = load(DRAFT_KEY, { id: null, title: '', body: '', savedAt: null });
+let currentDraft = load(DRAFT_KEY, { id: null, title: '', body: '', savedAt: null, status: null });
 let currentSession = load(SESSION_KEY, null);
+let currentPosts = [];
+let currentJobs = load(JOB_KEY, []);
 
 function load(key, fallback) {
   const raw = localStorage.getItem(key);
@@ -47,9 +50,8 @@ function save(key, value) {
 
 function formatTime(date) {
   return new Intl.DateTimeFormat('ko', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
+    dateStyle: 'short',
+    timeStyle: 'short',
   }).format(date);
 }
 
@@ -153,6 +155,7 @@ loginForm.addEventListener('submit', async (event) => {
       body: { tenantSlug: tenant, email, password },
     });
     await fetchSession();
+    await Promise.all([fetchPosts(), fetchDeployJobs()]);
     publishMessage.textContent = '';
   } catch (error) {
     setStatus(sessionStatus, formatError(error), true);
@@ -179,11 +182,28 @@ function persistDraft(partial) {
   };
   save(DRAFT_KEY, currentDraft);
   renderPreview();
+  renderSelectedPostMeta();
+}
+
+function renderSelectedPostMeta() {
+  if (!currentDraft?.id) {
+    selectedPostMeta.textContent = '선택된 게시글이 없습니다.';
+    return;
+  }
+  const status = currentDraft.status ? ` · ${currentDraft.status}` : '';
+  const savedAt = currentDraft.savedAt ? ` · ${formatTime(new Date(currentDraft.savedAt))}` : '';
+  selectedPostMeta.textContent = `ID ${currentDraft.id}${status}${savedAt}`;
+}
+
+function setAutosaveState(state, message, isError = false) {
+  autosaveStatus.textContent = message || '';
+  autosaveStatus.classList.toggle('error', Boolean(isError));
+  retrySaveBtn.classList.toggle('hidden', state !== 'error');
 }
 
 function renderAutosaveSavedAt(savedAt) {
   if (!savedAt) return;
-  setStatus(autosaveStatus, `Saved at ${formatTime(new Date(savedAt))}`);
+  setAutosaveState('saved', `Saved at ${formatTime(new Date(savedAt))}`);
 }
 
 async function ensurePostId(title, body) {
@@ -200,27 +220,27 @@ async function ensurePostId(title, body) {
 
 async function saveDraftToApi(title, body) {
   if (!currentSession) {
-    setStatus(autosaveStatus, '로그인 후 저장할 수 있습니다.', true);
+    setAutosaveState('error', '로그인 후 저장할 수 있습니다.', true);
     return;
   }
 
   try {
-    setStatus(autosaveStatus, 'Saving...');
+    setAutosaveState('saving', 'Saving...');
     const postId = await ensurePostId(title, body);
     const saved = await apiFetch(`/cms/posts/${postId}/autosave`, {
       method: 'POST',
       body: { title, body_md: body },
     });
     const savedAt = saved?.saved_at || saved?.post?.updated_at_iso || new Date().toISOString();
-    persistDraft({ id: postId, title, body, savedAt });
+    persistDraft({ id: postId, title, body, savedAt, status: saved?.post?.status });
     renderAutosaveSavedAt(savedAt);
   } catch (error) {
-    setStatus(autosaveStatus, formatError(error), true);
+    setAutosaveState('error', formatError(error), true);
   }
 }
 
 function handleAutosave() {
-  setStatus(autosaveStatus, 'Saving...');
+  setAutosaveState('saving', 'Saving...');
   if (autosaveTimer) clearTimeout(autosaveTimer);
   const title = titleInput.value;
   const body = bodyInput.value;
@@ -233,20 +253,109 @@ function handleAutosave() {
 titleInput.addEventListener('input', handleAutosave);
 bodyInput.addEventListener('input', handleAutosave);
 
+manualSaveBtn.addEventListener('click', () => {
+  saveDraftToApi(titleInput.value, bodyInput.value);
+});
+
+retrySaveBtn.addEventListener('click', () => {
+  saveDraftToApi(titleInput.value, bodyInput.value);
+});
+
 clearDraftBtn.addEventListener('click', () => {
   localStorage.removeItem(DRAFT_KEY);
-  currentDraft = { id: null, title: '', body: '', savedAt: null };
+  currentDraft = { id: null, title: '', body: '', savedAt: null, status: null };
   titleInput.value = '';
   bodyInput.value = '';
-  setStatus(autosaveStatus, '초안이 비워졌습니다.');
+  setAutosaveState('idle', '초안이 비워졌습니다.');
   renderPreview();
+  renderSelectedPostMeta();
+});
+
+function normalizePost(rawPost) {
+  return {
+    id: rawPost?.id,
+    title: rawPost?.title || '제목 없음',
+    status: rawPost?.status || rawPost?.state || 'draft',
+    updatedAt: rawPost?.updated_at_iso || rawPost?.updated_at || rawPost?.saved_at || null,
+    body: rawPost?.body_md || rawPost?.body || '',
+  };
+}
+
+function renderPosts() {
+  postsListEl.innerHTML = '';
+  if (!currentPosts.length) {
+    postsListEl.innerHTML = '<div class="muted">게시글이 없습니다.</div>';
+    return;
+  }
+
+  currentPosts.forEach((post) => {
+    const item = document.createElement('div');
+    item.className = 'list-item';
+    if (currentDraft?.id === post.id) item.classList.add('active');
+    item.setAttribute('role', 'option');
+    item.dataset.postId = post.id;
+    const updated = post.updatedAt ? formatTime(new Date(post.updatedAt)) : '업데이트 없음';
+    item.innerHTML = `
+      <div><strong>${post.title || '제목 없음'}</strong></div>
+      <div class="meta">
+        <span>${post.status || 'draft'}</span>
+        <span>${updated}</span>
+      </div>
+    `;
+    item.addEventListener('click', () => selectPost(post));
+    postsListEl.appendChild(item);
+  });
+}
+
+async function fetchPosts() {
+  try {
+    postsStatusEl.textContent = '게시글 불러오는 중…';
+    const data = await apiFetch('/cms/posts');
+    const posts = data?.posts || data?.data || [];
+    currentPosts = posts.map(normalizePost);
+    postsStatusEl.textContent = `${currentPosts.length}건의 게시글`;
+    renderPosts();
+  } catch (error) {
+    postsStatusEl.textContent = formatError(error);
+  }
+}
+
+async function selectPost(post) {
+  if (!post?.id) return;
+  let next = { ...post };
+
+  if (!post.body) {
+    try {
+      const detail = await apiFetch(`/cms/posts/${post.id}`);
+      const detailedPost = normalizePost(detail?.post || detail);
+      next = { ...next, ...detailedPost };
+    } catch (error) {
+      setAutosaveState('error', formatError(error), true);
+    }
+  }
+
+  persistDraft({
+    id: next.id,
+    title: next.title,
+    body: next.body || '',
+    savedAt: next.updatedAt || currentDraft.savedAt,
+    status: next.status,
+  });
+  titleInput.value = next.title || '';
+  bodyInput.value = next.body || '';
+  renderAutosaveSavedAt(currentDraft.savedAt);
+  renderPosts();
+}
+
+refreshPostsBtn.addEventListener('click', () => {
+  fetchPosts();
 });
 
 function normalizeJob(rawJob, overrides = {}) {
   return {
     id: rawJob?.id || overrides.id,
     tenant: currentSession?.tenant?.slug || currentSession?.tenant || '-',
-    title: currentDraft?.title || overrides.title || '제목 없음',
+    title: rawJob?.title || overrides.title || currentDraft?.title || '제목 없음',
     status: rawJob?.status || overrides.status || 'queued',
     message: rawJob?.message || overrides.message || '상태 확인 중',
     createdAt: rawJob?.created_at_iso || rawJob?.created_at || overrides.createdAt || new Date().toISOString(),
@@ -254,12 +363,15 @@ function normalizeJob(rawJob, overrides = {}) {
   };
 }
 
-function updateJobs(list) {
-  save(JOB_KEY, list);
+function renderJobs() {
   deployJobsEl.innerHTML = '';
-  list
-    .slice()
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+  if (!currentJobs.length) {
+    deployJobsEl.innerHTML = '<div class="muted">배포 작업이 없습니다.</div>';
+    return;
+  }
+
+  currentJobs
+    .slice(0, 10)
     .forEach((job) => {
       const item = document.createElement('div');
       item.className = 'job-item';
@@ -274,17 +386,54 @@ function updateJobs(list) {
         </div>
         <div class="muted">${job.message}</div>
       `;
+      item.addEventListener('click', () => selectJob(job));
       deployJobsEl.appendChild(item);
     });
 }
 
+function updateJobs(list) {
+  currentJobs = list
+    .slice()
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, 10);
+  save(JOB_KEY, currentJobs);
+  renderJobs();
+}
+
+async function fetchDeployJobs() {
+  try {
+    const data = await apiFetch('/cms/deploy-jobs');
+    const jobs = data?.jobs || data?.data || [];
+    updateJobs(jobs.map((job) => normalizeJob(job)));
+  } catch (error) {
+    jobDetailEl.textContent = formatError(error);
+  }
+}
+
+async function selectJob(job) {
+  if (!job?.id) return;
+  try {
+    const data = await apiFetch(`/cms/deploy-jobs/${job.id}`);
+    const detail = data?.job || data || job;
+    const normalized = normalizeJob(detail, { id: job.id });
+    jobDetailEl.innerHTML = `
+      <div><strong>${normalized.title}</strong></div>
+      <div class="muted">상태: ${normalized.status}</div>
+      <div class="muted">메시지: ${normalized.message}</div>
+      <div class="muted">업데이트: ${formatTime(new Date(normalized.updatedAt))}</div>
+    `;
+  } catch (error) {
+    jobDetailEl.textContent = formatError(error);
+  }
+}
+
 function upsertJob(job) {
-  const jobs = load(JOB_KEY, []);
+  const jobs = currentJobs.slice();
   const index = jobs.findIndex((j) => j.id === job.id);
   if (index >= 0) {
     jobs[index] = { ...jobs[index], ...job, updatedAt: job.updatedAt || jobs[index].updatedAt };
   } else {
-    jobs.push(job);
+    jobs.unshift(job);
   }
   updateJobs(jobs);
 }
@@ -320,6 +469,14 @@ function pollDeployJob(jobId, attempt = 0) {
     });
 }
 
+function buildBlogUrl(post) {
+  if (!BLOG_BASE) return null;
+  const base = BLOG_BASE.replace(/\/$/, '');
+  const slug = post?.slug || post?.id;
+  if (!slug) return base;
+  return `${base}/${slug}`;
+}
+
 publishBtn.addEventListener('click', async () => {
   if (!currentSession) {
     setStatus(publishMessage, '로그인 세션이 없습니다. 먼저 로그인하세요.', true);
@@ -346,127 +503,19 @@ publishBtn.addEventListener('click', async () => {
 
     upsertJob(normalizeJob(deployJob, { id: jobId, title }));
     pollDeployJob(jobId);
+
+    const postPayload = response?.post || { id: postId };
+    const url = buildBlogUrl(postPayload);
+    if (url) {
+      publishLink.innerHTML = `<a href="${url}" target="_blank" rel="noopener">블로그에서 보기 →</a>`;
+    }
   } catch (error) {
     setStatus(publishMessage, formatError(error), true);
   }
 });
 
-function generateShareToken() {
-  return Math.random().toString(36).slice(2, 10);
-}
-
-shareBtn.addEventListener('click', () => {
-  const token = generateShareToken();
-  const payload = { token, createdAt: new Date().toISOString() };
-  save(SHARE_KEY, payload);
-  shareLinkEl.textContent = `공유 링크: https://preview.local/share?token=${token}`;
-});
-
-revokeBtn.addEventListener('click', () => {
-  localStorage.removeItem(SHARE_KEY);
-  shareLinkEl.textContent = '공유 링크가 폐기되었습니다.';
-});
-
-function renderShare() {
-  const share = load(SHARE_KEY, null);
-  if (!share) {
-    shareLinkEl.textContent = '공유 링크가 없습니다. 생성 후 토큰 기반 접근이 가능합니다.';
-    return;
-  }
-  shareLinkEl.textContent = `공유 링크: https://preview.local/share?token=${share.token} (생성 ${formatTime(new Date(share.createdAt))})`;
-}
-
-const RESERVED = new Set(['posts', 'category', 'tag', 'search', 'assets', 'api', 'cms', 'sitemap.xml', 'robots.txt']);
-
-function renderCategories() {
-  const categories = load(CATEGORY_KEY, []);
-  categoryList.innerHTML = '';
-  categories.forEach((cat, index) => {
-    const item = document.createElement('div');
-    item.className = 'category-item';
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-    meta.innerHTML = `<strong>${cat.name}</strong><span class="muted">/${cat.slug}</span>`;
-
-    const controls = document.createElement('div');
-    controls.className = 'row gap';
-
-    const toggleLabel = document.createElement('label');
-    toggleLabel.className = 'toggle';
-    const toggle = document.createElement('input');
-    toggle.type = 'checkbox';
-    toggle.checked = cat.enabled;
-    toggle.addEventListener('change', () => {
-      cat.enabled = toggle.checked;
-      save(CATEGORY_KEY, categories);
-    });
-    toggleLabel.append(toggle, document.createTextNode('ON/OFF'));
-
-    const up = document.createElement('button');
-    up.className = 'ghost';
-    up.textContent = '▲';
-    up.addEventListener('click', () => {
-      if (index === 0) return;
-      const swapped = categories[index - 1];
-      categories[index - 1] = cat;
-      categories[index] = swapped;
-      save(CATEGORY_KEY, categories);
-      renderCategories();
-    });
-
-    const down = document.createElement('button');
-    down.className = 'ghost';
-    down.textContent = '▼';
-    down.addEventListener('click', () => {
-      if (index === categories.length - 1) return;
-      const swapped = categories[index + 1];
-      categories[index + 1] = cat;
-      categories[index] = swapped;
-      save(CATEGORY_KEY, categories);
-      renderCategories();
-    });
-
-    controls.append(toggleLabel, up, down);
-    item.append(meta, controls);
-    categoryList.appendChild(item);
-  });
-}
-
-categoryForm.addEventListener('submit', (event) => {
-  event.preventDefault();
-  const formData = new FormData(categoryForm);
-  const name = formData.get('name')?.toString().trim();
-  const slug = formData.get('slug')?.toString().trim();
-  if (!name || !slug) return;
-  if (RESERVED.has(slug)) {
-    alert('예약어(slug)로 사용할 수 없습니다. 다른 값을 입력하세요.');
-    return;
-  }
-  const categories = load(CATEGORY_KEY, []);
-  categories.push({ name, slug, enabled: true });
-  save(CATEGORY_KEY, categories);
-  categoryForm.reset();
-  renderCategories();
-});
-
-function initCategories() {
-  if (load(CATEGORY_KEY, null)) return renderCategories();
-  const defaults = [
-    { name: 'Announcements', slug: 'announcements', enabled: true },
-    { name: 'Product', slug: 'product', enabled: true },
-    { name: 'Culture', slug: 'culture', enabled: false },
-  ];
-  save(CATEGORY_KEY, defaults);
-  renderCategories();
-}
-
-function applyTheme(value) {
-  document.documentElement.setAttribute('data-theme', value);
-  save(THEME_KEY, value);
-}
-
-themeSelect.addEventListener('change', () => {
-  applyTheme(themeSelect.value);
+refreshJobsBtn.addEventListener('click', () => {
+  fetchDeployJobs();
 });
 
 printBtn.addEventListener('click', () => {
@@ -477,17 +526,12 @@ function hydrateFromStorage() {
   titleInput.value = currentDraft.title || '';
   bodyInput.value = currentDraft.body || '';
   renderAutosaveSavedAt(currentDraft.savedAt);
-
-  const theme = load(THEME_KEY, 'light');
-  themeSelect.value = theme;
-  applyTheme(theme);
-
-  updateJobs(load(JOB_KEY, []));
   renderPreview();
-  renderShare();
-  renderSession();
-  initCategories();
+  renderSelectedPostMeta();
+  updateJobs(currentJobs);
 }
 
 hydrateFromStorage();
 fetchSession();
+fetchPosts();
+fetchDeployJobs();

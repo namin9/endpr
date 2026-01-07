@@ -4,17 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow" />
-    <title>GPT-CMS Dashboard Prototype</title>
+    <title>GPT-CMS Editor v1</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <header class="hero">
       <div>
-        <p class="eyebrow">Tenant-per-Pages CMS — Checklist v1.2 (CMS role)</p>
-        <h1>CMS Workflow Sandbox</h1>
+        <p class="eyebrow">Tenant-per-Pages CMS — Editor v1</p>
+        <h1>GPT-CMS 편집기</h1>
         <p class="lede">
-          로그인, Autosave, 발행/배포 상태, Preview/Share, 카테고리, 테마 선택까지 한 번에 체험할 수 있는
-          가벼운 UI 프로토타입입니다. 로그인 후 Worker API로 저장/배포 흐름을 실행하며, 일부 UI 상태는 브라우저에 캐시됩니다.
+          게시글 목록, 마크다운 편집기, 자동 저장, 발행/배포 상태까지 한 번에 확인할 수 있는 v1 CMS UI입니다.
+          Worker API 호출 구조는 유지하며, UI만 개선했습니다.
         </p>
       </div>
       <div class="actions">
@@ -22,123 +22,111 @@
       </div>
     </header>
 
-    <main class="grid">
-      <section class="card" aria-labelledby="login-heading">
-        <div class="card-header">
-          <h2 id="login-heading">6.1 로그인 + 세션 확인</h2>
-          <span class="pill">필수</span>
-        </div>
-        <form id="loginForm" class="stack">
-          <label class="field">
-            <span>테넌트 슬러그</span>
-            <input name="tenant" required placeholder="acme" />
-          </label>
-          <label class="field">
-            <span>이메일</span>
-            <input type="email" name="email" required placeholder="editor@acme.com" />
-          </label>
-          <label class="field">
-            <span>비밀번호</span>
-            <input type="password" name="password" required placeholder="••••••••" />
-          </label>
-          <div class="row between">
-            <button type="submit" class="primary">로그인</button>
-            <button type="button" id="logoutBtn" class="ghost">세션 초기화</button>
+    <main class="app-shell">
+      <aside class="panel stack" aria-label="Session and posts">
+        <section class="card" aria-labelledby="login-heading">
+          <div class="card-header">
+            <h2 id="login-heading">로그인</h2>
+            <span class="pill">필수</span>
           </div>
-        </form>
-        <div class="session" id="sessionStatus" role="status"></div>
-      </section>
+          <form id="loginForm" class="stack">
+            <label class="field">
+              <span>테넌트 슬러그</span>
+              <input name="tenant" required placeholder="acme" />
+            </label>
+            <label class="field">
+              <span>이메일</span>
+              <input type="email" name="email" required placeholder="editor@acme.com" />
+            </label>
+            <label class="field">
+              <span>비밀번호</span>
+              <input type="password" name="password" required placeholder="••••••••" />
+            </label>
+            <div class="row between">
+              <button type="submit" class="primary">로그인</button>
+              <button type="button" id="logoutBtn" class="ghost">세션 초기화</button>
+            </div>
+          </form>
+          <div class="session" id="sessionStatus" role="status"></div>
+        </section>
 
-      <section class="card" aria-labelledby="editor-heading">
-        <div class="card-header">
-          <h2 id="editor-heading">6.2 에디터 + Autosave</h2>
-          <span class="pill">디바운스 2초</span>
-        </div>
-        <div class="stack">
+        <section class="card" aria-labelledby="posts-heading">
+          <div class="card-header">
+            <h2 id="posts-heading">게시글 목록</h2>
+            <button type="button" id="refreshPostsBtn" class="ghost">새로고침</button>
+          </div>
+          <p id="postsStatus" class="muted">로딩 전</p>
+          <div id="postsList" class="list" role="listbox" aria-label="Posts"></div>
+        </section>
+      </aside>
+
+      <section class="editor-shell" aria-label="Editor">
+        <div class="card editor-card">
+          <div class="editor-header">
+            <div>
+              <h2>에디터</h2>
+              <p id="selectedPostMeta" class="muted">선택된 게시글이 없습니다.</p>
+            </div>
+            <div class="row gap">
+              <button type="button" id="manualSaveBtn" class="ghost">임시저장</button>
+              <button type="button" id="publishBtn" class="primary">발행</button>
+            </div>
+          </div>
           <label class="field">
             <span>제목</span>
             <input id="titleInput" placeholder="새 글 제목" />
           </label>
-          <label class="field">
-            <span>본문 (Markdown 허용)</span>
-            <textarea id="bodyInput" rows="6" placeholder="내용을 입력하면 2초 내 저장됩니다"></textarea>
-          </label>
+          <div class="editor-split">
+            <label class="field">
+              <span>Markdown</span>
+              <textarea id="bodyInput" rows="18" placeholder="내용을 입력하면 자동 저장됩니다"></textarea>
+            </label>
+            <div class="preview-pane">
+              <div class="preview-header">
+                <span>미리보기</span>
+                <span id="previewStatus" class="muted">실시간</span>
+              </div>
+              <div class="preview" id="previewPane"></div>
+            </div>
+          </div>
           <div class="row between">
-            <div id="autosaveStatus" class="muted">대기 중</div>
+            <div class="row gap">
+              <div id="autosaveStatus" class="muted">대기 중</div>
+              <button type="button" id="retrySaveBtn" class="ghost hidden">다시 저장</button>
+            </div>
             <button type="button" id="clearDraftBtn" class="ghost">초안 비우기</button>
           </div>
         </div>
+
+        <div class="card" aria-labelledby="publish-heading">
+          <div class="card-header">
+            <h2 id="publish-heading">발행 & 배포</h2>
+            <span class="pill">Deploy Job</span>
+          </div>
+          <div class="stack">
+            <p class="muted">발행 후 배포 상태를 확인하고, BLOG_BASE에 연결된 게시글 링크를 제공합니다.</p>
+            <div id="publishMessage" class="muted" role="status"></div>
+            <div id="publishLink" class="link-row"></div>
+          </div>
+        </div>
       </section>
 
-      <section class="card" aria-labelledby="publish-heading">
-        <div class="card-header">
-          <h2 id="publish-heading">6.3 Publish + Deploy Status</h2>
-          <span class="pill">배포 상태 폴링</span>
-        </div>
-        <div class="stack">
-          <p class="muted">
-            발행 시 deploy_job이 생성되고 상태(queued → building → success/failed)를 모의로 업데이트합니다.
-            테넌트 세션이 없으면 발행을 차단합니다.
-          </p>
-          <div class="row between">
-            <button id="publishBtn" class="primary">발행 및 배포 시작</button>
-            <div id="publishMessage" class="muted"></div>
+      <aside class="panel stack" aria-label="Deploy jobs">
+        <section class="card" aria-labelledby="jobs-heading">
+          <div class="card-header">
+            <h2 id="jobs-heading">최근 배포 Jobs</h2>
+            <button type="button" id="refreshJobsBtn" class="ghost">새로고침</button>
           </div>
           <div class="job-list" id="deployJobs" aria-live="polite"></div>
-        </div>
-      </section>
+        </section>
 
-      <section class="card" aria-labelledby="preview-heading">
-        <div class="card-header">
-          <h2 id="preview-heading">6.4 Preview / Share</h2>
-          <span class="pill">noindex/nofollow</span>
-        </div>
-        <div class="stack">
-          <p class="muted">
-            Preview는 저장된 드래프트를 바로 렌더링하며, 공유 링크는 토큰 기반으로 생성/폐기할 수 있습니다.
-            헤더의 robots 메타로 noindex,nofollow가 적용됩니다.
-          </p>
-          <div class="preview" id="previewPane"></div>
-          <div class="row between">
-            <button id="shareBtn" class="primary">공유 링크 생성</button>
-            <button id="revokeBtn" class="ghost">공유 링크 폐기</button>
+        <section class="card" aria-labelledby="job-detail-heading">
+          <div class="card-header">
+            <h2 id="job-detail-heading">Job 상세</h2>
           </div>
-          <div id="shareLink" class="muted"></div>
-        </div>
-      </section>
-
-      <section class="card" aria-labelledby="category-heading">
-        <div class="card-header">
-          <h2 id="category-heading">6.6 카테고리 관리</h2>
-          <span class="pill">데이터 기반</span>
-        </div>
-        <div class="stack">
-          <form id="categoryForm" class="row gap">
-            <input name="name" placeholder="카테고리 이름" required />
-            <input name="slug" placeholder="slug" required />
-            <button type="submit" class="primary">추가</button>
-          </form>
-          <div id="categoryList" class="category-list"></div>
-        </div>
-      </section>
-
-      <section class="card" aria-labelledby="theme-heading">
-        <div class="card-header">
-          <h2 id="theme-heading">6.7 테마 프리셋</h2>
-          <span class="pill">토큰 기반</span>
-        </div>
-        <div class="stack">
-          <label class="field">
-            <span>테마 선택</span>
-            <select id="themeSelect">
-              <option value="light">Light (기본)</option>
-              <option value="dark">Dark</option>
-              <option value="sand">Sandstone</option>
-            </select>
-          </label>
-          <p class="muted">임의 CSS/JS 커스텀은 노출하지 않습니다. 프리셋 토큰만 적용됩니다.</p>
-        </div>
-      </section>
+          <div id="jobDetail" class="muted">Job을 선택하면 상세가 표시됩니다.</div>
+        </section>
+      </aside>
     </main>
 
     <script src="main.js"></script>
