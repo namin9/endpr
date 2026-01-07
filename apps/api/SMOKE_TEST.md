@@ -31,7 +31,21 @@ $preflightOk.StatusCode
 $preflightOk.Headers
 ```
 
-Expected: **204** with `Access-Control-Allow-Origin: https://cms.ourcompany.com`, `Access-Control-Allow-Methods: GET,POST,OPTIONS`, `Access-Control-Allow-Headers: Content-Type,x-build-token`, `Access-Control-Allow-Credentials: true`, and `Vary: Origin`.
+Expected: **204** with `Access-Control-Allow-Origin: https://cms.ourcompany.com`, `Access-Control-Allow-Methods: GET,POST,OPTIONS`, `Access-Control-Allow-Headers: content-type`, `Access-Control-Allow-Credentials: true`, and `Vary: Origin`.
+
+Allowed test origin (`endpr.pages.dev`):
+
+```powershell
+$preflightPages = Invoke-WebRequest -Uri "$BaseUrl/cms/auth/login" -Method Options -Headers @{
+  "Origin" = $PagesOrigin
+  "Access-Control-Request-Method" = "POST"
+  "Access-Control-Request-Headers" = "content-type"
+}
+$preflightPages.StatusCode
+$preflightPages.Headers
+```
+
+Expected: **204** with the same `Access-Control-*` headers echoing `https://endpr.pages.dev`.
 
 Allowed test origin (`endpr.pages.dev`):
 

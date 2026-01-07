@@ -2,7 +2,11 @@ import type { Context, Next } from 'hono';
 
 const ALLOWED_ORIGINS = ['https://cms.ourcompany.com', 'https://endpr.pages.dev'];
 const ALLOWED_METHODS = 'GET,POST,OPTIONS';
-const ALLOWED_HEADERS = 'Content-Type,x-build-token';
+const ALLOWED_HEADERS = 'content-type';
+
+function isAllowed(origin: string | undefined): origin is string {
+  return !!origin && ALLOWED_ORIGINS.includes(origin);
+}
 
 function isAllowed(origin: string | undefined): origin is string {
   return !!origin && ALLOWED_ORIGINS.includes(origin);
@@ -13,6 +17,7 @@ export async function corsMiddleware(c: Context, next: Next) {
   const isAllowedOrigin = isAllowed(origin);
 
   if (c.req.method === 'OPTIONS') {
+    console.log(`[cors] origin=${origin ?? 'none'} allowed=${isAllowedOrigin}`);
     if (!isAllowedOrigin) {
       return c.json({ error: 'CORS origin not allowed' }, 403);
     }
