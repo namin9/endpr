@@ -11,6 +11,13 @@ Base URL: `https://cms.ourcompany.com`
    - Expect: session panel shows tenant + email; no error text.
 2. **Posts list + editor load**
    - In the left panel, click **새로고침** under 게시글 목록.
+   - Expect: toolbar shows **새 글**, 검색 input, 상태 필터.
+   - Type a keyword in 검색 input.
+   - Expect: list filters by 제목 substring (case-insensitive).
+   - Change 상태 필터 to **draft** and **published**.
+   - Expect: list updates and 배지 색상이 바뀐다.
+   - Use **이전/다음** to move pages (20개 단위).
+   - Expect: 페이지 표기가 업데이트된다.
    - Click a post in the list.
    - Expect: editor title/body update and the meta line shows the post ID.
 3. **Autosave + manual save**

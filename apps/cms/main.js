@@ -22,6 +22,12 @@ const retrySaveBtn = document.getElementById('retrySaveBtn');
 const postsListEl = document.getElementById('postsList');
 const postsStatusEl = document.getElementById('postsStatus');
 const refreshPostsBtn = document.getElementById('refreshPostsBtn');
+const newPostBtn = document.getElementById('newPostBtn');
+const postsSearchInput = document.getElementById('postsSearchInput');
+const postsStatusFilter = document.getElementById('postsStatusFilter');
+const postsPrevBtn = document.getElementById('postsPrevBtn');
+const postsNextBtn = document.getElementById('postsNextBtn');
+const postsPageInfo = document.getElementById('postsPageInfo');
 const refreshJobsBtn = document.getElementById('refreshJobsBtn');
 const jobDetailEl = document.getElementById('jobDetail');
 const selectedPostMeta = document.getElementById('selectedPostMeta');
@@ -31,7 +37,17 @@ let autosaveTimer = null;
 let currentDraft = load(DRAFT_KEY, { id: null, title: '', body: '', savedAt: null, status: null });
 let currentSession = load(SESSION_KEY, null);
 let currentPosts = [];
+let allPosts = [];
 let currentJobs = load(JOB_KEY, []);
+let postsView = {
+  search: '',
+  status: 'all',
+  page: 1,
+  pageSize: 20,
+  total: 0,
+  totalPages: 1,
+  serverMode: false,
+};
 
 function load(key, fallback) {
   const raw = localStorage.getItem(key);
@@ -53,6 +69,13 @@ function formatTime(date) {
     dateStyle: 'short',
     timeStyle: 'short',
   }).format(date);
+}
+
+function formatMaybeDate(value) {
+  if (!value) return '-';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '-';
+  return formatTime(parsed);
 }
 
 function setStatus(el, message, isError = false) {
@@ -277,46 +300,142 @@ function normalizePost(rawPost) {
     title: rawPost?.title || '제목 없음',
     status: rawPost?.status || rawPost?.state || 'draft',
     updatedAt: rawPost?.updated_at_iso || rawPost?.updated_at || rawPost?.saved_at || null,
+    publishedAt: rawPost?.published_at_iso || rawPost?.published_at || rawPost?.publishedAt || null,
     body: rawPost?.body_md || rawPost?.body || '',
   };
 }
 
+function getFilteredPosts() {
+  const query = postsView.search.trim().toLowerCase();
+  let list = allPosts.slice();
+  if (query) {
+    list = list.filter((post) => (post.title || '').toLowerCase().includes(query));
+  }
+  if (postsView.status !== 'all') {
+    list = list.filter((post) => (post.status || 'draft') === postsView.status);
+  }
+  return list;
+}
+
+function renderPostsState({ message, isError = false, isLoading = false } = {}) {
+  postsStatusEl.textContent = message || '';
+  postsStatusEl.classList.toggle('error', Boolean(isError));
+  postsListEl.innerHTML = '';
+
+  const state = document.createElement('div');
+  state.className = 'posts-state';
+  if (isLoading) {
+    state.innerHTML = '<span class="spinner" aria-hidden="true"></span> 불러오는 중...';
+  } else {
+    state.textContent = message || '';
+  }
+  postsListEl.appendChild(state);
+}
+
+function renderPostsPagination(totalPages) {
+  postsView.totalPages = totalPages;
+  postsPrevBtn.disabled = postsView.page <= 1;
+  postsNextBtn.disabled = postsView.page >= totalPages;
+  postsPageInfo.textContent = `페이지 ${postsView.page} / ${totalPages}`;
+}
+
 function renderPosts() {
   postsListEl.innerHTML = '';
-  if (!currentPosts.length) {
-    postsListEl.innerHTML = '<div class="muted">게시글이 없습니다.</div>';
+  const filtered = getFilteredPosts();
+  let pageItems = filtered;
+  let totalCount = filtered.length;
+  let totalPages = 1;
+
+  if (!postsView.serverMode) {
+    totalPages = Math.max(1, Math.ceil(filtered.length / postsView.pageSize));
+    postsView.page = Math.min(Math.max(1, postsView.page), totalPages);
+    const start = (postsView.page - 1) * postsView.pageSize;
+    pageItems = filtered.slice(start, start + postsView.pageSize);
+    totalCount = filtered.length;
+  } else {
+    totalCount = postsView.total || filtered.length;
+    totalPages = postsView.totalPages || Math.max(1, Math.ceil(totalCount / postsView.pageSize));
+  }
+
+  if (!pageItems.length) {
+    renderPostsState({
+      message: '게시물이 없습니다. 새 글을 작성하세요.',
+    });
+    renderPostsPagination(totalPages);
     return;
   }
 
-  currentPosts.forEach((post) => {
+  postsStatusEl.textContent = postsView.serverMode && postsView.status === 'all' && !postsView.search
+    ? `${totalCount}건의 게시글`
+    : `${pageItems.length}건 표시 중`;
+
+  pageItems.forEach((post) => {
     const item = document.createElement('div');
-    item.className = 'list-item';
+    item.className = 'posts-row';
     if (currentDraft?.id === post.id) item.classList.add('active');
-    item.setAttribute('role', 'option');
+    item.setAttribute('role', 'row');
     item.dataset.postId = post.id;
-    const updated = post.updatedAt ? formatTime(new Date(post.updatedAt)) : '업데이트 없음';
+    const updated = formatMaybeDate(post.updatedAt);
+    const published = formatMaybeDate(post.publishedAt);
+    const status = post.status || 'draft';
     item.innerHTML = `
-      <div><strong>${post.title || '제목 없음'}</strong></div>
-      <div class="meta">
-        <span>${post.status || 'draft'}</span>
-        <span>${updated}</span>
+      <div class="posts-cell posts-title">
+        <strong>${post.title || '제목 없음'}</strong>
+        <span class="posts-id muted">#${post.id || '-'}</span>
       </div>
+      <div class="posts-cell">
+        <span class="badge badge-${status}">${status}</span>
+      </div>
+      <div class="posts-cell">${updated}</div>
+      <div class="posts-cell">${published}</div>
     `;
     item.addEventListener('click', () => selectPost(post));
     postsListEl.appendChild(item);
   });
+
+  renderPostsPagination(totalPages);
+}
+
+function buildPostsQuery() {
+  if (!postsView.serverMode) return '';
+  const query = new URLSearchParams();
+  query.set('page', postsView.page);
+  query.set('pageSize', postsView.pageSize);
+  return `?${query.toString()}`;
 }
 
 async function fetchPosts() {
   try {
-    postsStatusEl.textContent = '게시글 불러오는 중…';
-    const data = await apiFetch('/cms/posts');
-    const posts = data?.posts || data?.data || [];
-    currentPosts = posts.map(normalizePost);
-    postsStatusEl.textContent = `${currentPosts.length}건의 게시글`;
+    renderPostsState({ message: '불러오는 중...', isLoading: true });
+    const data = await apiFetch(`/cms/posts${buildPostsQuery()}`);
+    const hasServerPagination = Array.isArray(data?.items)
+      && typeof data?.total === 'number'
+      && typeof data?.page === 'number'
+      && typeof data?.pageSize === 'number';
+
+    if (hasServerPagination) {
+      postsView.serverMode = true;
+      postsView.page = data.page;
+      postsView.pageSize = data.pageSize;
+      postsView.total = data.total;
+      postsView.totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
+      allPosts = data.items.map(normalizePost);
+    } else {
+      postsView.serverMode = false;
+      const posts = data?.posts || data?.data || data?.items || [];
+      allPosts = posts.map(normalizePost);
+      postsView.total = allPosts.length;
+      postsView.totalPages = Math.max(1, Math.ceil(postsView.total / postsView.pageSize));
+      postsView.page = Math.min(postsView.page, postsView.totalPages);
+    }
+
+    currentPosts = allPosts.slice();
     renderPosts();
   } catch (error) {
-    postsStatusEl.textContent = formatError(error);
+    renderPostsState({
+      message: '세션 만료 또는 오류가 발생했습니다. 다시 로그인해 주세요.',
+      isError: true,
+    });
   }
 }
 
@@ -349,6 +468,68 @@ async function selectPost(post) {
 
 refreshPostsBtn.addEventListener('click', () => {
   fetchPosts();
+});
+
+postsSearchInput.addEventListener('input', (event) => {
+  postsView.search = event.target.value;
+  postsView.page = 1;
+  renderPosts();
+});
+
+postsStatusFilter.addEventListener('change', (event) => {
+  postsView.status = event.target.value;
+  postsView.page = 1;
+  renderPosts();
+});
+
+postsPrevBtn.addEventListener('click', () => {
+  if (postsView.page <= 1) return;
+  postsView.page -= 1;
+  if (postsView.serverMode) {
+    fetchPosts();
+  } else {
+    renderPosts();
+  }
+});
+
+postsNextBtn.addEventListener('click', () => {
+  if (postsView.page >= postsView.totalPages) return;
+  postsView.page += 1;
+  if (postsView.serverMode) {
+    fetchPosts();
+  } else {
+    renderPosts();
+  }
+});
+
+newPostBtn.addEventListener('click', async () => {
+  if (!currentSession) {
+    renderPostsState({
+      message: '세션 만료 또는 오류가 발생했습니다. 다시 로그인해 주세요.',
+      isError: true,
+    });
+    return;
+  }
+
+  try {
+    renderPostsState({ message: '새 글 생성 중...', isLoading: true });
+    const created = await apiFetch('/cms/posts', {
+      method: 'POST',
+      body: { title: '제목 없음', body_md: '' },
+    });
+    const newPost = normalizePost(created?.post || created);
+    if (!newPost?.id) throw new Error('게시글 ID를 받을 수 없습니다.');
+    allPosts = [newPost, ...allPosts.filter((post) => post.id !== newPost.id)];
+    currentPosts = allPosts.slice();
+    postsView.page = 1;
+    renderPosts();
+    selectPost(newPost);
+  } catch (error) {
+    renderPostsState({
+      message: '세션 만료 또는 오류가 발생했습니다. 다시 로그인해 주세요.',
+      isError: true,
+    });
+  }
 });
 
 function normalizeJob(rawJob, overrides = {}) {
