@@ -295,13 +295,14 @@ export function mapDeployJob(row: DeployJobRow) {
 }
 
 export function generateSlug(input: string | undefined | null): string {
-  const safe = (input ?? '').toLowerCase().trim();
-  const base = safe
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
+  const normalized = (input ?? '')
+    .normalize('NFKC')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^\p{L}\p{N}-]+/gu, '')
+    .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .replace(/-{2,}/g, '-');
-  if (base) return base;
+    .toLowerCase();
+  if (normalized) return normalized;
   return `post-${uuidv4()}`;
 }

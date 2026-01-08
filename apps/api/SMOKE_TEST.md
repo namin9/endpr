@@ -197,6 +197,38 @@ $draftBPublishResp.post.slug
 
 Expected: **200** and slug remains `hello-2`.
 
+Unicode slug normalization:
+
+```powershell
+$unicodeSlugBody = @{
+  slug = "안녕하세요 세계"
+} | ConvertTo-Json
+$unicodeSlugResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$postId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $unicodeSlugBody
+$unicodeSlugResp.post.slug
+```
+
+Expected: **200** and slug becomes `안녕하세요-세계`.
+
+```powershell
+$unicodeSlugBody2 = @{
+  slug = "테스트!! 123"
+} | ConvertTo-Json
+$unicodeSlugResp2 = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$postId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $unicodeSlugBody2
+$unicodeSlugResp2.post.slug
+```
+
+Expected: **200** and slug becomes `테스트-123`.
+
+```powershell
+$unicodeSlugBody3 = @{
+  slug = "Hello 안녕"
+} | ConvertTo-Json
+$unicodeSlugResp3 = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$postId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $unicodeSlugBody3
+$unicodeSlugResp3.post.slug
+```
+
+Expected: **200** and slug becomes `hello-안녕`.
+
 Published slug immutability:
 
 ```powershell
