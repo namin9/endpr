@@ -59,7 +59,7 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
     const parsed = JSON.parse(raw);
     return {
       posts: parsed.posts || [],
-      categories: parsed.categories || [],
+      categories: [],
     };
   }
 
@@ -71,29 +71,7 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
     throw new Error("Invalid /build/posts response shape");
   }
 
-  const categoriesResp = await fetchJson(
-    `${apiBase}/build/categories`,
-    buildToken
-  );
-  const categories = Array.isArray(categoriesResp)
-    ? categoriesResp
-    : categoriesResp.categories ?? categoriesResp.items ?? [];
-  if (!Array.isArray(categories)) {
-    throw new Error("Invalid /build/categories response shape");
-  }
-
-  const posts = await Promise.all(
-    postsIndex.map(async (post) => {
-      if (post.body_html || post.body_md) return post;
-      const detail = await fetchJson(
-        `${apiBase}/build/post/${encodeURIComponent(post.slug)}`,
-        buildToken
-      );
-      return { ...post, ...detail };
-    })
-  );
-
-  return { posts, categories };
+  return { posts: postsIndex, categories: [] };
 }
 
 async function resetDist() {
@@ -198,6 +176,12 @@ function formatDate(value) {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
+function formatDateLabel(value) {
+  const iso = formatDate(value);
+  if (!iso) return "";
+  return iso.split("T")[0];
+}
+
 async function generatePostPages(posts) {
   for (const post of posts) {
     assertSlugAllowed(post.slug, "post");
@@ -255,7 +239,13 @@ async function generateHomepage(posts) {
       (post) =>
         `<li><a href="/${post.slug}/">${escapeHtml(
           post.title || post.slug
-        )}</a></li>`
+        )}</a> <time datetime="${escapeHtml(
+          formatDate(post.published_at || post.publish_at || post.created_at)
+        )}">${escapeHtml(
+          formatDateLabel(
+            post.published_at || post.publish_at || post.created_at
+          )
+        )}</time></li>`
     )
     .join("\n");
 
@@ -267,16 +257,18 @@ async function generateHomepage(posts) {
   <ul>
 ${latestList}
   </ul>`
-      : `<p>No posts published yet. Check back soon.</p>`
+      : `<p>게시물이 없습니다.</p>`
   }
 </section>`;
 
   const html = layoutHtml({
     title: "Home",
+    description: "Latest posts from the blog.",
     content,
   });
 
   await writeHtml(path.join(DIST_DIR, "index.html"), html);
+  console.log("Generated dist/index.html");
 }
 
 async function generateCategoryPages(posts, categories) {
