@@ -20,21 +20,28 @@ Base URL: `https://cms.ourcompany.com`
    - Expect: 페이지 표기가 업데이트된다.
    - Click a post in the list.
    - Expect: editor title/body update and the meta line shows the post ID.
-3. **Autosave + manual save**
+3. **Split view + preview**
+   - In the editor toolbar, confirm **Split** is active by default.
+   - Expect: Markdown 입력/Preview 패널이 좌우로 나란히 보인다 (모바일에서는 상하 스택).
+   - Click **Edit Only** and **Preview Only**.
+   - Expect: 해당 패널만 표시된다.
+   - Type in the editor and wait ~0.2s.
+   - Expect: Preview가 지연 후 갱신된다.
+4. **Autosave + manual save**
    - Edit the body.
    - Wait ~2 seconds.
-   - Expect: autosave status shows “Saved at …” and preview updates.
+   - Expect: 상태가 “변경됨” → “저장 중…” → “저장됨 HH:MM:SS”로 변한다.
    - Click **임시저장**.
-   - Expect: status briefly shows “Saving…” then “Saved at …”.
-4. **Publish flow + blog link**
+   - Expect: 상태가 “저장 중…” 후 “저장됨 HH:MM:SS”.
+5. **Publish flow + blog link**
    - Click **발행**.
    - Expect: status shows “발행 요청 중…” then “배포 상태를 확인하는 중…”.
    - When complete, expect a “블로그에서 보기 →” link in the publish panel.
-5. **Deploy jobs panel**
+6. **Deploy jobs panel**
    - Click **새로고침** in 최근 배포 Jobs.
    - Click a job in the list.
    - Expect: Job 상세 panel shows status, message, and update time.
-6. **Unauthorized handling**
+7. **Unauthorized handling**
    - Click **세션 초기화**.
    - Try autosaving or publishing.
    - Expect: inline error telling you to log in; no requests succeed.

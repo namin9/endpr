@@ -125,6 +125,27 @@ body {
   margin-bottom: 12px;
 }
 
+.view-toggle {
+  display: inline-flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+}
+
+.view-toggle .ghost {
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.view-toggle .is-active {
+  background: rgba(124, 58, 237, 0.2);
+  color: var(--accent-strong);
+  border: 1px solid transparent;
+}
+
 .editor-split {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -140,6 +161,7 @@ body {
   background: rgba(255, 255, 255, 0.02);
   padding: 12px;
   min-height: 100%;
+  overflow: hidden;
 }
 
 .preview-header {
@@ -458,8 +480,40 @@ button:active {
   padding: 0;
   border-radius: 10px;
   background: transparent;
-  white-space: pre-wrap;
   flex: 1;
+  overflow-y: auto;
+}
+
+.preview h1,
+.preview h2,
+.preview h3 {
+  margin-top: 0;
+}
+
+.preview p {
+  margin: 0 0 12px;
+}
+
+.preview code {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, monospace;
+  background: rgba(148, 163, 184, 0.2);
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.preview pre {
+  background: rgba(15, 23, 42, 0.6);
+  padding: 12px;
+  border-radius: 10px;
+  overflow-x: auto;
+}
+
+.editor-card[data-view-mode='edit'] .preview-pane {
+  display: none;
+}
+
+.editor-card[data-view-mode='preview'] .editor-pane {
+  display: none;
 }
 
 .link-row a {

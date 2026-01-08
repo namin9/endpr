@@ -17,6 +17,7 @@ const publishMessage = document.getElementById('publishMessage');
 const publishLink = document.getElementById('publishLink');
 const deployJobsEl = document.getElementById('deployJobs');
 const previewPane = document.getElementById('previewPane');
+const previewStatus = document.getElementById('previewStatus');
 const manualSaveBtn = document.getElementById('manualSaveBtn');
 const retrySaveBtn = document.getElementById('retrySaveBtn');
 const postsListEl = document.getElementById('postsList');
@@ -32,8 +33,11 @@ const refreshJobsBtn = document.getElementById('refreshJobsBtn');
 const jobDetailEl = document.getElementById('jobDetail');
 const selectedPostMeta = document.getElementById('selectedPostMeta');
 const printBtn = document.getElementById('printBtn');
+const editorCard = document.querySelector('.editor-card');
+const viewModeButtons = Array.from(document.querySelectorAll('[data-view-mode]'));
 
 let autosaveTimer = null;
+let previewTimer = null;
 let currentDraft = load(DRAFT_KEY, { id: null, title: '', body: '', savedAt: null, status: null });
 let currentSession = load(SESSION_KEY, null);
 let currentPosts = [];
@@ -48,6 +52,13 @@ let postsView = {
   totalPages: 1,
   serverMode: false,
 };
+let autosaveState = {
+  dirty: false,
+  saving: false,
+  savedAt: null,
+  error: null,
+};
+let currentViewMode = 'split';
 
 function load(key, fallback) {
   const raw = localStorage.getItem(key);
@@ -76,6 +87,13 @@ function formatMaybeDate(value) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return '-';
   return formatTime(parsed);
+}
+
+function formatClock(value) {
+  if (!value) return '-';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '-';
+  return new Intl.DateTimeFormat('ko', { timeStyle: 'medium' }).format(parsed);
 }
 
 function setStatus(el, message, isError = false) {
@@ -193,9 +211,132 @@ logoutBtn.addEventListener('click', () => {
 
 function renderPreview() {
   const draft = currentDraft || { title: '', body: '' };
-  previewPane.textContent = draft.title || draft.body
-    ? `# ${draft.title || '제목 없음'}\n\n${draft.body || '본문을 입력하면 미리보기가 표시됩니다.'}`
-    : '작성된 내용이 없습니다.';
+  const body = draft.body || '';
+  if (!draft.title && !body) {
+    previewPane.textContent = '작성된 내용이 없습니다.';
+    return;
+  }
+  const markdown = `# ${draft.title || '제목 없음'}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
+  previewPane.innerHTML = renderMarkdown(markdown);
+  previewStatus.textContent = '실시간';
+}
+
+function escapeHtml(value) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function sanitizeLink(url) {
+  if (!url) return '#';
+  const trimmed = url.trim();
+  if (/^(https?:|mailto:|#|\/)/i.test(trimmed)) return trimmed;
+  return '#';
+}
+
+function applyInlineMarkdown(text) {
+  let output = text;
+  output = output.replace(/`([^`]+)`/g, '<code>$1</code>');
+  output = output.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  output = output.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  output = output.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
+    const safeUrl = sanitizeLink(url);
+    return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  });
+  return output;
+}
+
+function renderMarkdown(markdown) {
+  if (!markdown) return '';
+  const lines = escapeHtml(markdown).split('\n');
+  let html = '';
+  let inCode = false;
+  let codeBuffer = [];
+  let listBuffer = [];
+  let paragraphBuffer = [];
+
+  const flushParagraph = () => {
+    if (!paragraphBuffer.length) return;
+    html += `<p>${paragraphBuffer.join('<br />')}</p>`;
+    paragraphBuffer = [];
+  };
+
+  const flushList = () => {
+    if (!listBuffer.length) return;
+    html += `<ul>${listBuffer.map((item) => `<li>${item}</li>`).join('')}</ul>`;
+    listBuffer = [];
+  };
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trimEnd();
+    if (line.startsWith('```')) {
+      if (inCode) {
+        html += `<pre><code>${codeBuffer.join('\n')}</code></pre>`;
+        codeBuffer = [];
+        inCode = false;
+      } else {
+        flushParagraph();
+        flushList();
+        inCode = true;
+      }
+      return;
+    }
+
+    if (inCode) {
+      codeBuffer.push(rawLine);
+      return;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    const headingMatch = line.match(/^(#{1,6})\s+(.+)/);
+    if (headingMatch) {
+      flushParagraph();
+      flushList();
+      const level = headingMatch[1].length;
+      const content = applyInlineMarkdown(headingMatch[2]);
+      html += `<h${level}>${content}</h${level}>`;
+      return;
+    }
+
+    const listMatch = line.match(/^[-*]\s+(.+)/);
+    if (listMatch) {
+      flushParagraph();
+      listBuffer.push(applyInlineMarkdown(listMatch[1]));
+      return;
+    }
+
+    flushList();
+    paragraphBuffer.push(applyInlineMarkdown(line));
+  });
+
+  flushParagraph();
+  flushList();
+
+  if (inCode) {
+    html += `<pre><code>${codeBuffer.join('\n')}</code></pre>`;
+  }
+
+  return html;
+}
+
+function schedulePreviewUpdate() {
+  if (previewTimer) clearTimeout(previewTimer);
+  previewStatus.textContent = '갱신 중...';
+  previewTimer = setTimeout(() => {
+    const title = titleInput.value || '제목 없음';
+    const body = bodyInput.value || '';
+    const markdown = `# ${title}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
+    previewPane.innerHTML = renderMarkdown(markdown);
+    previewStatus.textContent = '실시간';
+  }, 220);
 }
 
 function persistDraft(partial) {
@@ -224,9 +365,35 @@ function setAutosaveState(state, message, isError = false) {
   retrySaveBtn.classList.toggle('hidden', state !== 'error');
 }
 
+function updateAutosaveStatus() {
+  if (autosaveState.error) {
+    setAutosaveState('error', `저장 실패: ${autosaveState.error}`, true);
+    return;
+  }
+  if (autosaveState.saving) {
+    setAutosaveState('saving', '저장 중...');
+    return;
+  }
+  if (autosaveState.dirty) {
+    setAutosaveState('dirty', '변경됨');
+    return;
+  }
+  if (autosaveState.savedAt) {
+    setAutosaveState('saved', `저장됨 ${formatClock(autosaveState.savedAt)}`);
+    return;
+  }
+  setAutosaveState('idle', '대기 중');
+}
+
 function renderAutosaveSavedAt(savedAt) {
   if (!savedAt) return;
-  setAutosaveState('saved', `Saved at ${formatTime(new Date(savedAt))}`);
+  autosaveState = {
+    dirty: false,
+    saving: false,
+    savedAt,
+    error: null,
+  };
+  updateAutosaveStatus();
 }
 
 async function ensurePostId(title, body) {
@@ -243,12 +410,23 @@ async function ensurePostId(title, body) {
 
 async function saveDraftToApi(title, body) {
   if (!currentSession) {
-    setAutosaveState('error', '로그인 후 저장할 수 있습니다.', true);
+    autosaveState = {
+      ...autosaveState,
+      saving: false,
+      error: '세션 만료, 다시 로그인하세요.',
+      dirty: true,
+    };
+    updateAutosaveStatus();
     return;
   }
 
   try {
-    setAutosaveState('saving', 'Saving...');
+    autosaveState = {
+      ...autosaveState,
+      saving: true,
+      error: null,
+    };
+    updateAutosaveStatus();
     const postId = await ensurePostId(title, body);
     const saved = await apiFetch(`/cms/posts/${postId}/autosave`, {
       method: 'POST',
@@ -256,18 +434,35 @@ async function saveDraftToApi(title, body) {
     });
     const savedAt = saved?.saved_at || saved?.post?.updated_at_iso || new Date().toISOString();
     persistDraft({ id: postId, title, body, savedAt, status: saved?.post?.status });
-    renderAutosaveSavedAt(savedAt);
+    autosaveState = {
+      dirty: false,
+      saving: false,
+      savedAt,
+      error: null,
+    };
+    updateAutosaveStatus();
   } catch (error) {
-    setAutosaveState('error', formatError(error), true);
+    autosaveState = {
+      ...autosaveState,
+      saving: false,
+      error: error?.status === 401 ? '세션 만료, 다시 로그인하세요.' : formatError(error),
+      dirty: true,
+    };
+    updateAutosaveStatus();
   }
 }
 
 function handleAutosave() {
-  setAutosaveState('saving', 'Saving...');
   if (autosaveTimer) clearTimeout(autosaveTimer);
   const title = titleInput.value;
   const body = bodyInput.value;
-  renderPreview();
+  autosaveState = {
+    ...autosaveState,
+    dirty: true,
+    error: null,
+  };
+  updateAutosaveStatus();
+  schedulePreviewUpdate();
   autosaveTimer = setTimeout(() => {
     saveDraftToApi(title, body);
   }, 1500);
@@ -289,7 +484,13 @@ clearDraftBtn.addEventListener('click', () => {
   currentDraft = { id: null, title: '', body: '', savedAt: null, status: null };
   titleInput.value = '';
   bodyInput.value = '';
-  setAutosaveState('idle', '초안이 비워졌습니다.');
+  autosaveState = {
+    dirty: false,
+    saving: false,
+    savedAt: null,
+    error: null,
+  };
+  updateAutosaveStatus();
   renderPreview();
   renderSelectedPostMeta();
 });
@@ -532,6 +733,22 @@ newPostBtn.addEventListener('click', async () => {
   }
 });
 
+function setViewMode(mode) {
+  currentViewMode = mode;
+  if (editorCard) {
+    editorCard.dataset.viewMode = mode;
+  }
+  viewModeButtons.forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.viewMode === mode);
+  });
+}
+
+viewModeButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    setViewMode(button.dataset.viewMode);
+  });
+});
+
 function normalizeJob(rawJob, overrides = {}) {
   return {
     id: rawJob?.id || overrides.id,
@@ -710,9 +927,16 @@ function hydrateFromStorage() {
   renderPreview();
   renderSelectedPostMeta();
   updateJobs(currentJobs);
+  setViewMode(currentViewMode);
 }
 
 hydrateFromStorage();
 fetchSession();
 fetchPosts();
 fetchDeployJobs();
+
+window.addEventListener('beforeunload', (event) => {
+  if (!autosaveState.dirty) return;
+  event.preventDefault();
+  event.returnValue = '';
+});

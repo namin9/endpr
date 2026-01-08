@@ -92,6 +92,11 @@
               <p id="selectedPostMeta" class="muted">선택된 게시글이 없습니다.</p>
             </div>
             <div class="row gap">
+              <div class="view-toggle" role="group" aria-label="View mode">
+                <button type="button" class="ghost is-active" data-view-mode="split">Split</button>
+                <button type="button" class="ghost" data-view-mode="edit">Edit Only</button>
+                <button type="button" class="ghost" data-view-mode="preview">Preview Only</button>
+              </div>
               <button type="button" id="manualSaveBtn" class="ghost">임시저장</button>
               <button type="button" id="publishBtn" class="primary">발행</button>
             </div>
@@ -101,7 +106,7 @@
             <input id="titleInput" placeholder="새 글 제목" />
           </label>
           <div class="editor-split">
-            <label class="field">
+            <label class="field editor-pane">
               <span>Markdown</span>
               <textarea id="bodyInput" rows="18" placeholder="내용을 입력하면 자동 저장됩니다"></textarea>
             </label>
