@@ -35,6 +35,9 @@ const selectedPostMeta = document.getElementById('selectedPostMeta');
 const printBtn = document.getElementById('printBtn');
 const editorCard = document.querySelector('.editor-card');
 const viewModeButtons = Array.from(document.querySelectorAll('[data-view-mode]'));
+const viewOnBlogBtn = document.getElementById('viewOnBlogBtn');
+const viewOnBlogHint = document.getElementById('viewOnBlogHint');
+const deployJobsScope = document.getElementById('deployJobsScope');
 
 let autosaveTimer = null;
 let previewTimer = null;
@@ -149,6 +152,7 @@ function persistSession(session) {
   currentSession = session;
   save(SESSION_KEY, session);
   renderSession();
+  updateViewOnBlogButton();
 }
 
 function renderSession() {
@@ -347,6 +351,7 @@ function persistDraft(partial) {
   save(DRAFT_KEY, currentDraft);
   renderPreview();
   renderSelectedPostMeta();
+  updateViewOnBlogButton();
 }
 
 function renderSelectedPostMeta() {
@@ -502,6 +507,8 @@ function normalizePost(rawPost) {
     status: rawPost?.status || rawPost?.state || 'draft',
     updatedAt: rawPost?.updated_at_iso || rawPost?.updated_at || rawPost?.saved_at || null,
     publishedAt: rawPost?.published_at_iso || rawPost?.published_at || rawPost?.publishedAt || null,
+    slug: rawPost?.slug || rawPost?.slug_id || rawPost?.slugId || null,
+    publicUrl: rawPost?.public_url || rawPost?.publicUrl || null,
     body: rawPost?.body_md || rawPost?.body || '',
   };
 }
@@ -660,6 +667,8 @@ async function selectPost(post) {
     body: next.body || '',
     savedAt: next.updatedAt || currentDraft.savedAt,
     status: next.status,
+    slug: next.slug,
+    publicUrl: next.publicUrl,
   });
   titleInput.value = next.title || '';
   bodyInput.value = next.body || '';
@@ -752,33 +761,46 @@ viewModeButtons.forEach((button) => {
 function normalizeJob(rawJob, overrides = {}) {
   return {
     id: rawJob?.id || overrides.id,
+    postId: rawJob?.post_id || rawJob?.postId || overrides.postId,
     tenant: currentSession?.tenant?.slug || currentSession?.tenant || '-',
     title: rawJob?.title || overrides.title || currentDraft?.title || '제목 없음',
     status: rawJob?.status || overrides.status || 'queued',
     message: rawJob?.message || overrides.message || '상태 확인 중',
     createdAt: rawJob?.created_at_iso || rawJob?.created_at || overrides.createdAt || new Date().toISOString(),
+    finishedAt: rawJob?.finished_at_iso || rawJob?.finished_at || overrides.finishedAt || null,
     updatedAt: rawJob?.updated_at_iso || rawJob?.updated_at || overrides.updatedAt || new Date().toISOString(),
   };
 }
 
 function renderJobs() {
   deployJobsEl.innerHTML = '';
-  if (!currentJobs.length) {
+  const hasPostId = currentJobs.some((job) => job.postId);
+  let jobsToRender = currentJobs.slice();
+  if (hasPostId && currentDraft?.id) {
+    jobsToRender = currentJobs.filter((job) => job.postId === currentDraft.id);
+    deployJobsScope.textContent = '현재 글 기준 배포 이력';
+  } else {
+    deployJobsScope.textContent = '테넌트 전체 최근 배포 이력';
+  }
+
+  if (!jobsToRender.length) {
     deployJobsEl.innerHTML = '<div class="muted">배포 작업이 없습니다.</div>';
     return;
   }
 
-  currentJobs
+  jobsToRender
     .slice(0, 10)
     .forEach((job) => {
       const item = document.createElement('div');
       item.className = 'job-item';
       const statusClass = `status-${job.status}`;
+      const createdAt = formatMaybeDate(job.createdAt);
       item.innerHTML = `
         <div class="row between">
           <div>
             <div class="muted">${job.id} · 테넌트 ${job.tenant}</div>
             <div><strong>${job.title || '제목 없음'}</strong></div>
+            <div class="muted">${createdAt}</div>
           </div>
           <span class="status-chip ${statusClass}">${job.status}</span>
         </div>
@@ -804,6 +826,8 @@ async function fetchDeployJobs() {
     const jobs = data?.jobs || data?.data || [];
     updateJobs(jobs.map((job) => normalizeJob(job)));
   } catch (error) {
+    deployJobsScope.textContent = '배포 이력 로드 실패';
+    deployJobsEl.innerHTML = `<div class="muted error">${formatError(error)}</div>`;
     jobDetailEl.textContent = formatError(error);
   }
 }
@@ -814,10 +838,14 @@ async function selectJob(job) {
     const data = await apiFetch(`/cms/deploy-jobs/${job.id}`);
     const detail = data?.job || data || job;
     const normalized = normalizeJob(detail, { id: job.id });
+    const startedAt = formatMaybeDate(normalized.createdAt);
+    const finishedAt = formatMaybeDate(normalized.finishedAt);
     jobDetailEl.innerHTML = `
       <div><strong>${normalized.title}</strong></div>
       <div class="muted">상태: ${normalized.status}</div>
       <div class="muted">메시지: ${normalized.message}</div>
+      <div class="muted">시작: ${startedAt}</div>
+      <div class="muted">완료: ${finishedAt}</div>
       <div class="muted">업데이트: ${formatTime(new Date(normalized.updatedAt))}</div>
     `;
   } catch (error) {
@@ -855,8 +883,10 @@ function pollDeployJob(jobId, attempt = 0) {
       const status = job.status;
       if (status === 'success') {
         setStatus(publishMessage, '배포가 완료되었습니다.');
+        fetchDeployJobs();
       } else if (status === 'failed') {
         setStatus(publishMessage, job.message || '배포 실패', true);
+        fetchDeployJobs();
       } else {
         setStatus(publishMessage, '배포 상태를 확인하는 중…');
         schedule();
@@ -873,6 +903,59 @@ function buildBlogUrl(post) {
   const slug = post?.slug || post?.id;
   if (!slug) return base;
   return `${base}/${slug}`;
+}
+
+function resolveBlogBaseUrl() {
+  const tenant = currentSession?.tenant || {};
+  const candidates = [
+    tenant.blog_base_url,
+    tenant.site_base_url,
+    tenant.public_base_url,
+    tenant.blogBaseUrl,
+    tenant.siteBaseUrl,
+    tenant.publicBaseUrl,
+    currentSession?.blog_base_url,
+    currentSession?.site_base_url,
+    currentSession?.public_base_url,
+    currentSession?.blogBaseUrl,
+    currentSession?.siteBaseUrl,
+    currentSession?.publicBaseUrl,
+  ];
+  return candidates.find((value) => typeof value === 'string' && value.trim().length > 0) || null;
+}
+
+function buildViewOnBlogUrl() {
+  if (currentDraft?.publicUrl) {
+    return currentDraft.publicUrl;
+  }
+  const base = resolveBlogBaseUrl();
+  const slug = currentDraft?.slug;
+  if (!base || !slug) return null;
+  return `${base.replace(/\/$/, '')}/${slug.replace(/^\//, '')}`;
+}
+
+function updateViewOnBlogButton() {
+  if (!viewOnBlogBtn || !viewOnBlogHint) return;
+  const url = buildViewOnBlogUrl();
+  if (!url) {
+    viewOnBlogBtn.disabled = true;
+    viewOnBlogBtn.dataset.url = '';
+    viewOnBlogBtn.title = '블로그 도메인 정보를 확인할 수 없습니다.';
+    viewOnBlogHint.textContent = '블로그 도메인 정보가 설정되지 않아 링크를 만들 수 없습니다.';
+    return;
+  }
+  viewOnBlogBtn.disabled = false;
+  viewOnBlogBtn.dataset.url = url;
+  viewOnBlogBtn.title = '블로그에서 게시글 열기';
+  viewOnBlogHint.textContent = '';
+}
+
+if (viewOnBlogBtn) {
+  viewOnBlogBtn.addEventListener('click', () => {
+    const url = viewOnBlogBtn.dataset.url;
+    if (!url) return;
+    window.open(url, '_blank', 'noopener');
+  });
 }
 
 publishBtn.addEventListener('click', async () => {
@@ -928,6 +1011,7 @@ function hydrateFromStorage() {
   renderSelectedPostMeta();
   updateJobs(currentJobs);
   setViewMode(currentViewMode);
+  updateViewOnBlogButton();
 }
 
 hydrateFromStorage();

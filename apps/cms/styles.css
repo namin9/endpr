@@ -134,6 +134,15 @@ body {
   border: 1px solid var(--border);
 }
 
+#viewOnBlogBtn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+#viewOnBlogHint {
+  margin: 0 0 8px;
+}
+
 .view-toggle .ghost {
   padding: 6px 10px;
   border-radius: 999px;

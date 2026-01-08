@@ -38,10 +38,18 @@ Base URL: `https://cms.ourcompany.com`
    - Expect: status shows “발행 요청 중…” then “배포 상태를 확인하는 중…”.
    - When complete, expect a “블로그에서 보기 →” link in the publish panel.
 6. **Deploy jobs panel**
-   - Click **새로고침** in 최근 배포 Jobs.
+   - Click **새로고침** in Deploy Job 이력.
    - Click a job in the list.
    - Expect: Job 상세 panel shows status, message, and update time.
 7. **Unauthorized handling**
    - Click **세션 초기화**.
    - Try autosaving or publishing.
    - Expect: inline error telling you to log in; no requests succeed.
+8. **View on blog**
+   - In the editor, locate **View on blog**.
+   - If base URL exists: click and confirm a new tab opens `{base}/{slug}`.
+   - If base URL is missing: button is disabled and 안내 문구가 표시된다.
+9. **Deploy job history panel**
+   - In Deploy Job 이력, confirm recent items show status badges and timestamps.
+   - Click a job; confirm 상세 영역에 상태/메시지/시간이 표시된다.
+   - Force an error (network off) and confirm 에러 메시지가 표시된다.

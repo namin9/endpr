@@ -99,8 +99,10 @@
               </div>
               <button type="button" id="manualSaveBtn" class="ghost">임시저장</button>
               <button type="button" id="publishBtn" class="primary">발행</button>
+              <button type="button" id="viewOnBlogBtn" class="ghost" disabled>View on blog</button>
             </div>
           </div>
+          <p id="viewOnBlogHint" class="muted"></p>
           <label class="field">
             <span>제목</span>
             <input id="titleInput" placeholder="새 글 제목" />
@@ -143,9 +145,10 @@
       <aside class="panel stack" aria-label="Deploy jobs">
         <section class="card" aria-labelledby="jobs-heading">
           <div class="card-header">
-            <h2 id="jobs-heading">최근 배포 Jobs</h2>
+            <h2 id="jobs-heading">Deploy Job 이력</h2>
             <button type="button" id="refreshJobsBtn" class="ghost">새로고침</button>
           </div>
+          <p id="deployJobsScope" class="muted">테넌트 전체 최근 배포 이력</p>
           <div class="job-list" id="deployJobs" aria-live="polite"></div>
         </section>
 
