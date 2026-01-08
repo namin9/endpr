@@ -7,6 +7,8 @@ const JOB_KEY = 'cms-jobs';
 
 const loginForm = document.getElementById('loginForm');
 const sessionStatus = document.getElementById('sessionStatus');
+const debugLine = document.getElementById('debugLine');
+const loginHint = document.getElementById('loginHint');
 const logoutBtn = document.getElementById('logoutBtn');
 const titleInput = document.getElementById('titleInput');
 const bodyInput = document.getElementById('bodyInput');
@@ -104,6 +106,39 @@ function setStatus(el, message, isError = false) {
   el.classList.toggle('error', Boolean(isError));
 }
 
+function setLoginHint(message, isError = false) {
+  if (!loginHint) return;
+  loginHint.textContent = message || '';
+  loginHint.classList.toggle('error', Boolean(isError));
+}
+
+function renderDebugLine() {
+  if (!debugLine) return;
+  const metaBuild = document.querySelector('meta[name="build"]')?.getAttribute('content');
+  const buildLabel = window.__BUILD__ || window.__COMMIT__ || metaBuild || 'unknown';
+  debugLine.textContent = `origin: ${window.location.origin} · API_BASE: ${API_BASE} · build: ${buildLabel}`;
+}
+
+function getCookieDeliveryHints() {
+  const hints = [];
+  const originProtocol = window.location.protocol;
+  if (originProtocol !== 'https:') {
+    hints.push('현재 origin이 https가 아닙니다.');
+  }
+  try {
+    const apiUrl = new URL(API_BASE);
+    if (apiUrl.protocol !== 'https:') {
+      hints.push('API_BASE가 https가 아닙니다.');
+    }
+    if (apiUrl.origin !== window.location.origin) {
+      hints.push('origin/API_BASE가 다르면 쿠키는 SameSite=None; Secure가 필요합니다.');
+    }
+  } catch (error) {
+    hints.push('API_BASE 형식이 올바르지 않습니다.');
+  }
+  return hints;
+}
+
 function buildUrl(path) {
   if (!path.startsWith('/')) return `${API_BASE}/${path}`;
   return `${API_BASE}${path}`;
@@ -115,28 +150,50 @@ async function apiFetch(path, options = {}) {
     ...(options.headers || {}),
   };
 
-  const response = await fetch(buildUrl(path), {
-    credentials: 'include',
-    ...options,
-    headers,
-    body: options.body && typeof options.body !== 'string' ? JSON.stringify(options.body) : options.body,
-  });
+  let response;
+  try {
+    response = await fetch(buildUrl(path), {
+      credentials: 'include',
+      ...options,
+      headers,
+      body: options.body && typeof options.body !== 'string' ? JSON.stringify(options.body) : options.body,
+    });
+  } catch (error) {
+    console.warn('[apiFetch] network error', {
+      path,
+      url: buildUrl(path),
+      origin: window.location.origin,
+      credentials: 'include',
+      message: error?.message,
+    });
+    const err = new Error('CORS/네트워크 오류로 요청에 실패했습니다.');
+    err.isNetworkError = true;
+    throw err;
+  }
 
+  const responseText = await response.text();
   let data = null;
-  const contentType = response.headers.get('content-type');
-  if (contentType && contentType.includes('application/json')) {
+  if (responseText) {
     try {
-      data = await response.json();
+      data = JSON.parse(responseText);
     } catch (error) {
       console.warn('Failed to parse JSON', error);
     }
   }
 
   if (!response.ok) {
+    const errorCode = data?.error_code;
+    console.warn('[apiFetch] request failed', {
+      path,
+      status: response.status,
+      error_code: errorCode,
+      snippet: responseText ? responseText.slice(0, 200) : '',
+    });
     const message = data?.error || data?.message || `Request failed (${response.status})`;
     const err = new Error(message);
     err.status = response.status;
     err.data = data;
+    err.errorCode = errorCode;
     throw err;
   }
 
@@ -146,6 +203,25 @@ async function apiFetch(path, options = {}) {
 function formatError(error) {
   const statusSuffix = error?.status ? ` (HTTP ${error.status})` : '';
   return (error?.message || '요청 중 문제가 발생했습니다.') + statusSuffix;
+}
+
+function getLoginErrorMessage(errorCode) {
+  switch (errorCode) {
+    case 'missing_credentials':
+      return '테넌트/이메일/비밀번호를 모두 입력하세요.';
+    case 'invalid_credentials':
+      return '이메일 또는 비밀번호가 올바르지 않습니다.';
+    case 'tenant_not_found':
+      return '테넌트를 찾을 수 없습니다.';
+    case 'rate_limited':
+      return '요청이 너무 많습니다. 잠시 후 다시 시도하세요.';
+    case 'missing_session_secret':
+      return '서버 설정 오류로 로그인할 수 없습니다.';
+    case 'server_error':
+      return '서버 오류로 로그인할 수 없습니다.';
+    default:
+      return '';
+  }
 }
 
 function persistSession(session) {
@@ -172,15 +248,38 @@ function renderSession() {
   sessionStatus.classList.remove('error');
 }
 
-async function fetchSession() {
+function logCookieMismatch(path) {
+  const hints = getCookieDeliveryHints();
+  console.warn('[auth] login ok but /me unauthorized', {
+    url: buildUrl(path),
+    origin: window.location.origin,
+    credentials: 'include',
+    hints,
+  });
+}
+
+async function fetchSession({ afterLogin = false } = {}) {
   try {
     const data = await apiFetch('/cms/auth/me');
     const loggedInAt = currentSession?.loggedInAt || new Date().toISOString();
     persistSession({ ...data, loggedInAt });
+    setLoginHint('');
+    return true;
   } catch (error) {
     currentSession = null;
     localStorage.removeItem(SESSION_KEY);
-    setStatus(sessionStatus, error.status === 401 ? '로그인이 필요합니다.' : formatError(error), true);
+    const isUnauthorized = error.status === 401;
+    setStatus(sessionStatus, isUnauthorized ? '로그인이 필요합니다.' : formatError(error), true);
+    if (afterLogin && isUnauthorized) {
+      const hints = getCookieDeliveryHints();
+      const hintSuffix = hints.length ? ` 추가 점검: ${hints.join(' / ')}` : '';
+      setLoginHint(
+        `로그인은 성공했지만 /me가 401입니다. 쿠키 미전송 가능성(오리진/credentials/도메인)을 확인하세요.${hintSuffix}`,
+        true
+      );
+      logCookieMismatch('/cms/auth/me');
+    }
+    return false;
   }
 }
 
@@ -195,15 +294,27 @@ loginForm.addEventListener('submit', async (event) => {
 
   try {
     setStatus(sessionStatus, '로그인 중…');
+    setLoginHint('');
     await apiFetch('/cms/auth/login', {
       method: 'POST',
       body: { tenantSlug: tenant, email, password },
     });
-    await fetchSession();
+    const sessionOk = await fetchSession({ afterLogin: true });
+    if (!sessionOk) return;
     await Promise.all([fetchPosts(), fetchDeployJobs()]);
     publishMessage.textContent = '';
   } catch (error) {
-    setStatus(sessionStatus, formatError(error), true);
+    if (error?.isNetworkError) {
+      setStatus(sessionStatus, 'CORS/네트워크 오류로 로그인할 수 없습니다.', true);
+      setLoginHint('API_BASE, 오리진, 네트워크 상태를 확인하세요.', true);
+      return;
+    }
+    const errorCode = error?.data?.error_code || error?.errorCode;
+    const loginMessage = getLoginErrorMessage(errorCode) || formatError(error);
+    setStatus(sessionStatus, loginMessage, true);
+    if (errorCode) {
+      setLoginHint(`분류 코드: ${errorCode}`, true);
+    }
   }
 });
 
@@ -211,6 +322,7 @@ logoutBtn.addEventListener('click', () => {
   localStorage.removeItem(SESSION_KEY);
   currentSession = null;
   renderSession();
+  setLoginHint('');
 });
 
 function renderPreview() {
@@ -409,7 +521,11 @@ async function ensurePostId(title, body) {
   });
   const postId = created?.post?.id;
   if (!postId) throw new Error('게시글 ID를 받을 수 없습니다.');
-  persistDraft({ id: postId });
+  persistDraft({
+    id: postId,
+    slug: created?.post?.slug || currentDraft?.slug || null,
+    publicUrl: created?.post?.public_url || created?.post?.publicUrl || currentDraft?.publicUrl || null,
+  });
   return postId;
 }
 
@@ -438,7 +554,15 @@ async function saveDraftToApi(title, body) {
       body: { title, body_md: body },
     });
     const savedAt = saved?.saved_at || saved?.post?.updated_at_iso || new Date().toISOString();
-    persistDraft({ id: postId, title, body, savedAt, status: saved?.post?.status });
+    persistDraft({
+      id: postId,
+      title,
+      body,
+      savedAt,
+      status: saved?.post?.status,
+      slug: saved?.post?.slug || currentDraft?.slug || null,
+      publicUrl: saved?.post?.public_url || saved?.post?.publicUrl || currentDraft?.publicUrl || null,
+    });
     autosaveState = {
       dirty: false,
       saving: false,
@@ -1015,6 +1139,7 @@ function hydrateFromStorage() {
 }
 
 hydrateFromStorage();
+renderDebugLine();
 fetchSession();
 fetchPosts();
 fetchDeployJobs();
