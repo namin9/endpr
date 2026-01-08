@@ -53,6 +53,22 @@ function slugImmutableResponse() {
   };
 }
 
+function normalizeSlug(input: string | undefined | null): string {
+  return (input ?? '')
+    .normalize('NFKC')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^\p{L}\p{N}-]+/gu, '')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+}
+
+function isFallbackSlug(slug: string | null): boolean {
+  if (!slug) return true;
+  return /^post-[0-9a-f-]{36}$/i.test(slug);
+}
+
 function parseSlugRoot(slug: string) {
   const match = slug.match(/^(.*)-(\d+)$/);
   if (!match) return { root: slug, requestedSuffix: null };
@@ -134,37 +150,43 @@ router.post('/cms/posts/:id/autosave', async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json();
   const { title, slug, excerpt, body_md, category_slug, status, publish_at } = body;
+  const hasSlug = Object.prototype.hasOwnProperty.call(body, 'slug');
+  const hasTitle = Object.prototype.hasOwnProperty.call(body, 'title');
 
   const existing = await getPost(c.env.DB, tenant.id, id);
   if (!existing) return c.json({ error: 'Post not found' }, 404);
 
-  if (slug) {
-    const nextSlug = generateSlug(slug);
-    if (nextSlug !== existing.slug) {
+  let nextSlug: string | undefined;
+
+  if (hasSlug) {
+    const requestedSlug = generateSlug(slug);
+    if (requestedSlug !== existing.slug) {
       if (isPublishedPost(existing)) {
         return c.json(slugImmutableResponse(), 400);
       }
-      if (isReservedSlug(nextSlug)) {
-        return c.json(reservedSlugResponse(nextSlug), 400);
+      if (isReservedSlug(requestedSlug)) {
+        return c.json(reservedSlugResponse(requestedSlug), 400);
       }
-      const uniqueSlug = await ensureUniqueSlug(c.env.DB, tenant.id, nextSlug, existing.id);
-      const updated = await updatePost(c.env.DB, tenant.id, id, {
-        title,
-        slug: uniqueSlug,
-        excerpt,
-        body_md,
-        category_slug,
-        status,
-        publish_at,
-      });
-
-      return c.json({ post: mapPost(updated), saved_at: mapPost(updated).updated_at_iso });
+      nextSlug = await ensureUniqueSlug(c.env.DB, tenant.id, requestedSlug, existing.id);
+    }
+  } else if (hasTitle && title !== existing.title && !isPublishedPost(existing)) {
+    const { root } = parseSlugRoot(existing.slug ?? '');
+    const derivedRoot = normalizeSlug(existing.title);
+    const shouldAutoSync = isFallbackSlug(existing.slug) || (root && root === derivedRoot);
+    if (shouldAutoSync) {
+      const desired = normalizeSlug(title);
+      if (desired) {
+        if (isReservedSlug(desired)) {
+          return c.json(reservedSlugResponse(desired), 400);
+        }
+        nextSlug = await ensureUniqueSlug(c.env.DB, tenant.id, desired, existing.id);
+      }
     }
   }
 
   const updated = await updatePost(c.env.DB, tenant.id, id, {
     title,
-    slug: slug ? generateSlug(slug) : undefined,
+    slug: nextSlug,
     excerpt,
     body_md,
     category_slug,

@@ -100,6 +100,41 @@ $me
 
 Expected: **200** with the same `user` and `tenant` fields. Missing/invalid cookie should return **401**.
 
+## 3-a) 로그인 실패 분류 (진단)
+
+Preflight 실패 확인:
+
+```powershell
+$preflightBlocked = Invoke-WebRequest -Uri "$BaseUrl/cms/auth/login" -Method Options -Headers @{
+  "Origin" = $BlockedOrigin
+  "Access-Control-Request-Method" = "POST"
+  "Access-Control-Request-Headers" = "content-type"
+}
+$preflightBlocked.StatusCode
+$preflightBlocked.Content
+```
+
+Expected: **403** with JSON `{ "error": "CORS origin not allowed", "error_code": "cors_not_allowed" }`.
+
+Set-Cookie 미설정 확인:
+
+```powershell
+$loginResp = Invoke-WebRequest -Uri "$BaseUrl/cms/auth/login" -Method Post -Headers @{ "Origin" = $Origin } -ContentType "application/json" -Body $loginBody -WebSession $Session
+$loginResp.Headers["Set-Cookie"]
+```
+
+Expected: `Set-Cookie`가 비어있으면 서버 로그에서 `set_cookie_written: false` 확인.
+
+쿠키 미전송(`/cms/auth/me` 401) 확인:
+
+```powershell
+$meNoCookie = Invoke-WebRequest -Uri "$BaseUrl/cms/auth/me" -Headers @{ "Origin" = $Origin } -Method Get
+$meNoCookie.StatusCode
+$meNoCookie.Content
+```
+
+Expected: **401** with JSON including `error_code` (예: `missing_session`, `invalid_session`, `tenant_not_found`, `user_not_found`).
+
 ## 4) Post lifecycle: create → autosave → publish
 
 Create draft (captures ID safely):
@@ -254,6 +289,42 @@ $autosaveResp.saved_at
 
 Expected: **200** with updated `post` fields and `saved_at` ISO timestamp.
 
+Draft title → slug auto sync (WP-API-06):
+
+```powershell
+$autoSlugBody1 = @{
+  title = "한글 제목"
+} | ConvertTo-Json
+$autoSlugResp1 = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$postId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $autoSlugBody1
+$autoSlugResp1.post.slug
+
+$autoSlugBody2 = @{
+  title = "한글 제목2"
+} | ConvertTo-Json
+$autoSlugResp2 = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$postId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $autoSlugBody2
+$autoSlugResp2.post.slug
+```
+
+Expected: slugs auto-update to `한글-제목`, then `한글-제목2`.
+
+Manual slug override protection:
+
+```powershell
+$manualSlugBody = @{
+  slug = "manual-slug"
+} | ConvertTo-Json
+$manualSlugResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$postId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $manualSlugBody
+$manualSlugResp.post.slug
+
+$manualTitleBody = @{
+  title = "수동 슬러그 유지"
+} | ConvertTo-Json
+$manualTitleResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$postId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $manualTitleBody
+$manualTitleResp.post.slug
+```
+
+Expected: slug remains `manual-slug` after title change.
+
 Publish:
 
 ```powershell
@@ -295,6 +366,18 @@ $publishedSameSlugResp.post.slug
 ```
 
 Expected: **200** with the same slug returned.
+
+Published title change no auto slug:
+
+```powershell
+$publishedTitleBody = @{
+  title = "Published title update"
+} | ConvertTo-Json
+$publishedTitleResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$postId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $publishedTitleBody
+$publishedTitleResp.post.slug
+```
+
+Expected: **200** with slug unchanged after publish.
 
 ```powershell
 $republishResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$postId/publish" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post
