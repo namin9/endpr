@@ -494,7 +494,11 @@ async function ensurePostId(title, body) {
   });
   const postId = created?.post?.id;
   if (!postId) throw new Error('게시글 ID를 받을 수 없습니다.');
-  persistDraft({ id: postId });
+  persistDraft({
+    id: postId,
+    slug: created?.post?.slug || currentDraft?.slug || null,
+    publicUrl: created?.post?.public_url || created?.post?.publicUrl || currentDraft?.publicUrl || null,
+  });
   return postId;
 }
 
@@ -523,7 +527,15 @@ async function saveDraftToApi(title, body) {
       body: { title, body_md: body },
     });
     const savedAt = saved?.saved_at || saved?.post?.updated_at_iso || new Date().toISOString();
-    persistDraft({ id: postId, title, body, savedAt, status: saved?.post?.status });
+    persistDraft({
+      id: postId,
+      title,
+      body,
+      savedAt,
+      status: saved?.post?.status,
+      slug: saved?.post?.slug || currentDraft?.slug || null,
+      publicUrl: saved?.post?.public_url || saved?.post?.publicUrl || currentDraft?.publicUrl || null,
+    });
     autosaveState = {
       dirty: false,
       saving: false,
