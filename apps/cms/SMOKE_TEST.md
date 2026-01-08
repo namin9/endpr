@@ -9,6 +9,14 @@ Base URL: `https://cms.ourcompany.com`
    - Enter a valid tenant slug, editor email, and password.
    - Click **로그인**.
    - Expect: session panel shows tenant + email; no error text.
+   - Expect: 상단 로그인 카드에 debug line으로 `origin`, `API_BASE`, `build` 문자열이 표시된다.
+1. **로그인 실패 분류(UI로 확인)**
+   - 잘못된 비밀번호로 로그인 시도.
+   - Expect: sessionStatus에 “이메일 또는 비밀번호가 올바르지 않습니다.”, 하단 힌트에 `분류 코드: invalid_credentials`.
+   - 네트워크 차단 또는 CORS 차단 상태에서 로그인 시도.
+   - Expect: “CORS/네트워크 오류로 로그인할 수 없습니다.” 안내 표시.
+   - 로그인 성공 후에도 `/me`가 401인 경우(재현 시):
+     - Expect: “로그인은 성공했지만 /me가 401입니다. 쿠키 미전송 가능성…” 안내 표시.
 2. **Posts list + editor load**
    - In the left panel, click **새로고침** under 게시글 목록.
    - Expect: toolbar shows **새 글**, 검색 input, 상태 필터.

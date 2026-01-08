@@ -294,6 +294,22 @@ button:active {
   min-height: 44px;
 }
 
+.debug-line {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.login-hint {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
 .list {
   display: flex;
   flex-direction: column;
