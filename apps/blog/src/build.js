@@ -26,7 +26,7 @@ function resolveSiteBaseUrl() {
   return baseUrl.replace(/\/$/, "");
 }
 
-const siteBaseUrl = resolveSiteBaseUrl();
+let siteBaseUrl = "";
 
 function assertSlugAllowed(slug, entityType) {
   const normalized = `${slug}`.toLowerCase();
@@ -59,7 +59,7 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
     const parsed = JSON.parse(raw);
     return {
       posts: parsed.posts || [],
-      categories: parsed.categories || [],
+      categories: [],
     };
   }
 
@@ -71,29 +71,7 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
     throw new Error("Invalid /build/posts response shape");
   }
 
-  const categoriesResp = await fetchJson(
-    `${apiBase}/build/categories`,
-    buildToken
-  );
-  const categories = Array.isArray(categoriesResp)
-    ? categoriesResp
-    : categoriesResp.categories ?? categoriesResp.items ?? [];
-  if (!Array.isArray(categories)) {
-    throw new Error("Invalid /build/categories response shape");
-  }
-
-  const posts = await Promise.all(
-    postsIndex.map(async (post) => {
-      if (post.body_html || post.body_md) return post;
-      const detail = await fetchJson(
-        `${apiBase}/build/post/${encodeURIComponent(post.slug)}`,
-        buildToken
-      );
-      return { ...post, ...detail };
-    })
-  );
-
-  return { posts, categories };
+  return { posts: postsIndex, categories: [] };
 }
 
 async function resetDist() {
@@ -198,6 +176,54 @@ function formatDate(value) {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
+function formatDateLabel(value) {
+  const iso = formatDate(value);
+  if (!iso) return "";
+  return iso.split("T")[0];
+}
+
+function normalizeBaseUrl(baseUrl) {
+  return baseUrl.replace(/\/+$/, "");
+}
+
+function buildUrl(baseUrl, urlPath) {
+  const normalizedBase = normalizeBaseUrl(baseUrl);
+  const normalizedPath = urlPath.startsWith("/") ? urlPath : `/${urlPath}`;
+  return `${normalizedBase}${normalizedPath}`;
+}
+
+function formatSitemapLastmod(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return null;
+    if (value >= 1e12) {
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date.toISOString();
+    }
+    if (value >= 1e9) {
+      const date = new Date(value * 1000);
+      return Number.isNaN(date.getTime()) ? null : date.toISOString();
+    }
+    return null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d+(\.\d+)?$/.test(trimmed)) {
+      return formatSitemapLastmod(Number(trimmed));
+    }
+    const parsed = Date.parse(trimmed);
+    if (Number.isNaN(parsed)) return null;
+    const date = new Date(parsed);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 async function generatePostPages(posts) {
   for (const post of posts) {
     assertSlugAllowed(post.slug, "post");
@@ -255,7 +281,13 @@ async function generateHomepage(posts) {
       (post) =>
         `<li><a href="/${post.slug}/">${escapeHtml(
           post.title || post.slug
-        )}</a></li>`
+        )}</a> <time datetime="${escapeHtml(
+          formatDate(post.published_at || post.publish_at || post.created_at)
+        )}">${escapeHtml(
+          formatDateLabel(
+            post.published_at || post.publish_at || post.created_at
+          )
+        )}</time></li>`
     )
     .join("\n");
 
@@ -267,16 +299,18 @@ async function generateHomepage(posts) {
   <ul>
 ${latestList}
   </ul>`
-      : `<p>No posts published yet. Check back soon.</p>`
+      : `<p>게시물이 없습니다.</p>`
   }
 </section>`;
 
   const html = layoutHtml({
     title: "Home",
+    description: "Latest posts from the blog.",
     content,
   });
 
   await writeHtml(path.join(DIST_DIR, "index.html"), html);
+  console.log("Generated dist/index.html");
 }
 
 async function generateCategoryPages(posts, categories) {
@@ -335,16 +369,24 @@ Sitemap: ${siteBaseUrl}/sitemap.xml
 async function generateSitemap(posts, categories) {
   const urls = [];
   for (const post of posts) {
+    const lastmodValue =
+      post.published_at || post.updated_at || post.created_at || null;
+    const lastmod = formatSitemapLastmod(lastmodValue);
+    if (!lastmod) {
+      console.warn(
+        `Skipping lastmod for post "${post.slug}" due to invalid date value.`
+      );
+    }
     urls.push({
-      loc: `${siteBaseUrl}/${post.slug}/`,
-      lastmod: formatDate(post.published_at || post.updated_at),
+      loc: buildUrl(siteBaseUrl, `/${post.slug}/`),
+      lastmod,
     });
   }
 
   const postPages = paginate(posts, PAGE_SIZE);
   for (const page of postPages) {
     urls.push({
-      loc: `${siteBaseUrl}/posts/page/${page.page}/`,
+      loc: buildUrl(siteBaseUrl, `/posts/page/${page.page}/`),
     });
   }
 
@@ -358,7 +400,10 @@ async function generateSitemap(posts, categories) {
     const categoryPages = paginate(filtered, PAGE_SIZE);
     for (const page of categoryPages) {
       urls.push({
-        loc: `${siteBaseUrl}/category/${category.slug}/page/${page.page}/`,
+        loc: buildUrl(
+          siteBaseUrl,
+          `/category/${category.slug}/page/${page.page}/`
+        ),
       });
     }
   }
@@ -378,6 +423,7 @@ ${xmlEntries}
 </urlset>
 `;
   await writeHtml(path.join(DIST_DIR, "sitemap.xml"), xml);
+  console.log(`Generated dist/sitemap.xml (${urls.length} urls)`);
 }
 
 function sortPosts(posts) {
@@ -392,11 +438,14 @@ async function build() {
   const useMock = process.argv.includes("--mock") || !!process.env.MOCK_BUILD_DATA_PATH;
   const buildToken = process.env.BUILD_TOKEN;
   const apiBase = process.env.PUBLIC_API_BASE;
+  const siteBase = process.env.SITE_BASE_URL;
 
   if (!useMock) {
     if (!buildToken) throw new Error("BUILD_TOKEN is required for live builds.");
     if (!apiBase) throw new Error("PUBLIC_API_BASE is required for live builds.");
   }
+  if (!siteBase) throw new Error("SITE_BASE_URL is required for sitemap generation.");
+  siteBaseUrl = resolveSiteBaseUrl();
 
   const { posts: rawPosts, categories } = await loadBuildData({
     apiBase,
