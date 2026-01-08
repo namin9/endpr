@@ -144,6 +144,18 @@ $reservedAutosaveResp.Content
 
 Expected: **400** with JSON including `error: "reserved_slug"`.
 
+Published slug immutability:
+
+```powershell
+$draftSlugUpdateBody = @{
+  slug = "draft-slug-update"
+} | ConvertTo-Json
+$draftSlugUpdateResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$postId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $draftSlugUpdateBody
+$draftSlugUpdateResp.post.slug
+```
+
+Expected: **200** and `post.slug` updates to the new value while still draft.
+
 Autosave update:
 
 ```powershell
@@ -165,6 +177,46 @@ $publishResp.deploy_job.id
 ```
 
 Expected: **200** with `post.status: published`, `deploy_job` containing `id`, `status` (`building` or `success`/`failed`), and `message`.
+
+Published slug immutability (after publish):
+
+```powershell
+$publishedSlugUpdateBody = @{
+  slug = "published-slug-update"
+} | ConvertTo-Json
+$publishedSlugUpdateResp = Invoke-WebRequest -Uri "$BaseUrl/cms/posts/$postId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $publishedSlugUpdateBody
+$publishedSlugUpdateResp.StatusCode
+$publishedSlugUpdateResp.Content
+```
+
+Expected: **400** with JSON including `error: "slug_immutable"`.
+
+```powershell
+$publishedNoSlugBody = @{
+  title = "Smoke Test Post (published update)"
+} | ConvertTo-Json
+$publishedNoSlugResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$postId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $publishedNoSlugBody
+$publishedNoSlugResp.post.title
+```
+
+Expected: **200** and title updated.
+
+```powershell
+$publishedSameSlugBody = @{
+  slug = $draftSlugUpdateResp.post.slug
+} | ConvertTo-Json
+$publishedSameSlugResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$postId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $publishedSameSlugBody
+$publishedSameSlugResp.post.slug
+```
+
+Expected: **200** with the same slug returned.
+
+```powershell
+$republishResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$postId/publish" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post
+$republishResp.post.slug
+```
+
+Expected: **200** and slug remains unchanged.
 
 ## 5) Deploy jobs: list and detail
 

@@ -41,6 +41,18 @@ function reservedSlugResponse(slug: string) {
   };
 }
 
+function isPublishedPost(post: { status: string; published_at: number | null }): boolean {
+  return post.status === 'published' || post.published_at !== null;
+}
+
+function slugImmutableResponse() {
+  console.warn('Published post slug change rejected');
+  return {
+    error: 'slug_immutable',
+    message: 'Published posts cannot change slug.',
+  };
+}
+
 router.use('/cms/posts/*', sessionMiddleware);
 router.use('/cms/posts', sessionMiddleware);
 
@@ -83,8 +95,13 @@ router.post('/cms/posts/:id/autosave', async (c) => {
 
   if (slug) {
     const nextSlug = generateSlug(slug);
-    if (nextSlug !== existing.slug && isReservedSlug(nextSlug)) {
-      return c.json(reservedSlugResponse(nextSlug), 400);
+    if (nextSlug !== existing.slug) {
+      if (isPublishedPost(existing)) {
+        return c.json(slugImmutableResponse(), 400);
+      }
+      if (isReservedSlug(nextSlug)) {
+        return c.json(reservedSlugResponse(nextSlug), 400);
+      }
     }
   }
 
@@ -112,6 +129,19 @@ router.post('/cms/posts/:id/publish', async (c) => {
   if (!existing) return c.json({ error: 'Post not found' }, 404);
   if (isReservedSlug(existing.slug)) {
     return c.json(reservedSlugResponse(existing.slug), 400);
+  }
+  if (isPublishedPost(existing)) {
+    const contentLength = Number(c.req.header('content-length') ?? '0');
+    if (contentLength > 0) {
+      const body = await c.req.json();
+      const requestedSlug = body?.slug;
+      if (typeof requestedSlug === 'string') {
+        const nextSlug = generateSlug(requestedSlug);
+        if (nextSlug !== existing.slug) {
+          return c.json(slugImmutableResponse(), 400);
+        }
+      }
+    }
   }
 
   const now = Math.floor(Date.now() / 1000);
