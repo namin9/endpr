@@ -120,6 +120,30 @@ if (-not $postId) { throw "Post id not found in response" }
 
 Expected: **201** with `post` object containing at least `id`, `slug`, `status: draft`.
 
+Reserved slug blocking (create + autosave):
+
+```powershell
+$reservedCreateBody = @{
+  title = "posts"
+} | ConvertTo-Json
+$reservedCreateResp = Invoke-WebRequest -Uri "$BaseUrl/cms/posts" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $reservedCreateBody
+$reservedCreateResp.StatusCode
+$reservedCreateResp.Content
+```
+
+Expected: **400** with JSON including `error: "reserved_slug"` and a human-readable `message`.
+
+```powershell
+$reservedAutosaveBody = @{
+  slug = "api"
+} | ConvertTo-Json
+$reservedAutosaveResp = Invoke-WebRequest -Uri "$BaseUrl/cms/posts/$postId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $reservedAutosaveBody
+$reservedAutosaveResp.StatusCode
+$reservedAutosaveResp.Content
+```
+
+Expected: **400** with JSON including `error: "reserved_slug"`.
+
 Autosave update:
 
 ```powershell

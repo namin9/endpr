@@ -16,6 +16,31 @@ import { SessionData } from '../session';
 
 const router = new Hono();
 
+const RESERVED_SLUGS = new Set([
+  'posts',
+  'category',
+  'tag',
+  'search',
+  'assets',
+  'api',
+  'cms',
+  'sitemap.xml',
+  'robots.txt',
+]);
+
+function isReservedSlug(slug: string): boolean {
+  return RESERVED_SLUGS.has(slug.trim().toLowerCase());
+}
+
+function reservedSlugResponse(slug: string) {
+  console.warn(`Reserved slug rejected: ${slug}`);
+  return {
+    error: 'reserved_slug',
+    message: 'Slug is reserved and cannot be used.',
+    reserved: Array.from(RESERVED_SLUGS),
+  };
+}
+
 router.use('/cms/posts/*', sessionMiddleware);
 router.use('/cms/posts', sessionMiddleware);
 
@@ -26,6 +51,9 @@ router.post('/cms/posts', async (c) => {
   if (!title) return c.json({ error: 'title is required' }, 400);
 
   const finalSlug = slug ? generateSlug(slug) : generateSlug(title);
+  if (isReservedSlug(finalSlug)) {
+    return c.json(reservedSlugResponse(finalSlug), 400);
+  }
   const post = await createPost(c.env.DB, tenant.id, { title, slug: finalSlug, excerpt, body_md, category_slug });
   return c.json({ post: mapPost(post) }, 201);
 });
@@ -53,6 +81,13 @@ router.post('/cms/posts/:id/autosave', async (c) => {
   const existing = await getPost(c.env.DB, tenant.id, id);
   if (!existing) return c.json({ error: 'Post not found' }, 404);
 
+  if (slug) {
+    const nextSlug = generateSlug(slug);
+    if (nextSlug !== existing.slug && isReservedSlug(nextSlug)) {
+      return c.json(reservedSlugResponse(nextSlug), 400);
+    }
+  }
+
   const updated = await updatePost(c.env.DB, tenant.id, id, {
     title,
     slug: slug ? generateSlug(slug) : undefined,
@@ -75,6 +110,9 @@ router.post('/cms/posts/:id/publish', async (c) => {
 
   const existing = await getPost(c.env.DB, tenant.id, id);
   if (!existing) return c.json({ error: 'Post not found' }, 404);
+  if (isReservedSlug(existing.slug)) {
+    return c.json(reservedSlugResponse(existing.slug), 400);
+  }
 
   const now = Math.floor(Date.now() / 1000);
   const published = await publishPost(c.env.DB, tenant.id, id, now);
