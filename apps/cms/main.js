@@ -119,6 +119,26 @@ function renderDebugLine() {
   debugLine.textContent = `origin: ${window.location.origin} · API_BASE: ${API_BASE} · build: ${buildLabel}`;
 }
 
+function getCookieDeliveryHints() {
+  const hints = [];
+  const originProtocol = window.location.protocol;
+  if (originProtocol !== 'https:') {
+    hints.push('현재 origin이 https가 아닙니다.');
+  }
+  try {
+    const apiUrl = new URL(API_BASE);
+    if (apiUrl.protocol !== 'https:') {
+      hints.push('API_BASE가 https가 아닙니다.');
+    }
+    if (apiUrl.origin !== window.location.origin) {
+      hints.push('origin/API_BASE가 다르면 쿠키는 SameSite=None; Secure가 필요합니다.');
+    }
+  } catch (error) {
+    hints.push('API_BASE 형식이 올바르지 않습니다.');
+  }
+  return hints;
+}
+
 function buildUrl(path) {
   if (!path.startsWith('/')) return `${API_BASE}/${path}`;
   return `${API_BASE}${path}`;
@@ -229,10 +249,12 @@ function renderSession() {
 }
 
 function logCookieMismatch(path) {
+  const hints = getCookieDeliveryHints();
   console.warn('[auth] login ok but /me unauthorized', {
     url: buildUrl(path),
     origin: window.location.origin,
     credentials: 'include',
+    hints,
   });
 }
 
@@ -249,7 +271,12 @@ async function fetchSession({ afterLogin = false } = {}) {
     const isUnauthorized = error.status === 401;
     setStatus(sessionStatus, isUnauthorized ? '로그인이 필요합니다.' : formatError(error), true);
     if (afterLogin && isUnauthorized) {
-      setLoginHint('로그인은 성공했지만 /me가 401입니다. 쿠키 미전송 가능성(오리진/credentials/도메인)을 확인하세요.', true);
+      const hints = getCookieDeliveryHints();
+      const hintSuffix = hints.length ? ` 추가 점검: ${hints.join(' / ')}` : '';
+      setLoginHint(
+        `로그인은 성공했지만 /me가 401입니다. 쿠키 미전송 가능성(오리진/credentials/도메인)을 확인하세요.${hintSuffix}`,
+        true
+      );
       logCookieMismatch('/cms/auth/me');
     }
     return false;

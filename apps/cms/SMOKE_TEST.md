@@ -16,7 +16,7 @@ Base URL: `https://cms.ourcompany.com`
    - 네트워크 차단 또는 CORS 차단 상태에서 로그인 시도.
    - Expect: “CORS/네트워크 오류로 로그인할 수 없습니다.” 안내 표시.
    - 로그인 성공 후에도 `/me`가 401인 경우(재현 시):
-     - Expect: “로그인은 성공했지만 /me가 401입니다. 쿠키 미전송 가능성…” 안내 표시.
+     - Expect: “로그인은 성공했지만 /me가 401입니다. 쿠키 미전송 가능성…” 안내 표시 + https/origin/API_BASE 관련 추가 점검 메시지.
 2. **Posts list + editor load**
    - In the left panel, click **새로고침** under 게시글 목록.
    - Expect: toolbar shows **새 글**, 검색 input, 상태 필터.
