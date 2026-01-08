@@ -55,8 +55,32 @@
             <h2 id="posts-heading">게시글 목록</h2>
             <button type="button" id="refreshPostsBtn" class="ghost">새로고침</button>
           </div>
+          <div class="posts-toolbar">
+            <button type="button" id="newPostBtn" class="primary">새 글</button>
+            <div class="posts-toolbar-inputs">
+              <input id="postsSearchInput" placeholder="제목 검색" />
+              <select id="postsStatusFilter">
+                <option value="all">전체</option>
+                <option value="draft">draft</option>
+                <option value="published">published</option>
+              </select>
+            </div>
+          </div>
           <p id="postsStatus" class="muted">로딩 전</p>
-          <div id="postsList" class="list" role="listbox" aria-label="Posts"></div>
+          <div class="posts-table" role="table" aria-label="Posts">
+            <div class="posts-row posts-row--head" role="row">
+              <div class="posts-cell">제목</div>
+              <div class="posts-cell">상태</div>
+              <div class="posts-cell">마지막 수정</div>
+              <div class="posts-cell">발행일</div>
+            </div>
+            <div id="postsList" class="posts-body" role="rowgroup"></div>
+          </div>
+          <div class="posts-pagination">
+            <button type="button" id="postsPrevBtn" class="ghost">이전</button>
+            <span id="postsPageInfo" class="muted">페이지 1 / 1</span>
+            <button type="button" id="postsNextBtn" class="ghost">다음</button>
+          </div>
         </section>
       </aside>
 
@@ -68,16 +92,23 @@
               <p id="selectedPostMeta" class="muted">선택된 게시글이 없습니다.</p>
             </div>
             <div class="row gap">
+              <div class="view-toggle" role="group" aria-label="View mode">
+                <button type="button" class="ghost is-active" data-view-mode="split">Split</button>
+                <button type="button" class="ghost" data-view-mode="edit">Edit Only</button>
+                <button type="button" class="ghost" data-view-mode="preview">Preview Only</button>
+              </div>
               <button type="button" id="manualSaveBtn" class="ghost">임시저장</button>
               <button type="button" id="publishBtn" class="primary">발행</button>
+              <button type="button" id="viewOnBlogBtn" class="ghost" disabled>View on blog</button>
             </div>
           </div>
+          <p id="viewOnBlogHint" class="muted"></p>
           <label class="field">
             <span>제목</span>
             <input id="titleInput" placeholder="새 글 제목" />
           </label>
           <div class="editor-split">
-            <label class="field">
+            <label class="field editor-pane">
               <span>Markdown</span>
               <textarea id="bodyInput" rows="18" placeholder="내용을 입력하면 자동 저장됩니다"></textarea>
             </label>
@@ -114,9 +145,10 @@
       <aside class="panel stack" aria-label="Deploy jobs">
         <section class="card" aria-labelledby="jobs-heading">
           <div class="card-header">
-            <h2 id="jobs-heading">최근 배포 Jobs</h2>
+            <h2 id="jobs-heading">Deploy Job 이력</h2>
             <button type="button" id="refreshJobsBtn" class="ghost">새로고침</button>
           </div>
+          <p id="deployJobsScope" class="muted">테넌트 전체 최근 배포 이력</p>
           <div class="job-list" id="deployJobs" aria-live="polite"></div>
         </section>
 
