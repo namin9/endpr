@@ -144,6 +144,59 @@ $reservedAutosaveResp.Content
 
 Expected: **400** with JSON including `error: "reserved_slug"`.
 
+Duplicate slug suffix (drafts):
+
+```powershell
+$draftASlugBody = @{
+  slug = "hello"
+} | ConvertTo-Json
+$draftAResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$postId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $draftASlugBody
+$draftAResp.post.slug
+```
+
+Expected: **200** and slug remains `hello`.
+
+```powershell
+$draftBCreateBody = @{
+  title = "Smoke Test Post B"
+  body_md = "Draft B body"
+} | ConvertTo-Json
+$draftBResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $draftBCreateBody
+$draftBId = $draftBResp.post.id
+
+$draftBSlugBody = @{
+  slug = "hello"
+} | ConvertTo-Json
+$draftBSlugResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$draftBId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $draftBSlugBody
+$draftBSlugResp.post.slug
+```
+
+Expected: **200** and slug becomes `hello-2`.
+
+```powershell
+$draftCPublishBody = @{
+  title = "Smoke Test Post C"
+  body_md = "Draft C body"
+} | ConvertTo-Json
+$draftCResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $draftCPublishBody
+$draftCId = $draftCResp.post.id
+
+$draftCSlugBody = @{
+  slug = "hello"
+} | ConvertTo-Json
+$draftCSlugResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$draftCId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $draftCSlugBody
+$draftCSlugResp.post.slug
+```
+
+Expected: **200** and slug becomes `hello-3`.
+
+```powershell
+$draftBPublishResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$draftBId/publish" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post
+$draftBPublishResp.post.slug
+```
+
+Expected: **200** and slug remains `hello-2`.
+
 Published slug immutability:
 
 ```powershell

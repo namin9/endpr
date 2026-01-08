@@ -53,6 +53,50 @@ function slugImmutableResponse() {
   };
 }
 
+function parseSlugRoot(slug: string) {
+  const match = slug.match(/^(.*)-(\d+)$/);
+  if (!match) return { root: slug, requestedSuffix: null };
+  const suffix = Number(match[2]);
+  if (!Number.isFinite(suffix) || suffix < 2) return { root: slug, requestedSuffix: null };
+  return { root: match[1], requestedSuffix: suffix };
+}
+
+async function ensureUniqueSlug(db: D1Database, tenantId: string, desiredSlug: string, excludePostId?: string) {
+  if (!desiredSlug) return desiredSlug;
+  const { root } = parseSlugRoot(desiredSlug);
+  const pattern = `${root}-%`;
+  let query = 'SELECT slug FROM posts WHERE tenant_id = ? AND (slug = ? OR slug LIKE ?)';
+  const params: Array<string> = [tenantId, root, pattern];
+  if (excludePostId) {
+    query += ' AND id != ?';
+    params.push(excludePostId);
+  }
+  const { results } = await db.prepare(query).bind(...params).all<{ slug: string }>();
+  const usedSuffixes = new Set<number>();
+  for (const row of results ?? []) {
+    if (row.slug === root) {
+      usedSuffixes.add(1);
+      continue;
+    }
+    const match = row.slug.match(/^(.*)-(\d+)$/);
+    if (!match) continue;
+    if (match[1] !== root) continue;
+    const suffix = Number(match[2]);
+    if (Number.isFinite(suffix) && suffix >= 2) usedSuffixes.add(suffix);
+  }
+  if (!usedSuffixes.size && desiredSlug === root) return desiredSlug;
+  if (desiredSlug !== root) {
+    const requestedSuffix = Number(desiredSlug.slice(root.length + 1));
+    if (Number.isFinite(requestedSuffix) && requestedSuffix >= 2 && !usedSuffixes.has(requestedSuffix)) {
+      return desiredSlug;
+    }
+  }
+  if (!usedSuffixes.has(1) && desiredSlug === root) return desiredSlug;
+  let candidate = 2;
+  while (usedSuffixes.has(candidate)) candidate += 1;
+  return `${root}-${candidate}`;
+}
+
 router.use('/cms/posts/*', sessionMiddleware);
 router.use('/cms/posts', sessionMiddleware);
 
@@ -66,7 +110,8 @@ router.post('/cms/posts', async (c) => {
   if (isReservedSlug(finalSlug)) {
     return c.json(reservedSlugResponse(finalSlug), 400);
   }
-  const post = await createPost(c.env.DB, tenant.id, { title, slug: finalSlug, excerpt, body_md, category_slug });
+  const uniqueSlug = await ensureUniqueSlug(c.env.DB, tenant.id, finalSlug);
+  const post = await createPost(c.env.DB, tenant.id, { title, slug: uniqueSlug, excerpt, body_md, category_slug });
   return c.json({ post: mapPost(post) }, 201);
 });
 
@@ -102,6 +147,18 @@ router.post('/cms/posts/:id/autosave', async (c) => {
       if (isReservedSlug(nextSlug)) {
         return c.json(reservedSlugResponse(nextSlug), 400);
       }
+      const uniqueSlug = await ensureUniqueSlug(c.env.DB, tenant.id, nextSlug, existing.id);
+      const updated = await updatePost(c.env.DB, tenant.id, id, {
+        title,
+        slug: uniqueSlug,
+        excerpt,
+        body_md,
+        category_slug,
+        status,
+        publish_at,
+      });
+
+      return c.json({ post: mapPost(updated), saved_at: mapPost(updated).updated_at_iso });
     }
   }
 
@@ -141,6 +198,13 @@ router.post('/cms/posts/:id/publish', async (c) => {
           return c.json(slugImmutableResponse(), 400);
         }
       }
+    }
+  }
+
+  if (!isPublishedPost(existing)) {
+    const uniqueSlug = await ensureUniqueSlug(c.env.DB, tenant.id, existing.slug, existing.id);
+    if (uniqueSlug !== existing.slug) {
+      await updatePost(c.env.DB, tenant.id, id, { slug: uniqueSlug });
     }
   }
 
