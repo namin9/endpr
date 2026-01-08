@@ -36,6 +36,12 @@ function assertSlugAllowed(slug, entityType) {
         "Adjust the slug in the source data or skip this entry before building."
     );
   }
+  if (/[\\/]/.test(`${slug}`)) {
+    throw new Error(
+      `Invalid slug "${slug}" detected for ${entityType}. ` +
+        "Slugs must not include path separators."
+    );
+  }
 }
 
 async function fetchJson(url, buildToken) {
@@ -192,6 +198,10 @@ function buildUrl(baseUrl, urlPath) {
   return `${normalizedBase}${normalizedPath}`;
 }
 
+function buildPostPath(slug) {
+  return encodeURI(`/${slug}/`);
+}
+
 function formatSitemapLastmod(value) {
   if (value === null || value === undefined || value === "") return null;
   if (value instanceof Date) {
@@ -248,7 +258,7 @@ async function generatePostListPages(posts) {
     const entries = page.items
       .map(
         (post) =>
-          `<li><a href="/${post.slug}/">${escapeHtml(
+          `<li><a href="${buildPostPath(post.slug)}">${escapeHtml(
             post.title || post.slug
           )}</a> <small>${escapeHtml(post.excerpt || "")}</small></li>`
       )
@@ -279,7 +289,7 @@ async function generateHomepage(posts) {
   const latestList = latestPosts
     .map(
       (post) =>
-        `<li><a href="/${post.slug}/">${escapeHtml(
+        `<li><a href="${buildPostPath(post.slug)}">${escapeHtml(
           post.title || post.slug
         )}</a> <time datetime="${escapeHtml(
           formatDate(post.published_at || post.publish_at || post.created_at)
@@ -328,7 +338,7 @@ async function generateCategoryPages(posts, categories) {
       const entries = page.items
         .map(
           (post) =>
-            `<li><a href="/${post.slug}/">${escapeHtml(
+            `<li><a href="${buildPostPath(post.slug)}">${escapeHtml(
               post.title || post.slug
             )}</a></li>`
         )
@@ -378,7 +388,7 @@ async function generateSitemap(posts, categories) {
       );
     }
     urls.push({
-      loc: buildUrl(siteBaseUrl, `/${post.slug}/`),
+      loc: buildUrl(siteBaseUrl, buildPostPath(post.slug)),
       lastmod,
     });
   }
@@ -402,7 +412,7 @@ async function generateSitemap(posts, categories) {
       urls.push({
         loc: buildUrl(
           siteBaseUrl,
-          `/category/${category.slug}/page/${page.page}/`
+          encodeURI(`/category/${category.slug}/page/${page.page}/`)
         ),
       });
     }
