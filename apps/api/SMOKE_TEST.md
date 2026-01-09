@@ -172,6 +172,28 @@ $buildCategories = Invoke-RestMethod -Uri "$BaseUrl/build/categories" -Headers @
 
 Expected: **200** each with `posts` (published only), `post`, and `categories`. Missing/invalid token should return **401**.
 
+## 7) Upload image to R2 (authenticated session required)
+
+Use a local image file (the browser/clients already convert to WebP). The Worker must be configured with an R2 binding and a public base URL for that bucket (e.g., `https://assets.ourcompany.com`).
+
+```powershell
+$UploadPath = "C:\\path\\to\\sample.webp"
+$uploadResp = Invoke-RestMethod -Uri "$BaseUrl/cms/uploads" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -Form @{
+  file = Get-Item $UploadPath
+}
+$uploadResp
+```
+
+Expected: **201** with `url` pointing to a publicly accessible R2 URL and `key` prefixed with the tenant slug (e.g., `<tenant-slug>/YYYY-MM-DD/...`). Missing/invalid session should return **401**.
+
+Verify the uploaded image is accessible:
+
+```powershell
+Invoke-WebRequest -Uri $uploadResp.url -Method Get
+```
+
+Expected: **200** and the image bytes.
+
 ## Expected results summary
 
 - CORS allowed: 204 with `Access-Control-*` headers; blocked origin: 403 JSON error.
@@ -182,6 +204,7 @@ Expected: **200** each with `posts` (published only), `post`, and `categories`. 
 - Publish: 200 with `post.status: published` and `deploy_job`.
 - Deploy jobs list/detail: 200 with matching job status/message.
 - Build endpoints: 200 when `x-build-token` is correct; 401 otherwise.
+- Upload: 201 with public `url` and tenant-prefixed `key`; 401 without session.
 
 ## Troubleshooting
 
