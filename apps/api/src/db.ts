@@ -294,14 +294,19 @@ export function mapDeployJob(row: DeployJobRow) {
   };
 }
 
+const SLUG_REGEX = /^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u;
+
 export function generateSlug(input: string | undefined | null): string {
-  const safe = (input ?? '').toLowerCase().trim();
+  const safe = (input ?? '')
+    .normalize('NFC')
+    .toLowerCase()
+    .trim();
   const base = safe
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .replace(/-{2,}/g, '-');
+    .replace(/[^\p{L}\p{N}\s-]+/gu, '')
+    .replace(/[\s_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (base && SLUG_REGEX.test(base)) return base;
   if (base) return base;
   return `post-${uuidv4()}`;
 }
