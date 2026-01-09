@@ -25,11 +25,19 @@ function normalizeExtension(fileName: string | undefined, contentType: string | 
 
 router.post('/cms/uploads', async (c) => {
   const tenant = c.get('tenant');
-  const body = await c.req.parseBody();
-  const upload = body.file ?? body.image;
-  const file = Array.isArray(upload) ? upload[0] : upload;
+  const formData = await c.req.formData();
+  const primary = formData.get('file') ?? formData.get('image');
+  let file = primary instanceof File ? primary : null;
+  if (!file) {
+    for (const value of formData.values()) {
+      if (value instanceof File) {
+        file = value;
+        break;
+      }
+    }
+  }
 
-  if (!(file instanceof File)) {
+  if (!file) {
     return c.json({ error: 'file is required' }, 400);
   }
 
