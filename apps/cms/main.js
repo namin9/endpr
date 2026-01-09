@@ -124,6 +124,33 @@ function initQuillEditor() {
   document.querySelectorAll('.ql-toolbar button').forEach((button) => {
     button.setAttribute('type', 'button');
   });
+
+  const toolbar = quill.getModule('toolbar');
+  if (toolbar) {
+    const imageInput = document.createElement('input');
+    imageInput.type = 'file';
+    imageInput.accept = 'image/*';
+    imageInput.className = 'editor-textarea--hidden';
+    document.body.appendChild(imageInput);
+
+    toolbar.addHandler('image', () => {
+      imageInput.value = '';
+      imageInput.click();
+    });
+
+    imageInput.addEventListener('change', () => {
+      const file = imageInput.files && imageInput.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const range = quill.getSelection(true);
+        const index = range ? range.index : quill.getLength();
+        quill.insertEmbed(index, 'image', reader.result, 'user');
+        quill.setSelection(index + 1, 0);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
 }
 
 function getBodyValue() {
