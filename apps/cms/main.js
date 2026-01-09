@@ -38,6 +38,20 @@ const viewModeButtons = Array.from(document.querySelectorAll('[data-view-mode]')
 const viewOnBlogBtn = document.getElementById('viewOnBlogBtn');
 const viewOnBlogHint = document.getElementById('viewOnBlogHint');
 const deployJobsScope = document.getElementById('deployJobsScope');
+const shareLinkBtn = document.getElementById('shareLinkBtn');
+const shareLinkPanel = document.getElementById('shareLinkPanel');
+const shareLinkInput = document.getElementById('shareLinkInput');
+const shareLinkExpiry = document.getElementById('shareLinkExpiry');
+const shareLinkMessage = document.getElementById('shareLinkMessage');
+const copyShareLinkBtn = document.getElementById('copyShareLinkBtn');
+const openShareLinkBtn = document.getElementById('openShareLinkBtn');
+const editorToolbar = document.getElementById('editorToolbar');
+const wysiwygEditor = document.getElementById('wysiwygEditor');
+const imageUploadInput = document.getElementById('imageUploadInput');
+const uploadPreview = document.getElementById('uploadPreview');
+const uploadPreviewList = document.getElementById('uploadPreviewList');
+const uploadPreviewCount = document.getElementById('uploadPreviewCount');
+const uploadStatus = document.getElementById('uploadStatus');
 
 let autosaveTimer = null;
 let previewTimer = null;
@@ -62,6 +76,9 @@ let autosaveState = {
   error: null,
 };
 let currentViewMode = 'split';
+let quill = null;
+let uploadedAssets = [];
+let currentShareLink = null;
 
 function load(key, fallback) {
   const raw = localStorage.getItem(key);
@@ -97,6 +114,20 @@ function formatClock(value) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return '-';
   return new Intl.DateTimeFormat('ko', { timeStyle: 'medium' }).format(parsed);
+}
+
+function syncRobotsMeta() {
+  const hasShareToken = new URLSearchParams(window.location.search).has('share_token');
+  const head = document.head;
+  const existing = head.querySelector('meta[name="robots"]');
+  if (hasShareToken) {
+    const meta = existing || document.createElement('meta');
+    meta.setAttribute('name', 'robots');
+    meta.setAttribute('content', 'noindex, nofollow');
+    if (!existing) head.appendChild(meta);
+    return;
+  }
+  if (existing) existing.remove();
 }
 
 function setStatus(el, message, isError = false) {
@@ -213,15 +244,49 @@ logoutBtn.addEventListener('click', () => {
   renderSession();
 });
 
+function getEditorHtml() {
+  if (quill) {
+    const text = quill.getText().trim();
+    const hasEmbed = quill.getContents().ops?.some((op) => typeof op.insert === 'object');
+    if (!text && !hasEmbed) return '';
+    return quill.root.innerHTML || '';
+  }
+  return bodyInput.value || '';
+}
+
+function setEditorHtml(html) {
+  if (!quill) {
+    bodyInput.value = html || '';
+    return;
+  }
+  if (!html) {
+    quill.setText('', 'silent');
+    return;
+  }
+  const hasHtml = /<[a-z][\s\S]*>/i.test(html);
+  if (hasHtml) {
+    quill.clipboard.dangerouslyPasteHTML(html, 'silent');
+  } else {
+    quill.setText(html, 'silent');
+  }
+}
+
+function buildPreviewHtml(title, bodyHtml) {
+  const safeTitle = escapeHtml(title || '제목 없음');
+  if (!bodyHtml) return `<h1>${safeTitle}</h1>`;
+  const hasHtml = /<[a-z][\s\S]*>/i.test(bodyHtml);
+  const safeBody = hasHtml ? bodyHtml : `<p>${escapeHtml(bodyHtml).replace(/\n/g, '<br />')}</p>`;
+  return `<h1>${safeTitle}</h1>${safeBody}`;
+}
+
 function renderPreview() {
   const draft = currentDraft || { title: '', body: '' };
-  const body = draft.body || '';
-  if (!draft.title && !body) {
+  const bodyHtml = draft.body || '';
+  if (!draft.title && !bodyHtml) {
     previewPane.textContent = '작성된 내용이 없습니다.';
     return;
   }
-  const markdown = `# ${draft.title || '제목 없음'}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
-  previewPane.innerHTML = renderMarkdown(markdown);
+  previewPane.innerHTML = buildPreviewHtml(draft.title, bodyHtml);
   previewStatus.textContent = '실시간';
 }
 
@@ -331,14 +396,177 @@ function renderMarkdown(markdown) {
   return html;
 }
 
+function setUploadStatus(message, isError = false) {
+  if (!uploadStatus) return;
+  uploadStatus.textContent = message || '';
+  uploadStatus.classList.toggle('error', Boolean(isError));
+}
+
+function renderUploadPreview() {
+  if (!uploadPreview || !uploadPreviewList || !uploadPreviewCount) return;
+  uploadPreviewList.innerHTML = '';
+  uploadPreviewCount.textContent = `${uploadedAssets.length}건`;
+  uploadPreview.classList.toggle('hidden', uploadedAssets.length === 0);
+  if (!uploadedAssets.length) return;
+  uploadedAssets.forEach((asset) => {
+    const item = document.createElement('div');
+    item.className = 'upload-preview__item';
+    item.innerHTML = `
+      <img class="upload-preview__thumb" src="${asset.url}" alt="${asset.name}" />
+      <div class="upload-preview__meta">${asset.name}</div>
+      <a class="upload-preview__link" href="${asset.url}" target="_blank" rel="noopener noreferrer">새 탭에서 보기</a>
+    `;
+    uploadPreviewList.appendChild(item);
+  });
+}
+
+function addUploadedAsset(asset) {
+  uploadedAssets = [asset, ...uploadedAssets].slice(0, 6);
+  renderUploadPreview();
+}
+
+function resolveUploadPayload(data) {
+  const uploadUrl =
+    data?.upload_url
+    || data?.uploadUrl
+    || data?.upload?.url
+    || data?.url
+    || null;
+  const assetUrl =
+    data?.public_url
+    || data?.publicUrl
+    || data?.asset_url
+    || data?.assetUrl
+    || data?.asset?.url
+    || data?.file_url
+    || data?.fileUrl
+    || null;
+  const method = data?.method || data?.upload_method || data?.upload?.method || 'PUT';
+  const fields = data?.fields || data?.form_fields || data?.upload?.fields || null;
+  return { uploadUrl, assetUrl, method, fields };
+}
+
+async function requestUploadSlot(file, postId) {
+  const payload = {
+    post_id: postId,
+    filename: file.name,
+    content_type: file.type,
+    size: file.size,
+  };
+  return apiFetch('/cms/uploads', { method: 'POST', body: payload });
+}
+
+async function uploadImageFile(file) {
+  if (!currentSession) throw new Error('로그인이 필요합니다.');
+  const postId = await ensurePostId(titleInput.value, getEditorHtml());
+  const data = await requestUploadSlot(file, postId);
+  const { uploadUrl, assetUrl, method, fields } = resolveUploadPayload(data);
+  if (!uploadUrl) throw new Error('업로드 URL을 받을 수 없습니다.');
+
+  let response;
+  if (fields) {
+    const formData = new FormData();
+    Object.entries(fields).forEach(([key, value]) => formData.append(key, value));
+    formData.append('file', file);
+    response = await fetch(uploadUrl, { method: method || 'POST', body: formData });
+  } else {
+    response = await fetch(uploadUrl, {
+      method: method || 'PUT',
+      body: file,
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+      },
+    });
+  }
+
+  if (!response.ok) {
+    throw new Error(`업로드 실패 (HTTP ${response.status})`);
+  }
+
+  return assetUrl || uploadUrl;
+}
+
+function insertImageAtCursor(url) {
+  if (!quill) return;
+  const range = quill.getSelection(true);
+  const index = range ? range.index : quill.getLength();
+  quill.insertEmbed(index, 'image', url, 'user');
+  quill.setSelection(index + 1, 0, 'silent');
+}
+
+async function handleImageFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  setUploadStatus('이미지 업로드 중...');
+  try {
+    const url = await uploadImageFile(file);
+    insertImageAtCursor(url);
+    addUploadedAsset({ url, name: file.name });
+    setUploadStatus('업로드 완료');
+    handleAutosave();
+  } catch (error) {
+    setUploadStatus(formatError(error), true);
+  } finally {
+    if (imageUploadInput) imageUploadInput.value = '';
+  }
+}
+
+function setupImageUploadHandlers() {
+  if (!imageUploadInput || !quill) return;
+  imageUploadInput.addEventListener('change', () => {
+    const file = imageUploadInput.files?.[0];
+    if (file) handleImageFile(file);
+  });
+
+  const toolbar = quill.getModule('toolbar');
+  if (toolbar) {
+    toolbar.addHandler('image', () => imageUploadInput.click());
+  }
+
+  quill.root.addEventListener('drop', (event) => {
+    const files = Array.from(event.dataTransfer?.files || []);
+    const imageFile = files.find((file) => file.type.startsWith('image/'));
+    if (imageFile) {
+      event.preventDefault();
+      event.stopPropagation();
+      handleImageFile(imageFile);
+    }
+  });
+
+  quill.root.addEventListener('paste', (event) => {
+    const items = Array.from(event.clipboardData?.items || []);
+    const fileItem = items.find((item) => item.kind === 'file' && item.type.startsWith('image/'));
+    if (fileItem) {
+      event.preventDefault();
+      handleImageFile(fileItem.getAsFile());
+    }
+  });
+}
+
+function initEditor() {
+  if (!wysiwygEditor || !window.Quill) return;
+  quill = new window.Quill(wysiwygEditor, {
+    theme: 'snow',
+    placeholder: '내용을 입력하면 자동 저장됩니다',
+    modules: {
+      toolbar: editorToolbar,
+    },
+  });
+
+  quill.on('text-change', () => {
+    bodyInput.value = getEditorHtml();
+    handleAutosave();
+  });
+
+  setupImageUploadHandlers();
+}
+
 function schedulePreviewUpdate() {
   if (previewTimer) clearTimeout(previewTimer);
   previewStatus.textContent = '갱신 중...';
   previewTimer = setTimeout(() => {
     const title = titleInput.value || '제목 없음';
-    const body = bodyInput.value || '';
-    const markdown = `# ${title}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
-    previewPane.innerHTML = renderMarkdown(markdown);
+    const bodyHtml = getEditorHtml();
+    previewPane.innerHTML = buildPreviewHtml(title, bodyHtml || '');
     previewStatus.textContent = '실시간';
   }, 220);
 }
@@ -460,7 +688,8 @@ async function saveDraftToApi(title, body) {
 function handleAutosave() {
   if (autosaveTimer) clearTimeout(autosaveTimer);
   const title = titleInput.value;
-  const body = bodyInput.value;
+  const body = getEditorHtml();
+  bodyInput.value = body;
   autosaveState = {
     ...autosaveState,
     dirty: true,
@@ -474,21 +703,22 @@ function handleAutosave() {
 }
 
 titleInput.addEventListener('input', handleAutosave);
-bodyInput.addEventListener('input', handleAutosave);
 
 manualSaveBtn.addEventListener('click', () => {
-  saveDraftToApi(titleInput.value, bodyInput.value);
+  saveDraftToApi(titleInput.value, getEditorHtml());
 });
 
 retrySaveBtn.addEventListener('click', () => {
-  saveDraftToApi(titleInput.value, bodyInput.value);
+  saveDraftToApi(titleInput.value, getEditorHtml());
 });
 
 clearDraftBtn.addEventListener('click', () => {
   localStorage.removeItem(DRAFT_KEY);
   currentDraft = { id: null, title: '', body: '', savedAt: null, status: null };
   titleInput.value = '';
+  setEditorHtml('');
   bodyInput.value = '';
+  resetShareLinkPanel();
   autosaveState = {
     dirty: false,
     saving: false,
@@ -649,6 +879,7 @@ async function fetchPosts() {
 
 async function selectPost(post) {
   if (!post?.id) return;
+  resetShareLinkPanel();
   let next = { ...post };
 
   if (!post.body) {
@@ -671,7 +902,8 @@ async function selectPost(post) {
     publicUrl: next.publicUrl,
   });
   titleInput.value = next.title || '';
-  bodyInput.value = next.body || '';
+  setEditorHtml(next.body || '');
+  bodyInput.value = getEditorHtml();
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPosts();
 }
@@ -733,6 +965,7 @@ newPostBtn.addEventListener('click', async () => {
     currentPosts = allPosts.slice();
     postsView.page = 1;
     renderPosts();
+    resetShareLinkPanel();
     selectPost(newPost);
   } catch (error) {
     renderPostsState({
@@ -950,11 +1183,104 @@ function updateViewOnBlogButton() {
   viewOnBlogHint.textContent = '';
 }
 
+function formatExpiryLabel(expiresAt) {
+  const expiryDate = expiresAt ? new Date(expiresAt) : null;
+  const fallback = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  const date = expiryDate && !Number.isNaN(expiryDate.getTime()) ? expiryDate : fallback;
+  return `유효기간: ${date.toISOString().slice(0, 10)}`;
+}
+
+function resetShareLinkPanel() {
+  if (!shareLinkPanel) return;
+  shareLinkPanel.classList.add('hidden');
+  if (shareLinkInput) shareLinkInput.value = '';
+  if (shareLinkExpiry) shareLinkExpiry.textContent = '';
+  if (shareLinkMessage) shareLinkMessage.textContent = '';
+  if (openShareLinkBtn) {
+    openShareLinkBtn.removeAttribute('href');
+    openShareLinkBtn.classList.add('is-disabled');
+  }
+  currentShareLink = null;
+}
+
+function resolveShareLink(data, postId) {
+  const directLink =
+    data?.share_url
+    || data?.shareUrl
+    || data?.url
+    || data?.link
+    || data?.share_link
+    || null;
+  if (directLink) return directLink;
+  const token = data?.share_token || data?.token || null;
+  if (!token) return null;
+  const base = data?.share_base_url || window.location.origin;
+  return `${base.replace(/\/$/, '')}/posts/${postId}?share_token=${token}`;
+}
+
+function renderShareLinkPanel(link, expiresAt) {
+  if (!shareLinkPanel) return;
+  shareLinkPanel.classList.remove('hidden');
+  if (shareLinkInput) shareLinkInput.value = link || '';
+  if (shareLinkExpiry) shareLinkExpiry.textContent = formatExpiryLabel(expiresAt);
+  if (shareLinkMessage) {
+    shareLinkMessage.textContent = '공유 링크는 토큰 기반으로 30일간 유효합니다.';
+  }
+  if (openShareLinkBtn) {
+    openShareLinkBtn.href = link;
+    openShareLinkBtn.classList.toggle('is-disabled', !link);
+  }
+}
+
+async function createShareLink() {
+  if (!currentSession) {
+    setStatus(shareLinkMessage, '로그인이 필요합니다.', true);
+    return;
+  }
+  try {
+    if (shareLinkBtn) shareLinkBtn.disabled = true;
+    setStatus(shareLinkMessage, '공유 링크 생성 중...');
+    const postId = await ensurePostId(titleInput.value, getEditorHtml());
+    const response = await apiFetch(`/cms/posts/${postId}/share-link`, { method: 'POST' });
+    const link = resolveShareLink(response, postId);
+    if (!link) throw new Error('공유 링크를 받을 수 없습니다.');
+    const expiresAt = response?.expires_at || response?.expiresAt || response?.expires;
+    currentShareLink = link;
+    renderShareLinkPanel(link, expiresAt);
+    setStatus(shareLinkMessage, '공유 링크가 생성되었습니다. 복사하여 전달하세요.');
+  } catch (error) {
+    setStatus(shareLinkMessage, formatError(error), true);
+  } finally {
+    if (shareLinkBtn) shareLinkBtn.disabled = false;
+  }
+}
+
 if (viewOnBlogBtn) {
   viewOnBlogBtn.addEventListener('click', () => {
     const url = viewOnBlogBtn.dataset.url;
     if (!url) return;
     window.open(url, '_blank', 'noopener');
+  });
+}
+
+if (shareLinkBtn) {
+  shareLinkBtn.addEventListener('click', () => {
+    createShareLink();
+  });
+}
+
+if (copyShareLinkBtn) {
+  copyShareLinkBtn.addEventListener('click', async () => {
+    const link = shareLinkInput?.value || currentShareLink;
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      setStatus(shareLinkMessage, '공유 링크가 복사되었습니다.');
+    } catch (error) {
+      shareLinkInput.select();
+      document.execCommand('copy');
+      setStatus(shareLinkMessage, '공유 링크가 복사되었습니다.');
+    }
   });
 }
 
@@ -965,7 +1291,7 @@ publishBtn.addEventListener('click', async () => {
   }
 
   const title = titleInput.value.trim() || '제목 없음';
-  const body = bodyInput.value || '';
+  const body = getEditorHtml();
 
   try {
     setStatus(publishMessage, '발행 요청 중…');
@@ -1005,7 +1331,8 @@ printBtn.addEventListener('click', () => {
 
 function hydrateFromStorage() {
   titleInput.value = currentDraft.title || '';
-  bodyInput.value = currentDraft.body || '';
+  setEditorHtml(currentDraft.body || '');
+  bodyInput.value = getEditorHtml();
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPreview();
   renderSelectedPostMeta();
@@ -1014,6 +1341,8 @@ function hydrateFromStorage() {
   updateViewOnBlogButton();
 }
 
+syncRobotsMeta();
+initEditor();
 hydrateFromStorage();
 fetchSession();
 fetchPosts();
@@ -1023,4 +1352,8 @@ window.addEventListener('beforeunload', (event) => {
   if (!autosaveState.dirty) return;
   event.preventDefault();
   event.returnValue = '';
+});
+
+window.addEventListener('popstate', () => {
+  syncRobotsMeta();
 });

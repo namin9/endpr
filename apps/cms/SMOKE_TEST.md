@@ -53,3 +53,32 @@ Base URL: `https://cms.ourcompany.com`
    - In Deploy Job 이력, confirm recent items show status badges and timestamps.
    - Click a job; confirm 상세 영역에 상태/메시지/시간이 표시된다.
    - Force an error (network off) and confirm 에러 메시지가 표시된다.
+10. **Preview/Share 링크 생성**
+   - 비공개 게시글을 선택한다.
+   - **공유 링크 생성** 버튼을 클릭한다.
+   - Expect: 공유 링크가 표시되고 복사 버튼이 활성화된다.
+   - **링크 복사**를 눌러 클립보드에 복사되었는지 확인한다.
+   - **새 탭에서 열기**를 눌러 새 탭에서 링크가 열린다.
+11. **Preview 링크 noindex/nofollow**
+   - 생성된 Preview 링크로 접속한다.
+   - Expect: `<meta name="robots" content="noindex, nofollow">`가 head에 포함된다.
+12. **공개 게시글 noindex 제외**
+   - 공개 게시글의 기본 링크(share_token 없는 링크)로 접속한다.
+   - Expect: robots meta가 존재하지 않는다.
+13. **토큰 만료**
+   - 만료된 Preview 링크(30일 이후 또는 만료 처리된 링크)로 접속한다.
+   - Expect: 404 또는 유효하지 않다는 메시지가 표시된다.
+14. **텍스트 스타일링**
+   - 에디터에서 텍스트 크기/색상/정렬/굵기/기울임을 변경한다.
+   - 저장 후 미리보기 및 게시글 렌더링에 반영되는지 확인한다.
+15. **이미지 업로드**
+   - 이미지 업로드 버튼으로 파일을 선택한다.
+   - Expect: 이미지가 R2에 업로드되고 에디터와 미리보기에 표시된다.
+16. **하이퍼링크 추가**
+   - 텍스트를 선택하고 링크 버튼으로 URL을 삽입한다.
+   - Expect: 링크 클릭 시 새 탭에서 열리며 rel="noopener noreferrer"가 설정된다.
+17. **리스트/인용/코드 블록**
+   - 순서/비순서 리스트, 인용, 코드 블록을 추가한다.
+   - Expect: 미리보기에서 서식이 유지된다.
+18. **이미지 미리보기**
+   - 업로드된 이미지가 **업로드 미리보기** 영역에 표시되는지 확인한다.
