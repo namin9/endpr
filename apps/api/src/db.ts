@@ -263,12 +263,15 @@ export function mapPost(row: PostRow) {
   const publishedAt = toNumber((row as any).published_at ?? row.published_at);
   const createdAt = toNumber((row as any).created_at ?? row.created_at);
   const updatedAt = toNumber((row as any).updated_at ?? row.updated_at);
+  const body = row.body_md ?? '';
+  const bodyHtml = /<\s*[a-z][\s\S]*>/i.test(body) ? body : null;
   return {
     id: row.id,
     title: row.title,
     slug: row.slug,
     excerpt: row.excerpt,
     body_md: row.body_md,
+    body_html: bodyHtml,
     category_slug: row.category_slug,
     status: row.status,
     publish_at: publishAt,

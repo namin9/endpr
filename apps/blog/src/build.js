@@ -5,6 +5,8 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");
 const DIST_DIR = path.join(ROOT_DIR, "dist");
+const STYLES_SOURCE = path.join(ROOT_DIR, "src", "styles.css");
+const STYLES_DIST = path.join(DIST_DIR, "styles.css");
 const PAGE_SIZE = 10;
 const RESERVED_SLUGS = [
   "posts",
@@ -94,9 +96,13 @@ function renderMarkdown(md = "") {
   return paragraphs.map((p) => `<p>${p.replace(/\n/g, "<br />")}</p>`).join("\n");
 }
 
+function looksLikeHtml(value = "") {
+  return /<\s*[a-z][\s\S]*>/i.test(value);
+}
+
 function renderPostBody(post) {
   if (post.body_html) return post.body_html;
-  if (post.body_md) return renderMarkdown(post.body_md);
+  if (post.body_md) return looksLikeHtml(post.body_md) ? post.body_md : renderMarkdown(post.body_md);
   if (post.body) return renderMarkdown(post.body);
   return "<p></p>";
 }
@@ -109,6 +115,7 @@ function layoutHtml({ title, content, description = "" }) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(description)}" />
+  <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <header>
@@ -127,6 +134,11 @@ function layoutHtml({ title, content, description = "" }) {
 async function writeHtml(filePath, html) {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, html, "utf8");
+}
+
+async function writeStyles() {
+  const css = await readFile(STYLES_SOURCE, "utf8");
+  await writeFile(STYLES_DIST, css, "utf8");
 }
 
 function paginate(items, pageSize) {
@@ -456,6 +468,7 @@ async function build() {
   const posts = sortPosts(rawPosts);
 
   await resetDist();
+  await writeStyles();
   await generateHomepage(posts);
   await generatePostPages(posts);
   await generatePostListPages(posts);
