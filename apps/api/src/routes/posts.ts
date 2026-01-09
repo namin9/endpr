@@ -26,8 +26,22 @@ router.post('/cms/posts', async (c) => {
   if (!title) return c.json({ error: 'title is required' }, 400);
 
   const finalSlug = slug ? generateSlug(slug) : generateSlug(title);
-  const post = await createPost(c.env.DB, tenant.id, { title, slug: finalSlug, excerpt, body_md, category_slug });
-  return c.json({ post: mapPost(post) }, 201);
+  try {
+    const post = await createPost(c.env.DB, tenant.id, { title, slug: finalSlug, excerpt, body_md, category_slug });
+    return c.json({ post: mapPost(post) }, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    const isUniqueSlug = message.includes('UNIQUE constraint failed: posts.tenant_id, posts.slug');
+    if (isUniqueSlug && slug) {
+      return c.json({ error: 'slug already exists' }, 409);
+    }
+    if (isUniqueSlug) {
+      const retrySlug = generateSlug(`${finalSlug}-${crypto.randomUUID().slice(0, 8)}`);
+      const post = await createPost(c.env.DB, tenant.id, { title, slug: retrySlug, excerpt, body_md, category_slug });
+      return c.json({ post: mapPost(post) }, 201);
+    }
+    throw error;
+  }
 });
 
 router.get('/cms/posts', async (c) => {
