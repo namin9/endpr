@@ -174,7 +174,7 @@ Expected: **200** each with `posts` (published only), `post`, and `categories`. 
 
 ## 7) Upload image to R2 (authenticated session required)
 
-Use a local image file (the browser/clients already convert to WebP). The Worker must be configured with an R2 binding and a public base URL for that bucket (e.g., `https://assets.ourcompany.com`).
+Use a local image file (the browser/clients already convert to WebP). The Worker must be configured with an R2 binding; if `PUBLIC_R2_BASE_URL` is not set, the API will return a public URL on the Worker domain at `/assets/...`.
 
 ```powershell
 $UploadPath = "C:\\path\\to\\sample.webp"

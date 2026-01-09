@@ -25,9 +25,6 @@ function normalizeExtension(fileName: string | undefined, contentType: string | 
 
 router.post('/cms/uploads', async (c) => {
   const tenant = c.get('tenant');
-  if (!c.env.PUBLIC_R2_BASE_URL) {
-    return c.json({ error: 'PUBLIC_R2_BASE_URL is not configured' }, 500);
-  }
   const body = await c.req.parseBody();
   const upload = body.file ?? body.image;
   const file = Array.isArray(upload) ? upload[0] : upload;
@@ -46,10 +43,28 @@ router.post('/cms/uploads', async (c) => {
     },
   });
 
-  const baseUrl = c.env.PUBLIC_R2_BASE_URL.replace(/\/$/, '');
+  const fallbackBaseUrl = `${new URL(c.req.url).origin}/assets`;
+  const baseUrl = (c.env.PUBLIC_R2_BASE_URL || fallbackBaseUrl).replace(/\/$/, '');
   const url = `${baseUrl}/${key}`;
 
   return c.json({ key, url, content_type: file.type, size: file.size }, 201);
+});
+
+router.get('/assets/*', async (c) => {
+  const key = c.req.param('*');
+  if (!key) {
+    return c.json({ error: 'Object key is required' }, 400);
+  }
+
+  const object = await c.env.R2.get(key);
+  if (!object) {
+    return c.json({ error: 'Not Found' }, 404);
+  }
+
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('etag', object.httpEtag);
+  return new Response(object.body, { headers });
 });
 
 export default router;
