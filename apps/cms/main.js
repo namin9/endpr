@@ -267,6 +267,10 @@ function getBodyValue() {
   return bodyInput.value || '';
 }
 
+function isHtmlContent(value) {
+  return /<\/?[a-z][\s\S]*>/i.test(value || '');
+}
+
 function setBodyValue(value) {
   const nextValue = value || '';
   bodyInput.value = nextValue;
@@ -277,7 +281,7 @@ function setBodyValue(value) {
     suppressQuillChange = false;
     return;
   }
-  const html = renderMarkdown(nextValue);
+  const html = isHtmlContent(nextValue) ? nextValue : renderMarkdown(nextValue);
   quill.clipboard.dangerouslyPasteHTML(html);
   suppressQuillChange = false;
 }
@@ -403,8 +407,13 @@ function renderPreview() {
     previewPane.textContent = '작성된 내용이 없습니다.';
     return;
   }
-  const markdown = `# ${draft.title || '제목 없음'}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
-  previewPane.innerHTML = renderMarkdown(markdown);
+  const hasHtml = isHtmlContent(body);
+  if (hasHtml) {
+    previewPane.innerHTML = body;
+  } else {
+    const markdown = `# ${draft.title || '제목 없음'}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
+    previewPane.innerHTML = renderMarkdown(markdown);
+  }
   previewStatus.textContent = '실시간';
 }
 
@@ -554,8 +563,13 @@ function schedulePreviewUpdate() {
   previewTimer = setTimeout(() => {
     const title = titleInput.value || '제목 없음';
     const body = getBodyValue();
-    const markdown = `# ${title}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
-    previewPane.innerHTML = renderMarkdown(markdown);
+    const hasHtml = isHtmlContent(body);
+    if (hasHtml) {
+      previewPane.innerHTML = body;
+    } else {
+      const markdown = `# ${title}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
+      previewPane.innerHTML = renderMarkdown(markdown);
+    }
     previewStatus.textContent = '실시간';
   }, 220);
 }
