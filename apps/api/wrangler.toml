@@ -12,3 +12,6 @@ migrations_dir = "migrations"
 [[r2_buckets]]
 binding = "R2"
 bucket_name = "endpr-assets"
+
+[vars]
+PUBLIC_R2_BASE_URL = "https://assets.startuppr.kr"
