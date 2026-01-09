@@ -38,6 +38,8 @@ const viewModeButtons = Array.from(document.querySelectorAll('[data-view-mode]')
 const viewOnBlogBtn = document.getElementById('viewOnBlogBtn');
 const viewOnBlogHint = document.getElementById('viewOnBlogHint');
 const deployJobsScope = document.getElementById('deployJobsScope');
+const quillEditorEl = document.getElementById('quillEditor');
+const editorToolbar = document.getElementById('editorToolbar');
 
 let autosaveTimer = null;
 let previewTimer = null;
@@ -46,6 +48,8 @@ let currentSession = load(SESSION_KEY, null);
 let currentPosts = [];
 let allPosts = [];
 let currentJobs = load(JOB_KEY, []);
+let quill = null;
+let suppressQuillChange = false;
 let postsView = {
   search: '',
   status: 'all',
@@ -97,6 +101,51 @@ function formatClock(value) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return '-';
   return new Intl.DateTimeFormat('ko', { timeStyle: 'medium' }).format(parsed);
+}
+
+function initQuillEditor() {
+  if (!window.Quill || !quillEditorEl) return;
+
+  const Font = Quill.import('formats/font');
+  Font.whitelist = ['inter', 'serif', 'monospace'];
+  Quill.register(Font, true);
+
+  const SizeStyle = Quill.import('attributors/style/size');
+  SizeStyle.whitelist = ['12px', '14px', '16px', '18px', '24px', '32px'];
+  Quill.register(SizeStyle, true);
+
+  quill = new Quill(quillEditorEl, {
+    theme: 'snow',
+    modules: {
+      toolbar: editorToolbar,
+    },
+  });
+
+  document.querySelectorAll('.ql-toolbar button').forEach((button) => {
+    button.setAttribute('type', 'button');
+  });
+}
+
+function getBodyValue() {
+  if (quill) {
+    const html = quill.root.innerHTML;
+    return html === '<p><br></p>' ? '' : html;
+  }
+  return bodyInput.value || '';
+}
+
+function setBodyValue(value) {
+  const nextValue = value || '';
+  bodyInput.value = nextValue;
+  if (!quill) return;
+  suppressQuillChange = true;
+  if (!nextValue) {
+    quill.setText('');
+    suppressQuillChange = false;
+    return;
+  }
+  quill.clipboard.dangerouslyPasteHTML(nextValue);
+  suppressQuillChange = false;
 }
 
 function setStatus(el, message, isError = false) {
@@ -220,8 +269,14 @@ function renderPreview() {
     previewPane.textContent = '작성된 내용이 없습니다.';
     return;
   }
-  const markdown = `# ${draft.title || '제목 없음'}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
-  previewPane.innerHTML = renderMarkdown(markdown);
+  if (quill) {
+    const title = escapeHtml(draft.title || '제목 없음');
+    const bodyHtml = body || '<p>본문을 입력하면 미리보기가 표시됩니다.</p>';
+    previewPane.innerHTML = `<h1>${title}</h1>${bodyHtml}`;
+  } else {
+    const markdown = `# ${draft.title || '제목 없음'}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
+    previewPane.innerHTML = renderMarkdown(markdown);
+  }
   previewStatus.textContent = '실시간';
 }
 
@@ -336,9 +391,14 @@ function schedulePreviewUpdate() {
   previewStatus.textContent = '갱신 중...';
   previewTimer = setTimeout(() => {
     const title = titleInput.value || '제목 없음';
-    const body = bodyInput.value || '';
-    const markdown = `# ${title}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
-    previewPane.innerHTML = renderMarkdown(markdown);
+    const body = getBodyValue();
+    if (quill) {
+      const bodyHtml = body || '<p>본문을 입력하면 미리보기가 표시됩니다.</p>';
+      previewPane.innerHTML = `<h1>${escapeHtml(title)}</h1>${bodyHtml}`;
+    } else {
+      const markdown = `# ${title}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
+      previewPane.innerHTML = renderMarkdown(markdown);
+    }
     previewStatus.textContent = '실시간';
   }, 220);
 }
@@ -460,7 +520,7 @@ async function saveDraftToApi(title, body) {
 function handleAutosave() {
   if (autosaveTimer) clearTimeout(autosaveTimer);
   const title = titleInput.value;
-  const body = bodyInput.value;
+  const body = getBodyValue();
   autosaveState = {
     ...autosaveState,
     dirty: true,
@@ -476,19 +536,30 @@ function handleAutosave() {
 titleInput.addEventListener('input', handleAutosave);
 bodyInput.addEventListener('input', handleAutosave);
 
+if (quillEditorEl) {
+  initQuillEditor();
+  if (quill) {
+    quill.on('text-change', () => {
+      if (suppressQuillChange) return;
+      bodyInput.value = getBodyValue();
+      handleAutosave();
+    });
+  }
+}
+
 manualSaveBtn.addEventListener('click', () => {
-  saveDraftToApi(titleInput.value, bodyInput.value);
+  saveDraftToApi(titleInput.value, getBodyValue());
 });
 
 retrySaveBtn.addEventListener('click', () => {
-  saveDraftToApi(titleInput.value, bodyInput.value);
+  saveDraftToApi(titleInput.value, getBodyValue());
 });
 
 clearDraftBtn.addEventListener('click', () => {
   localStorage.removeItem(DRAFT_KEY);
   currentDraft = { id: null, title: '', body: '', savedAt: null, status: null };
   titleInput.value = '';
-  bodyInput.value = '';
+  setBodyValue('');
   autosaveState = {
     dirty: false,
     saving: false,
@@ -671,7 +742,7 @@ async function selectPost(post) {
     publicUrl: next.publicUrl,
   });
   titleInput.value = next.title || '';
-  bodyInput.value = next.body || '';
+  setBodyValue(next.body || '');
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPosts();
 }
@@ -965,7 +1036,7 @@ publishBtn.addEventListener('click', async () => {
   }
 
   const title = titleInput.value.trim() || '제목 없음';
-  const body = bodyInput.value || '';
+  const body = getBodyValue();
 
   try {
     setStatus(publishMessage, '발행 요청 중…');
@@ -1005,7 +1076,7 @@ printBtn.addEventListener('click', () => {
 
 function hydrateFromStorage() {
   titleInput.value = currentDraft.title || '';
-  bodyInput.value = currentDraft.body || '';
+  setBodyValue(currentDraft.body || '');
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPreview();
   renderSelectedPostMeta();

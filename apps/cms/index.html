@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow" />
     <title>GPT-CMS Editor v1</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -109,8 +110,44 @@
           </label>
           <div class="editor-split">
             <label class="field editor-pane">
-              <span>Markdown</span>
-              <textarea id="bodyInput" rows="18" placeholder="내용을 입력하면 자동 저장됩니다"></textarea>
+              <span>본문</span>
+              <div class="quill-wrapper">
+                <div id="editorToolbar" class="quill-toolbar">
+                  <span class="ql-formats">
+                    <select class="ql-font">
+                      <option selected></option>
+                      <option value="inter">Inter</option>
+                      <option value="serif">Serif</option>
+                      <option value="monospace">Monospace</option>
+                    </select>
+                    <select class="ql-size">
+                      <option value="12px">12</option>
+                      <option value="14px">14</option>
+                      <option value="16px" selected>16</option>
+                      <option value="18px">18</option>
+                      <option value="24px">24</option>
+                      <option value="32px">32</option>
+                    </select>
+                  </span>
+                  <span class="ql-formats">
+                    <select class="ql-color"></select>
+                    <select class="ql-align"></select>
+                  </span>
+                  <span class="ql-formats">
+                    <button class="ql-bold"></button>
+                    <button class="ql-italic"></button>
+                    <button class="ql-underline"></button>
+                    <button class="ql-link"></button>
+                  </span>
+                </div>
+                <div id="quillEditor" class="quill-editor"></div>
+              </div>
+              <textarea
+                id="bodyInput"
+                rows="18"
+                class="editor-textarea--hidden"
+                placeholder="내용을 입력하면 자동 저장됩니다"
+              ></textarea>
             </label>
             <div class="preview-pane">
               <div class="preview-header">
@@ -161,6 +198,7 @@
       </aside>
     </main>
 
+    <script src="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.min.js"></script>
     <script src="main.js"></script>
   </body>
 </html>
