@@ -544,6 +544,12 @@ function setupImageUploadHandlers() {
 
 function initEditor() {
   if (!wysiwygEditor || !window.Quill) return;
+  const Font = window.Quill.import('formats/font');
+  Font.whitelist = ['sans-serif', 'serif', 'monospace'];
+  window.Quill.register(Font, true);
+  const Size = window.Quill.import('formats/size');
+  Size.whitelist = ['small', 'normal', 'large', 'huge'];
+  window.Quill.register(Size, true);
   quill = new window.Quill(wysiwygEditor, {
     theme: 'snow',
     placeholder: '내용을 입력하면 자동 저장됩니다',

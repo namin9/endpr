@@ -178,6 +178,8 @@ body {
   border-radius: 12px 12px 0 0;
   background: rgba(255, 255, 255, 0.04);
   padding: 8px;
+  position: relative;
+  z-index: 3;
 }
 
 .editor-toolbar .ql-formats {
@@ -191,6 +193,8 @@ body {
   min-height: 260px;
   background: rgba(255, 255, 255, 0.02);
   color: var(--text);
+  position: relative;
+  z-index: 1;
 }
 
 .ql-snow .ql-stroke {
@@ -208,6 +212,15 @@ body {
 .ql-snow .ql-picker-options {
   background: var(--card);
   border: 1px solid var(--border);
+  z-index: 10;
+}
+
+.ql-snow .ql-picker-label {
+  pointer-events: auto;
+}
+
+.ql-snow .ql-picker-options {
+  pointer-events: auto;
 }
 
 .ql-snow .ql-picker.ql-expanded .ql-picker-label {
@@ -242,6 +255,10 @@ body {
   min-height: 260px;
   color: var(--text);
   font-family: inherit;
+}
+
+.wysiwyg-editor .ql-container {
+  overflow: visible;
 }
 
 .wysiwyg-editor .ql-editor.ql-blank::before {
