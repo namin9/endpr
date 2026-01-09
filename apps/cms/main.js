@@ -153,10 +153,116 @@ function initQuillEditor() {
   }
 }
 
+function pickBlockAttributes(attributes = {}) {
+  const blockAttributes = {};
+  ['header', 'list', 'blockquote', 'code-block'].forEach((key) => {
+    if (attributes[key]) {
+      blockAttributes[key] = attributes[key];
+    }
+  });
+  return blockAttributes;
+}
+
+function formatInlineMarkdown(text, attributes = {}) {
+  if (!text) return '';
+  let output = text;
+  if (attributes.code) {
+    return `\`${output.replace(/`/g, '\\`')}\``;
+  }
+  if (attributes.bold && attributes.italic) {
+    output = `***${output}***`;
+  } else if (attributes.bold) {
+    output = `**${output}**`;
+  } else if (attributes.italic) {
+    output = `*${output}*`;
+  }
+  if (attributes.link) {
+    output = `[${output}](${attributes.link})`;
+  }
+  return output;
+}
+
+function quillDeltaToMarkdown(delta) {
+  const lines = [];
+  let currentLine = [];
+
+  const pushLine = (attributes = {}) => {
+    lines.push({
+      segments: currentLine.slice(),
+      attrs: pickBlockAttributes(attributes),
+    });
+    currentLine = [];
+  };
+
+  (delta?.ops || []).forEach((op) => {
+    if (typeof op.insert === 'string') {
+      const parts = op.insert.split('\n');
+      const attributes = op.attributes || {};
+      const inlineAttributes = { ...attributes };
+      delete inlineAttributes.header;
+      delete inlineAttributes.list;
+      delete inlineAttributes.blockquote;
+      delete inlineAttributes['code-block'];
+      parts.forEach((part, index) => {
+        if (part) {
+          currentLine.push({ text: part, attrs: inlineAttributes });
+        }
+        if (index < parts.length - 1) {
+          pushLine(attributes);
+        }
+      });
+    } else if (op.insert?.image) {
+      currentLine.push({ text: `![image](${op.insert.image})`, attrs: {} });
+    }
+  });
+
+  if (currentLine.length) {
+    pushLine();
+  }
+
+  const output = [];
+  let inCodeBlock = false;
+
+  lines.forEach((line) => {
+    const text = line.segments.map((segment) => formatInlineMarkdown(segment.text, segment.attrs)).join('');
+    if (line.attrs['code-block']) {
+      if (!inCodeBlock) {
+        output.push('```');
+        inCodeBlock = true;
+      }
+      output.push(line.segments.map((segment) => segment.text).join(''));
+      return;
+    }
+    if (inCodeBlock) {
+      output.push('```');
+      inCodeBlock = false;
+    }
+    if (line.attrs.header) {
+      output.push(`${'#'.repeat(line.attrs.header)} ${text}`);
+      return;
+    }
+    if (line.attrs.list) {
+      const bullet = line.attrs.list === 'ordered' ? '1.' : '-';
+      output.push(`${bullet} ${text}`);
+      return;
+    }
+    if (line.attrs.blockquote) {
+      output.push(`> ${text}`);
+      return;
+    }
+    output.push(text);
+  });
+
+  if (inCodeBlock) {
+    output.push('```');
+  }
+
+  return output.join('\n');
+}
+
 function getBodyValue() {
   if (quill) {
-    const html = quill.root.innerHTML;
-    return html === '<p><br></p>' ? '' : html;
+    return quillDeltaToMarkdown(quill.getContents());
   }
   return bodyInput.value || '';
 }
@@ -171,7 +277,8 @@ function setBodyValue(value) {
     suppressQuillChange = false;
     return;
   }
-  quill.clipboard.dangerouslyPasteHTML(nextValue);
+  const html = renderMarkdown(nextValue);
+  quill.clipboard.dangerouslyPasteHTML(html);
   suppressQuillChange = false;
 }
 
@@ -296,14 +403,8 @@ function renderPreview() {
     previewPane.textContent = '작성된 내용이 없습니다.';
     return;
   }
-  if (quill) {
-    const title = escapeHtml(draft.title || '제목 없음');
-    const bodyHtml = body || '<p>본문을 입력하면 미리보기가 표시됩니다.</p>';
-    previewPane.innerHTML = `<h1>${title}</h1>${bodyHtml}`;
-  } else {
-    const markdown = `# ${draft.title || '제목 없음'}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
-    previewPane.innerHTML = renderMarkdown(markdown);
-  }
+  const markdown = `# ${draft.title || '제목 없음'}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
+  previewPane.innerHTML = renderMarkdown(markdown);
   previewStatus.textContent = '실시간';
 }
 
@@ -319,12 +420,16 @@ function escapeHtml(value) {
 function sanitizeLink(url) {
   if (!url) return '#';
   const trimmed = url.trim();
-  if (/^(https?:|mailto:|#|\/)/i.test(trimmed)) return trimmed;
+  if (/^(https?:|mailto:|#|\/|data:image\/)/i.test(trimmed)) return trimmed;
   return '#';
 }
 
 function applyInlineMarkdown(text) {
   let output = text;
+  output = output.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => {
+    const safeUrl = sanitizeLink(url);
+    return `<img src="${safeUrl}" alt="${alt}" />`;
+  });
   output = output.replace(/`([^`]+)`/g, '<code>$1</code>');
   output = output.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   output = output.replace(/\*([^*]+)\*/g, '<em>$1</em>');
@@ -342,6 +447,7 @@ function renderMarkdown(markdown) {
   let inCode = false;
   let codeBuffer = [];
   let listBuffer = [];
+  let orderedListBuffer = [];
   let paragraphBuffer = [];
 
   const flushParagraph = () => {
@@ -356,6 +462,12 @@ function renderMarkdown(markdown) {
     listBuffer = [];
   };
 
+  const flushOrderedList = () => {
+    if (!orderedListBuffer.length) return;
+    html += `<ol>${orderedListBuffer.map((item) => `<li>${item}</li>`).join('')}</ol>`;
+    orderedListBuffer = [];
+  };
+
   lines.forEach((rawLine) => {
     const line = rawLine.trimEnd();
     if (line.startsWith('```')) {
@@ -366,6 +478,7 @@ function renderMarkdown(markdown) {
       } else {
         flushParagraph();
         flushList();
+        flushOrderedList();
         inCode = true;
       }
       return;
@@ -379,6 +492,7 @@ function renderMarkdown(markdown) {
     if (!line.trim()) {
       flushParagraph();
       flushList();
+      flushOrderedList();
       return;
     }
 
@@ -386,25 +500,46 @@ function renderMarkdown(markdown) {
     if (headingMatch) {
       flushParagraph();
       flushList();
+      flushOrderedList();
       const level = headingMatch[1].length;
       const content = applyInlineMarkdown(headingMatch[2]);
       html += `<h${level}>${content}</h${level}>`;
       return;
     }
 
+    const orderedMatch = line.match(/^\d+\.\s+(.+)/);
+    if (orderedMatch) {
+      flushParagraph();
+      flushList();
+      orderedListBuffer.push(applyInlineMarkdown(orderedMatch[1]));
+      return;
+    }
+
     const listMatch = line.match(/^[-*]\s+(.+)/);
     if (listMatch) {
       flushParagraph();
+      flushOrderedList();
       listBuffer.push(applyInlineMarkdown(listMatch[1]));
       return;
     }
 
+    const blockquoteMatch = line.match(/^>\s+(.+)/);
+    if (blockquoteMatch) {
+      flushParagraph();
+      flushList();
+      flushOrderedList();
+      html += `<blockquote>${applyInlineMarkdown(blockquoteMatch[1])}</blockquote>`;
+      return;
+    }
+
     flushList();
+    flushOrderedList();
     paragraphBuffer.push(applyInlineMarkdown(line));
   });
 
   flushParagraph();
   flushList();
+  flushOrderedList();
 
   if (inCode) {
     html += `<pre><code>${codeBuffer.join('\n')}</code></pre>`;
@@ -419,13 +554,8 @@ function schedulePreviewUpdate() {
   previewTimer = setTimeout(() => {
     const title = titleInput.value || '제목 없음';
     const body = getBodyValue();
-    if (quill) {
-      const bodyHtml = body || '<p>본문을 입력하면 미리보기가 표시됩니다.</p>';
-      previewPane.innerHTML = `<h1>${escapeHtml(title)}</h1>${bodyHtml}`;
-    } else {
-      const markdown = `# ${title}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
-      previewPane.innerHTML = renderMarkdown(markdown);
-    }
+    const markdown = `# ${title}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
+    previewPane.innerHTML = renderMarkdown(markdown);
     previewStatus.textContent = '실시간';
   }, 220);
 }
