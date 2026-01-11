@@ -59,7 +59,7 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
     const parsed = JSON.parse(raw);
     return {
       posts: parsed.posts || [],
-      categories: [],
+      categories: parsed.categories || [],
     };
   }
 
@@ -71,7 +71,15 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
     throw new Error("Invalid /build/posts response shape");
   }
 
-  return { posts: postsIndex, categories: [] };
+  const categoriesResp = await fetchJson(`${apiBase}/build/categories`, buildToken);
+  const categoriesIndex = Array.isArray(categoriesResp)
+    ? categoriesResp
+    : categoriesResp.categories ?? [];
+  if (!Array.isArray(categoriesIndex)) {
+    throw new Error("Invalid /build/categories response shape");
+  }
+
+  return { posts: postsIndex, categories: categoriesIndex };
 }
 
 async function resetDist() {
@@ -318,6 +326,13 @@ function renderPostBody(post) {
   if (post.body_md) return renderMarkdown(post.body_md);
   if (post.body) return renderMarkdown(post.body);
   return "<p></p>";
+}
+
+function summarizeBodyFormat(post) {
+  if (post.body_html) return "body_html";
+  if (post.body_md) return "body_md";
+  if (post.body) return "body";
+  return "empty";
 }
 
 function layoutHtml({ title, content, description = "" }) {
@@ -671,6 +686,16 @@ async function build() {
     buildToken,
     useMock,
   });
+
+  const bodySummary = rawPosts.reduce(
+    (acc, post) => {
+      const key = summarizeBodyFormat(post);
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    },
+    {}
+  );
+  console.log("Post body format summary:", bodySummary);
 
   const posts = sortPosts(rawPosts);
 

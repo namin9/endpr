@@ -133,22 +133,47 @@ function initQuillEditor() {
     imageInput.className = 'editor-textarea--hidden';
     document.body.appendChild(imageInput);
 
+    const uploadImage = async (file) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await fetch(buildUrl('/cms/uploads'), {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok || !data?.url) {
+        const message = data?.error || `Upload failed (${response.status})`;
+        throw new Error(message);
+      }
+      return data.url;
+    };
+
     toolbar.addHandler('image', () => {
       imageInput.value = '';
       imageInput.click();
     });
 
-    imageInput.addEventListener('change', () => {
+    imageInput.addEventListener('change', async () => {
       const file = imageInput.files && imageInput.files[0];
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
+      try {
+        const url = await uploadImage(file);
         const range = quill.getSelection(true);
         const index = range ? range.index : quill.getLength();
-        quill.insertEmbed(index, 'image', reader.result, 'user');
+        quill.insertEmbed(index, 'image', url, 'user');
         quill.setSelection(index + 1, 0);
-      };
-      reader.readAsDataURL(file);
+      } catch (error) {
+        console.error('Image upload failed, falling back to data URL', error);
+        const reader = new FileReader();
+        reader.onload = () => {
+          const range = quill.getSelection(true);
+          const index = range ? range.index : quill.getLength();
+          quill.insertEmbed(index, 'image', reader.result, 'user');
+          quill.setSelection(index + 1, 0);
+        };
+        reader.readAsDataURL(file);
+      }
     });
   }
 }
