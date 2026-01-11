@@ -239,12 +239,81 @@ export async function listPublishedPosts(db: D1Database, tenantId: string): Prom
   return (results ?? []) as PostRow[];
 }
 
+export async function listDueScheduledPosts(db: D1Database, nowSeconds: number): Promise<PostRow[]> {
+  const { results } = await db
+    .prepare(`SELECT * FROM posts WHERE status = 'scheduled' AND publish_at IS NOT NULL AND publish_at <= ? ORDER BY publish_at ASC`)
+    .bind(nowSeconds)
+    .all<PostRow>();
+  return (results ?? []) as PostRow[];
+}
+
 export async function listEnabledCategories(db: D1Database, tenantId: string): Promise<CategoryRow[]> {
   const { results } = await db
     .prepare(`SELECT slug, name, enabled, order_index, tenant_id, id FROM categories WHERE tenant_id = ? AND enabled = 1 ORDER BY order_index ASC`)
     .bind(tenantId)
     .all<CategoryRow>();
   return (results ?? []) as CategoryRow[];
+}
+
+export async function listCategories(db: D1Database, tenantId: string): Promise<CategoryRow[]> {
+  const { results } = await db
+    .prepare(`SELECT slug, name, enabled, order_index, tenant_id, id FROM categories WHERE tenant_id = ? ORDER BY order_index ASC`)
+    .bind(tenantId)
+    .all<CategoryRow>();
+  return (results ?? []) as CategoryRow[];
+}
+
+export async function createCategory(
+  db: D1Database,
+  tenantId: string,
+  input: Pick<CategoryRow, 'slug' | 'name' | 'enabled' | 'order_index'>
+): Promise<CategoryRow> {
+  const id = uuidv4();
+  await db
+    .prepare(
+      `INSERT INTO categories (id, tenant_id, slug, name, enabled, order_index)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .bind(id, tenantId, input.slug, input.name, input.enabled, input.order_index)
+    .run();
+  const created = await db
+    .prepare('SELECT slug, name, enabled, order_index, tenant_id, id FROM categories WHERE id = ? AND tenant_id = ?')
+    .bind(id, tenantId)
+    .first<CategoryRow>();
+  if (!created) throw new Error('Failed to create category');
+  return created;
+}
+
+export async function updateCategory(
+  db: D1Database,
+  tenantId: string,
+  id: string,
+  updates: Partial<Pick<CategoryRow, 'slug' | 'name' | 'enabled' | 'order_index'>>
+): Promise<CategoryRow> {
+  await db
+    .prepare(
+      `UPDATE categories SET
+        slug = COALESCE(?, slug),
+        name = COALESCE(?, name),
+        enabled = COALESCE(?, enabled),
+        order_index = COALESCE(?, order_index)
+       WHERE id = ? AND tenant_id = ?`
+    )
+    .bind(
+      updates.slug ?? null,
+      updates.name ?? null,
+      updates.enabled ?? null,
+      updates.order_index ?? null,
+      id,
+      tenantId
+    )
+    .run();
+  const updated = await db
+    .prepare('SELECT slug, name, enabled, order_index, tenant_id, id FROM categories WHERE id = ? AND tenant_id = ?')
+    .bind(id, tenantId)
+    .first<CategoryRow>();
+  if (!updated) throw new Error('Failed to update category');
+  return updated;
 }
 
 export function toNumber(value: unknown): number | null {
@@ -294,14 +363,19 @@ export function mapDeployJob(row: DeployJobRow) {
   };
 }
 
+const SLUG_REGEX = /^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u;
+
 export function generateSlug(input: string | undefined | null): string {
-  const safe = (input ?? '').toLowerCase().trim();
+  const safe = (input ?? '')
+    .normalize('NFC')
+    .toLowerCase()
+    .trim();
   const base = safe
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .replace(/-{2,}/g, '-');
+    .replace(/[^\p{L}\p{N}\s-]+/gu, '')
+    .replace(/[\s_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (base && SLUG_REGEX.test(base)) return base;
   if (base) return base;
   return `post-${uuidv4()}`;
 }

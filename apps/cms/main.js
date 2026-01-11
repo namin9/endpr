@@ -15,6 +15,10 @@ const clearDraftBtn = document.getElementById('clearDraftBtn');
 const publishBtn = document.getElementById('publishBtn');
 const publishMessage = document.getElementById('publishMessage');
 const publishLink = document.getElementById('publishLink');
+const shareLinkBtn = document.getElementById('shareLinkBtn');
+const revokeShareBtn = document.getElementById('revokeShareBtn');
+const shareLinkStatus = document.getElementById('shareLinkStatus');
+const shareLinkValue = document.getElementById('shareLinkValue');
 const deployJobsEl = document.getElementById('deployJobs');
 const previewPane = document.getElementById('previewPane');
 const previewStatus = document.getElementById('previewStatus');
@@ -38,6 +42,14 @@ const viewModeButtons = Array.from(document.querySelectorAll('[data-view-mode]')
 const viewOnBlogBtn = document.getElementById('viewOnBlogBtn');
 const viewOnBlogHint = document.getElementById('viewOnBlogHint');
 const deployJobsScope = document.getElementById('deployJobsScope');
+const quillEditorEl = document.getElementById('quillEditor');
+const editorToolbar = document.getElementById('editorToolbar');
+const categoryForm = document.getElementById('categoryForm');
+const categoryNameInput = document.getElementById('categoryNameInput');
+const categorySlugInput = document.getElementById('categorySlugInput');
+const categoriesStatus = document.getElementById('categoriesStatus');
+const categoriesList = document.getElementById('categoriesList');
+const refreshCategoriesBtn = document.getElementById('refreshCategoriesBtn');
 
 let autosaveTimer = null;
 let previewTimer = null;
@@ -46,6 +58,9 @@ let currentSession = load(SESSION_KEY, null);
 let currentPosts = [];
 let allPosts = [];
 let currentJobs = load(JOB_KEY, []);
+let currentCategories = [];
+let quill = null;
+let suppressQuillChange = false;
 let postsView = {
   search: '',
   status: 'all',
@@ -97,6 +112,207 @@ function formatClock(value) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return '-';
   return new Intl.DateTimeFormat('ko', { timeStyle: 'medium' }).format(parsed);
+}
+
+function initQuillEditor() {
+  if (!window.Quill || !quillEditorEl) return;
+
+  const Font = Quill.import('formats/font');
+  Font.whitelist = ['inter', 'serif', 'monospace'];
+  Quill.register(Font, true);
+
+  const SizeStyle = Quill.import('attributors/style/size');
+  SizeStyle.whitelist = ['12px', '14px', '16px', '18px', '24px', '32px'];
+  Quill.register(SizeStyle, true);
+
+  quill = new Quill(quillEditorEl, {
+    theme: 'snow',
+    modules: {
+      toolbar: editorToolbar,
+    },
+  });
+
+  document.querySelectorAll('.ql-toolbar button').forEach((button) => {
+    button.setAttribute('type', 'button');
+  });
+
+  const toolbar = quill.getModule('toolbar');
+  if (toolbar) {
+    const imageInput = document.createElement('input');
+    imageInput.type = 'file';
+    imageInput.accept = 'image/*';
+    imageInput.className = 'editor-textarea--hidden';
+    document.body.appendChild(imageInput);
+
+    const uploadImage = async (file) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await fetch(buildUrl('/cms/uploads'), {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok || !data?.url) {
+        const message = data?.error || `Upload failed (${response.status})`;
+        throw new Error(message);
+      }
+      return data.url;
+    };
+
+    toolbar.addHandler('image', () => {
+      imageInput.value = '';
+      imageInput.click();
+    });
+
+    imageInput.addEventListener('change', async () => {
+      const file = imageInput.files && imageInput.files[0];
+      if (!file) return;
+      try {
+        const url = await uploadImage(file);
+        const range = quill.getSelection(true);
+        const index = range ? range.index : quill.getLength();
+        quill.insertEmbed(index, 'image', url, 'user');
+        quill.setSelection(index + 1, 0);
+      } catch (error) {
+        console.error('Image upload failed', error);
+        setStatus(autosaveStatus, `이미지 업로드 실패: ${error?.message || '다시 시도해 주세요.'}`, true);
+      }
+    });
+  }
+}
+
+function pickBlockAttributes(attributes = {}) {
+  const blockAttributes = {};
+  ['header', 'list', 'blockquote', 'code-block'].forEach((key) => {
+    if (attributes[key]) {
+      blockAttributes[key] = attributes[key];
+    }
+  });
+  return blockAttributes;
+}
+
+function formatInlineMarkdown(text, attributes = {}) {
+  if (!text) return '';
+  let output = text;
+  if (attributes.code) {
+    return `\`${output.replace(/`/g, '\\`')}\``;
+  }
+  if (attributes.bold && attributes.italic) {
+    output = `***${output}***`;
+  } else if (attributes.bold) {
+    output = `**${output}**`;
+  } else if (attributes.italic) {
+    output = `*${output}*`;
+  }
+  if (attributes.link) {
+    output = `[${output}](${attributes.link})`;
+  }
+  return output;
+}
+
+function quillDeltaToMarkdown(delta) {
+  const lines = [];
+  let currentLine = [];
+
+  const pushLine = (attributes = {}) => {
+    lines.push({
+      segments: currentLine.slice(),
+      attrs: pickBlockAttributes(attributes),
+    });
+    currentLine = [];
+  };
+
+  (delta?.ops || []).forEach((op) => {
+    if (typeof op.insert === 'string') {
+      const parts = op.insert.split('\n');
+      const attributes = op.attributes || {};
+      const inlineAttributes = { ...attributes };
+      delete inlineAttributes.header;
+      delete inlineAttributes.list;
+      delete inlineAttributes.blockquote;
+      delete inlineAttributes['code-block'];
+      parts.forEach((part, index) => {
+        if (part) {
+          currentLine.push({ text: part, attrs: inlineAttributes });
+        }
+        if (index < parts.length - 1) {
+          pushLine(attributes);
+        }
+      });
+    } else if (op.insert?.image) {
+      currentLine.push({ text: `![image](${op.insert.image})`, attrs: {} });
+    }
+  });
+
+  if (currentLine.length) {
+    pushLine();
+  }
+
+  const output = [];
+  let inCodeBlock = false;
+
+  lines.forEach((line) => {
+    const text = line.segments.map((segment) => formatInlineMarkdown(segment.text, segment.attrs)).join('');
+    if (line.attrs['code-block']) {
+      if (!inCodeBlock) {
+        output.push('```');
+        inCodeBlock = true;
+      }
+      output.push(line.segments.map((segment) => segment.text).join(''));
+      return;
+    }
+    if (inCodeBlock) {
+      output.push('```');
+      inCodeBlock = false;
+    }
+    if (line.attrs.header) {
+      output.push(`${'#'.repeat(line.attrs.header)} ${text}`);
+      return;
+    }
+    if (line.attrs.list) {
+      const bullet = line.attrs.list === 'ordered' ? '1.' : '-';
+      output.push(`${bullet} ${text}`);
+      return;
+    }
+    if (line.attrs.blockquote) {
+      output.push(`> ${text}`);
+      return;
+    }
+    output.push(text);
+  });
+
+  if (inCodeBlock) {
+    output.push('```');
+  }
+
+  return output.join('\n');
+}
+
+function getBodyValue() {
+  if (quill) {
+    return quillDeltaToMarkdown(quill.getContents());
+  }
+  return bodyInput.value || '';
+}
+
+function isHtmlContent(value) {
+  return /<\/?[a-z][\s\S]*>/i.test(value || '');
+}
+
+function setBodyValue(value) {
+  const nextValue = value || '';
+  bodyInput.value = nextValue;
+  if (!quill) return;
+  suppressQuillChange = true;
+  if (!nextValue) {
+    quill.setText('');
+    suppressQuillChange = false;
+    return;
+  }
+  const html = isHtmlContent(nextValue) ? nextValue : renderMarkdown(nextValue);
+  quill.clipboard.dangerouslyPasteHTML(html);
+  suppressQuillChange = false;
 }
 
 function setStatus(el, message, isError = false) {
@@ -220,8 +436,13 @@ function renderPreview() {
     previewPane.textContent = '작성된 내용이 없습니다.';
     return;
   }
-  const markdown = `# ${draft.title || '제목 없음'}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
-  previewPane.innerHTML = renderMarkdown(markdown);
+  const hasHtml = isHtmlContent(body);
+  if (hasHtml) {
+    previewPane.innerHTML = body;
+  } else {
+    const markdown = `# ${draft.title || '제목 없음'}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
+    previewPane.innerHTML = renderMarkdown(markdown);
+  }
   previewStatus.textContent = '실시간';
 }
 
@@ -237,12 +458,16 @@ function escapeHtml(value) {
 function sanitizeLink(url) {
   if (!url) return '#';
   const trimmed = url.trim();
-  if (/^(https?:|mailto:|#|\/)/i.test(trimmed)) return trimmed;
+  if (/^(https?:|mailto:|#|\/|data:image\/)/i.test(trimmed)) return trimmed;
   return '#';
 }
 
 function applyInlineMarkdown(text) {
   let output = text;
+  output = output.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => {
+    const safeUrl = sanitizeLink(url);
+    return `<img src="${safeUrl}" alt="${alt}" />`;
+  });
   output = output.replace(/`([^`]+)`/g, '<code>$1</code>');
   output = output.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   output = output.replace(/\*([^*]+)\*/g, '<em>$1</em>');
@@ -260,6 +485,7 @@ function renderMarkdown(markdown) {
   let inCode = false;
   let codeBuffer = [];
   let listBuffer = [];
+  let orderedListBuffer = [];
   let paragraphBuffer = [];
 
   const flushParagraph = () => {
@@ -274,6 +500,12 @@ function renderMarkdown(markdown) {
     listBuffer = [];
   };
 
+  const flushOrderedList = () => {
+    if (!orderedListBuffer.length) return;
+    html += `<ol>${orderedListBuffer.map((item) => `<li>${item}</li>`).join('')}</ol>`;
+    orderedListBuffer = [];
+  };
+
   lines.forEach((rawLine) => {
     const line = rawLine.trimEnd();
     if (line.startsWith('```')) {
@@ -284,6 +516,7 @@ function renderMarkdown(markdown) {
       } else {
         flushParagraph();
         flushList();
+        flushOrderedList();
         inCode = true;
       }
       return;
@@ -297,6 +530,7 @@ function renderMarkdown(markdown) {
     if (!line.trim()) {
       flushParagraph();
       flushList();
+      flushOrderedList();
       return;
     }
 
@@ -304,25 +538,46 @@ function renderMarkdown(markdown) {
     if (headingMatch) {
       flushParagraph();
       flushList();
+      flushOrderedList();
       const level = headingMatch[1].length;
       const content = applyInlineMarkdown(headingMatch[2]);
       html += `<h${level}>${content}</h${level}>`;
       return;
     }
 
+    const orderedMatch = line.match(/^\d+\.\s+(.+)/);
+    if (orderedMatch) {
+      flushParagraph();
+      flushList();
+      orderedListBuffer.push(applyInlineMarkdown(orderedMatch[1]));
+      return;
+    }
+
     const listMatch = line.match(/^[-*]\s+(.+)/);
     if (listMatch) {
       flushParagraph();
+      flushOrderedList();
       listBuffer.push(applyInlineMarkdown(listMatch[1]));
       return;
     }
 
+    const blockquoteMatch = line.match(/^>\s+(.+)/);
+    if (blockquoteMatch) {
+      flushParagraph();
+      flushList();
+      flushOrderedList();
+      html += `<blockquote>${applyInlineMarkdown(blockquoteMatch[1])}</blockquote>`;
+      return;
+    }
+
     flushList();
+    flushOrderedList();
     paragraphBuffer.push(applyInlineMarkdown(line));
   });
 
   flushParagraph();
   flushList();
+  flushOrderedList();
 
   if (inCode) {
     html += `<pre><code>${codeBuffer.join('\n')}</code></pre>`;
@@ -336,9 +591,14 @@ function schedulePreviewUpdate() {
   previewStatus.textContent = '갱신 중...';
   previewTimer = setTimeout(() => {
     const title = titleInput.value || '제목 없음';
-    const body = bodyInput.value || '';
-    const markdown = `# ${title}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
-    previewPane.innerHTML = renderMarkdown(markdown);
+    const body = getBodyValue();
+    const hasHtml = isHtmlContent(body);
+    if (hasHtml) {
+      previewPane.innerHTML = body;
+    } else {
+      const markdown = `# ${title}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
+      previewPane.innerHTML = renderMarkdown(markdown);
+    }
     previewStatus.textContent = '실시간';
   }, 220);
 }
@@ -460,7 +720,7 @@ async function saveDraftToApi(title, body) {
 function handleAutosave() {
   if (autosaveTimer) clearTimeout(autosaveTimer);
   const title = titleInput.value;
-  const body = bodyInput.value;
+  const body = getBodyValue();
   autosaveState = {
     ...autosaveState,
     dirty: true,
@@ -476,19 +736,30 @@ function handleAutosave() {
 titleInput.addEventListener('input', handleAutosave);
 bodyInput.addEventListener('input', handleAutosave);
 
+if (quillEditorEl) {
+  initQuillEditor();
+  if (quill) {
+    quill.on('text-change', () => {
+      if (suppressQuillChange) return;
+      bodyInput.value = getBodyValue();
+      handleAutosave();
+    });
+  }
+}
+
 manualSaveBtn.addEventListener('click', () => {
-  saveDraftToApi(titleInput.value, bodyInput.value);
+  saveDraftToApi(titleInput.value, getBodyValue());
 });
 
 retrySaveBtn.addEventListener('click', () => {
-  saveDraftToApi(titleInput.value, bodyInput.value);
+  saveDraftToApi(titleInput.value, getBodyValue());
 });
 
 clearDraftBtn.addEventListener('click', () => {
   localStorage.removeItem(DRAFT_KEY);
   currentDraft = { id: null, title: '', body: '', savedAt: null, status: null };
   titleInput.value = '';
-  bodyInput.value = '';
+  setBodyValue('');
   autosaveState = {
     dirty: false,
     saving: false,
@@ -511,6 +782,67 @@ function normalizePost(rawPost) {
     publicUrl: rawPost?.public_url || rawPost?.publicUrl || null,
     body: rawPost?.body_md || rawPost?.body || '',
   };
+}
+
+function normalizeCategory(rawCategory) {
+  return {
+    id: rawCategory?.id,
+    slug: rawCategory?.slug,
+    name: rawCategory?.name || rawCategory?.slug || '이름 없음',
+    enabled: rawCategory?.enabled === 1 || rawCategory?.enabled === true,
+    orderIndex: rawCategory?.order_index ?? rawCategory?.orderIndex ?? 0,
+  };
+}
+
+function renderCategories() {
+  categoriesList.innerHTML = '';
+  if (!currentCategories.length) {
+    categoriesStatus.textContent = '카테고리가 없습니다.';
+    return;
+  }
+  categoriesStatus.textContent = `${currentCategories.length}개 카테고리`;
+  currentCategories.forEach((category) => {
+    const item = document.createElement('div');
+    item.className = 'category-item';
+    item.innerHTML = `
+      <div>
+        <strong>${category.name}</strong>
+        <div class="muted">${category.slug || '-'}</div>
+      </div>
+      <button type="button" class="ghost" data-category-id="${category.id}">
+        ${category.enabled ? '비활성' : '활성'}
+      </button>
+    `;
+    const button = item.querySelector('button');
+    button.addEventListener('click', async () => {
+      try {
+        button.disabled = true;
+        await apiFetch(`/cms/categories/${category.id}`, {
+          method: 'PATCH',
+          body: { enabled: !category.enabled },
+        });
+        await fetchCategories();
+      } catch (error) {
+        setStatus(categoriesStatus, formatError(error), true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    categoriesList.appendChild(item);
+  });
+}
+
+async function fetchCategories() {
+  if (!categoriesStatus) return;
+  try {
+    setStatus(categoriesStatus, '불러오는 중...');
+    const data = await apiFetch('/cms/categories');
+    const categories = data?.categories || [];
+    currentCategories = categories.map(normalizeCategory);
+    renderCategories();
+  } catch (error) {
+    setStatus(categoriesStatus, formatError(error), true);
+  }
 }
 
 function getFilteredPosts() {
@@ -671,7 +1003,7 @@ async function selectPost(post) {
     publicUrl: next.publicUrl,
   });
   titleInput.value = next.title || '';
-  bodyInput.value = next.body || '';
+  setBodyValue(next.body || '');
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPosts();
 }
@@ -950,6 +1282,11 @@ function updateViewOnBlogButton() {
   viewOnBlogHint.textContent = '';
 }
 
+function clearShareLink() {
+  if (shareLinkValue) shareLinkValue.innerHTML = '';
+  if (shareLinkStatus) shareLinkStatus.textContent = '';
+}
+
 if (viewOnBlogBtn) {
   viewOnBlogBtn.addEventListener('click', () => {
     const url = viewOnBlogBtn.dataset.url;
@@ -965,7 +1302,7 @@ publishBtn.addEventListener('click', async () => {
   }
 
   const title = titleInput.value.trim() || '제목 없음';
-  const body = bodyInput.value || '';
+  const body = getBodyValue();
 
   try {
     setStatus(publishMessage, '발행 요청 중…');
@@ -999,25 +1336,94 @@ refreshJobsBtn.addEventListener('click', () => {
   fetchDeployJobs();
 });
 
+if (shareLinkBtn) {
+  shareLinkBtn.addEventListener('click', async () => {
+    if (!currentDraft?.id) {
+      setStatus(shareLinkStatus, '공유 링크를 만들 게시글을 선택하세요.', true);
+      return;
+    }
+    try {
+      setStatus(shareLinkStatus, '링크 생성 중...');
+      const data = await apiFetch(`/cms/posts/${currentDraft.id}/share-link`, { method: 'POST' });
+      const url = data?.url;
+      if (url) {
+        shareLinkValue.innerHTML = `<a href="${url}" target="_blank" rel="noopener">공유 링크 열기 →</a>`;
+        const expiresAt = data?.expires_at ? formatMaybeDate(new Date(data.expires_at * 1000)) : '-';
+        setStatus(shareLinkStatus, `만료: ${expiresAt}`);
+      } else {
+        setStatus(shareLinkStatus, '링크 생성 실패', true);
+      }
+    } catch (error) {
+      setStatus(shareLinkStatus, formatError(error), true);
+    }
+  });
+}
+
+if (revokeShareBtn) {
+  revokeShareBtn.addEventListener('click', async () => {
+    if (!currentDraft?.id) {
+      setStatus(shareLinkStatus, '공유 링크를 폐기할 게시글을 선택하세요.', true);
+      return;
+    }
+    try {
+      setStatus(shareLinkStatus, '링크 폐기 중...');
+      await apiFetch(`/cms/posts/${currentDraft.id}/share-link`, { method: 'DELETE' });
+      clearShareLink();
+      setStatus(shareLinkStatus, '공유 링크가 폐기되었습니다.');
+    } catch (error) {
+      setStatus(shareLinkStatus, formatError(error), true);
+    }
+  });
+}
+
+if (refreshCategoriesBtn) {
+  refreshCategoriesBtn.addEventListener('click', () => {
+    fetchCategories();
+  });
+}
+
+if (categoryForm) {
+  categoryForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const name = categoryNameInput.value.trim();
+    const slug = categorySlugInput.value.trim();
+    if (!name) return;
+    try {
+      setStatus(categoriesStatus, '추가 중...');
+      await apiFetch('/cms/categories', {
+        method: 'POST',
+        body: { name, slug: slug || undefined },
+      });
+      categoryNameInput.value = '';
+      categorySlugInput.value = '';
+      await fetchCategories();
+    } catch (error) {
+      setStatus(categoriesStatus, formatError(error), true);
+    }
+  });
+}
+
 printBtn.addEventListener('click', () => {
   window.print();
 });
 
 function hydrateFromStorage() {
   titleInput.value = currentDraft.title || '';
-  bodyInput.value = currentDraft.body || '';
+  setBodyValue(currentDraft.body || '');
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPreview();
   renderSelectedPostMeta();
   updateJobs(currentJobs);
   setViewMode(currentViewMode);
   updateViewOnBlogButton();
+  clearShareLink();
 }
 
 hydrateFromStorage();
 fetchSession();
 fetchPosts();
 fetchDeployJobs();
+fetchCategories();
 
 window.addEventListener('beforeunload', (event) => {
   if (!autosaveState.dirty) return;
