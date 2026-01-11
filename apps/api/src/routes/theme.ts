@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { sessionMiddleware } from '../middleware/rbac';
 import { SessionData } from '../session';
 import { createDeployJob, mapDeployJob, updateDeployJobStatus } from '../db';
+import { isSuperAdmin } from '../super_admin';
 import { THEME_PRESETS } from '../theme/presets';
 
 const router = new Hono();
@@ -61,23 +62,6 @@ async function writeThemeConfig(c: any, tenantId: string, presetId: string) {
     httpMetadata: { contentType: 'application/json' },
   });
   return payload;
-}
-
-function parseSuperAdminEmails(raw: string | undefined) {
-  if (!raw) return [];
-  return raw
-    .split(',')
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function isSuperAdmin(session: SessionData | undefined, env: any) {
-  if (session?.role) {
-    return session.role === 'super';
-  }
-  const allowlist = parseSuperAdminEmails(env?.SUPER_ADMIN_EMAILS);
-  if (!allowlist.length) return false;
-  return allowlist.includes(session?.email?.toLowerCase() || '');
 }
 
 router.use('/cms/theme/*', sessionMiddleware);

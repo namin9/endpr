@@ -18,6 +18,17 @@ export type UserRow = {
   role: Role;
 };
 
+export type TenantAdminRow = {
+  id: string;
+  slug: string;
+  name: string;
+  primary_domain: string;
+  pages_project_name: string | null;
+  pages_deploy_hook_url: string | null;
+  build_token: string;
+  created_at: number;
+};
+
 export type PostRow = {
   id: string;
   tenant_id: string;
@@ -106,6 +117,133 @@ export async function getTenantByBuildToken(db: D1Database, token: string): Prom
     .bind(token)
     .first<TenantRow>();
   return result ?? null;
+}
+
+export async function listTenants(db: D1Database): Promise<TenantAdminRow[]> {
+  const { results } = await db
+    .prepare(
+      'SELECT id, slug, name, primary_domain, pages_project_name, pages_deploy_hook_url, build_token, created_at FROM tenants ORDER BY created_at DESC'
+    )
+    .all<TenantAdminRow>();
+  return (results ?? []) as TenantAdminRow[];
+}
+
+export async function createTenant(
+  db: D1Database,
+  input: Omit<TenantAdminRow, 'id' | 'created_at'>
+): Promise<TenantAdminRow> {
+  const id = uuidv4();
+  const now = Math.floor(Date.now() / 1000);
+  await db
+    .prepare(
+      `INSERT INTO tenants (id, slug, name, primary_domain, pages_project_name, pages_deploy_hook_url, build_token, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      id,
+      input.slug,
+      input.name,
+      input.primary_domain,
+      input.pages_project_name ?? null,
+      input.pages_deploy_hook_url ?? null,
+      input.build_token,
+      now
+    )
+    .run();
+  const created = await db
+    .prepare(
+      'SELECT id, slug, name, primary_domain, pages_project_name, pages_deploy_hook_url, build_token, created_at FROM tenants WHERE id = ?'
+    )
+    .bind(id)
+    .first<TenantAdminRow>();
+  if (!created) throw new Error('Failed to create tenant');
+  return created;
+}
+
+export async function updateTenant(
+  db: D1Database,
+  id: string,
+  updates: Partial<Omit<TenantAdminRow, 'id' | 'created_at'>>
+): Promise<TenantAdminRow> {
+  await db
+    .prepare(
+      `UPDATE tenants SET
+        slug = COALESCE(?, slug),
+        name = COALESCE(?, name),
+        primary_domain = COALESCE(?, primary_domain),
+        pages_project_name = COALESCE(?, pages_project_name),
+        pages_deploy_hook_url = COALESCE(?, pages_deploy_hook_url),
+        build_token = COALESCE(?, build_token)
+       WHERE id = ?`
+    )
+    .bind(
+      updates.slug ?? null,
+      updates.name ?? null,
+      updates.primary_domain ?? null,
+      updates.pages_project_name ?? null,
+      updates.pages_deploy_hook_url ?? null,
+      updates.build_token ?? null,
+      id
+    )
+    .run();
+  const updated = await db
+    .prepare(
+      'SELECT id, slug, name, primary_domain, pages_project_name, pages_deploy_hook_url, build_token, created_at FROM tenants WHERE id = ?'
+    )
+    .bind(id)
+    .first<TenantAdminRow>();
+  if (!updated) throw new Error('Failed to update tenant');
+  return updated;
+}
+
+export async function listUsersByTenant(db: D1Database, tenantId: string): Promise<UserRow[]> {
+  const { results } = await db
+    .prepare('SELECT id, tenant_id, email, password_hash, role FROM users WHERE tenant_id = ? ORDER BY created_at DESC')
+    .bind(tenantId)
+    .all<UserRow>();
+  return (results ?? []) as UserRow[];
+}
+
+export async function createUser(
+  db: D1Database,
+  tenantId: string,
+  input: Pick<UserRow, 'email' | 'password_hash' | 'role'>
+): Promise<UserRow> {
+  const id = uuidv4();
+  await db
+    .prepare('INSERT INTO users (id, tenant_id, email, password_hash, role) VALUES (?, ?, ?, ?, ?)')
+    .bind(id, tenantId, input.email, input.password_hash, input.role)
+    .run();
+  const created = await db
+    .prepare('SELECT id, tenant_id, email, password_hash, role FROM users WHERE id = ? AND tenant_id = ?')
+    .bind(id, tenantId)
+    .first<UserRow>();
+  if (!created) throw new Error('Failed to create user');
+  return created;
+}
+
+export async function updateUser(
+  db: D1Database,
+  tenantId: string,
+  id: string,
+  updates: Partial<Pick<UserRow, 'email' | 'password_hash' | 'role'>>
+): Promise<UserRow> {
+  await db
+    .prepare(
+      `UPDATE users SET
+        email = COALESCE(?, email),
+        password_hash = COALESCE(?, password_hash),
+        role = COALESCE(?, role)
+       WHERE id = ? AND tenant_id = ?`
+    )
+    .bind(updates.email ?? null, updates.password_hash ?? null, updates.role ?? null, id, tenantId)
+    .run();
+  const updated = await db
+    .prepare('SELECT id, tenant_id, email, password_hash, role FROM users WHERE id = ? AND tenant_id = ?')
+    .bind(id, tenantId)
+    .first<UserRow>();
+  if (!updated) throw new Error('Failed to update user');
+  return updated;
 }
 
 export async function getUserByEmail(db: D1Database, tenantId: string, email: string): Promise<UserRow | null> {

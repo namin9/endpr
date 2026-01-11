@@ -118,6 +118,84 @@
           </div>
         </section>
 
+        <section class="card" aria-labelledby="tenants-heading">
+          <div class="card-header">
+            <h2 id="tenants-heading">테넌트 관리</h2>
+            <button type="button" id="refreshTenantsBtn" class="ghost">새로고침</button>
+          </div>
+          <p id="tenantsStatus" class="muted">로딩 전</p>
+          <div id="tenantsList" class="category-list"></div>
+          <div class="divider"></div>
+          <form id="tenantForm" class="stack">
+            <label class="field">
+              <span>슬러그</span>
+              <input id="tenantSlugInput" required placeholder="acme" />
+            </label>
+            <label class="field">
+              <span>이름</span>
+              <input id="tenantNameInput" required placeholder="Acme Corp" />
+            </label>
+            <label class="field">
+              <span>기본 도메인</span>
+              <input id="tenantDomainInput" required placeholder="blog.acme.com" />
+            </label>
+            <label class="field">
+              <span>Pages 프로젝트명</span>
+              <input id="tenantPagesProjectInput" placeholder="acme-pages" />
+            </label>
+            <label class="field">
+              <span>Pages Deploy Hook URL</span>
+              <input id="tenantDeployHookInput" placeholder="https://api.cloudflare.com/..." />
+            </label>
+            <label class="field">
+              <span>Build Token</span>
+              <input id="tenantBuildTokenInput" required placeholder="build-token" />
+            </label>
+            <div class="row between">
+              <button type="submit" class="primary">테넌트 저장</button>
+              <button type="button" id="tenantResetBtn" class="ghost">폼 초기화</button>
+            </div>
+            <div id="tenantFormStatus" class="muted"></div>
+          </form>
+        </section>
+
+        <section class="card" aria-labelledby="users-heading">
+          <div class="card-header">
+            <h2 id="users-heading">유저 관리</h2>
+            <button type="button" id="refreshUsersBtn" class="ghost">새로고침</button>
+          </div>
+          <label class="field">
+            <span>테넌트 선택</span>
+            <select id="usersTenantSelect"></select>
+          </label>
+          <p id="usersStatus" class="muted">로딩 전</p>
+          <div id="usersList" class="category-list"></div>
+          <div class="divider"></div>
+          <form id="userForm" class="stack">
+            <label class="field">
+              <span>이메일</span>
+              <input id="userEmailInput" type="email" required placeholder="editor@acme.com" />
+            </label>
+            <label class="field">
+              <span>권한</span>
+              <select id="userRoleInput">
+                <option value="editor">editor</option>
+                <option value="admin">admin</option>
+                <option value="super">super</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>비밀번호</span>
+              <input id="userPasswordInput" type="password" placeholder="••••••••" />
+            </label>
+            <div class="row between">
+              <button type="submit" class="primary">유저 저장</button>
+              <button type="button" id="userResetBtn" class="ghost">폼 초기화</button>
+            </div>
+            <div id="userFormStatus" class="muted"></div>
+          </form>
+        </section>
+
         <section class="card" aria-labelledby="pr-heading">
           <div class="card-header">
             <h2 id="pr-heading">PR 캠페인</h2>

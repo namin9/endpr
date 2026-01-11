@@ -56,6 +56,28 @@ const themePresetList = document.getElementById('themePresetList');
 const themeSaveBtn = document.getElementById('themeSaveBtn');
 const themeSaveStatus = document.getElementById('themeSaveStatus');
 const refreshThemeBtn = document.getElementById('refreshThemeBtn');
+const tenantsStatus = document.getElementById('tenantsStatus');
+const tenantsList = document.getElementById('tenantsList');
+const refreshTenantsBtn = document.getElementById('refreshTenantsBtn');
+const tenantForm = document.getElementById('tenantForm');
+const tenantSlugInput = document.getElementById('tenantSlugInput');
+const tenantNameInput = document.getElementById('tenantNameInput');
+const tenantDomainInput = document.getElementById('tenantDomainInput');
+const tenantPagesProjectInput = document.getElementById('tenantPagesProjectInput');
+const tenantDeployHookInput = document.getElementById('tenantDeployHookInput');
+const tenantBuildTokenInput = document.getElementById('tenantBuildTokenInput');
+const tenantFormStatus = document.getElementById('tenantFormStatus');
+const tenantResetBtn = document.getElementById('tenantResetBtn');
+const usersStatus = document.getElementById('usersStatus');
+const usersList = document.getElementById('usersList');
+const refreshUsersBtn = document.getElementById('refreshUsersBtn');
+const usersTenantSelect = document.getElementById('usersTenantSelect');
+const userForm = document.getElementById('userForm');
+const userEmailInput = document.getElementById('userEmailInput');
+const userRoleInput = document.getElementById('userRoleInput');
+const userPasswordInput = document.getElementById('userPasswordInput');
+const userFormStatus = document.getElementById('userFormStatus');
+const userResetBtn = document.getElementById('userResetBtn');
 const prCampaignForm = document.getElementById('prCampaignForm');
 const prCampaignNameInput = document.getElementById('prCampaignNameInput');
 const prCampaignStatusInput = document.getElementById('prCampaignStatusInput');
@@ -97,6 +119,9 @@ let currentThemeConfig = { presetId: 'minimal-clean', updatedAt: null };
 let selectedThemePresetId = null;
 let currentThemeTokens = null;
 let themeIsSuperAdmin = false;
+let currentTenants = [];
+let currentUsers = [];
+let selectedTenantId = null;
 let quill = null;
 let suppressQuillChange = false;
 let postsView = {
@@ -171,6 +196,34 @@ function resolveIsSuperAdmin(session) {
   if (typeof user.isSuperAdmin === 'boolean') return user.isSuperAdmin;
   if (user.role) return user.role === 'super';
   return false;
+}
+
+function toggleFormDisabled(form, disabled) {
+  if (!form) return;
+  const elements = Array.from(form.elements || []);
+  elements.forEach((element) => {
+    element.disabled = disabled;
+  });
+}
+
+function applyAdminUiState(isSuperAdmin) {
+  if (refreshTenantsBtn) refreshTenantsBtn.disabled = !isSuperAdmin;
+  if (refreshUsersBtn) refreshUsersBtn.disabled = !isSuperAdmin;
+  if (usersTenantSelect) usersTenantSelect.disabled = !isSuperAdmin;
+  if (tenantResetBtn) tenantResetBtn.disabled = !isSuperAdmin;
+  if (userResetBtn) userResetBtn.disabled = !isSuperAdmin;
+  toggleFormDisabled(tenantForm, !isSuperAdmin);
+  toggleFormDisabled(userForm, !isSuperAdmin);
+
+  if (!isSuperAdmin) {
+    if (tenantsStatus) setStatus(tenantsStatus, '슈퍼 관리자만 접근할 수 있습니다.', true);
+    if (usersStatus) setStatus(usersStatus, '슈퍼 관리자만 접근할 수 있습니다.', true);
+    if (tenantFormStatus) setStatus(tenantFormStatus, '읽기 전용', true);
+    if (userFormStatus) setStatus(userFormStatus, '읽기 전용', true);
+  } else {
+    if (tenantFormStatus) setStatus(tenantFormStatus, '');
+    if (userFormStatus) setStatus(userFormStatus, '');
+  }
 }
 
 function buildThemeStyle(tokens, scopeSelector) {
@@ -450,6 +503,7 @@ function persistSession(session) {
   currentSession = session;
   save(SESSION_KEY, session);
   themeIsSuperAdmin = resolveIsSuperAdmin(session);
+  applyAdminUiState(themeIsSuperAdmin);
   renderSession();
   updateViewOnBlogButton();
   renderThemeCurrent();
@@ -479,8 +533,27 @@ async function fetchSession() {
     const loggedInAt = currentSession?.loggedInAt || new Date().toISOString();
     persistSession({ ...data, loggedInAt });
     await Promise.all([fetchThemeConfig(), fetchThemePresets(), fetchThemeTokens()]);
+    if (themeIsSuperAdmin) {
+      await fetchTenants();
+      await fetchUsers();
+    } else {
+      currentTenants = [];
+      currentUsers = [];
+      selectedTenantId = null;
+      renderTenantSelect();
+      renderTenants();
+      renderUsers();
+    }
   } catch (error) {
     currentSession = null;
+    themeIsSuperAdmin = false;
+    applyAdminUiState(false);
+    currentTenants = [];
+    currentUsers = [];
+    selectedTenantId = null;
+    renderTenantSelect();
+    renderTenants();
+    renderUsers();
     localStorage.removeItem(SESSION_KEY);
     setStatus(sessionStatus, error.status === 401 ? '로그인이 필요합니다.' : formatError(error), true);
   }
@@ -513,6 +586,13 @@ logoutBtn.addEventListener('click', () => {
   localStorage.removeItem(SESSION_KEY);
   currentSession = null;
   themeIsSuperAdmin = false;
+  currentTenants = [];
+  currentUsers = [];
+  selectedTenantId = null;
+  applyAdminUiState(false);
+  renderTenantSelect();
+  renderTenants();
+  renderUsers();
   renderSession();
   renderThemeCurrent();
   renderThemePresets();
@@ -885,6 +965,28 @@ function normalizeCategory(rawCategory) {
   };
 }
 
+function normalizeTenant(rawTenant) {
+  return {
+    id: rawTenant?.id,
+    slug: rawTenant?.slug || '',
+    name: rawTenant?.name || rawTenant?.slug || '이름 없음',
+    primaryDomain: rawTenant?.primary_domain || '',
+    pagesProjectName: rawTenant?.pages_project_name || '',
+    pagesDeployHookUrl: rawTenant?.pages_deploy_hook_url || '',
+    buildToken: rawTenant?.build_token || '',
+    createdAt: rawTenant?.created_at || null,
+  };
+}
+
+function normalizeUser(rawUser) {
+  return {
+    id: rawUser?.id,
+    tenantId: rawUser?.tenant_id || '',
+    email: rawUser?.email || '',
+    role: rawUser?.role || 'editor',
+  };
+}
+
 function renderCategories() {
   categoriesList.innerHTML = '';
   if (!currentCategories.length) {
@@ -933,6 +1035,167 @@ async function fetchCategories() {
     renderCategories();
   } catch (error) {
     setStatus(categoriesStatus, formatError(error), true);
+  }
+}
+
+function resetTenantForm() {
+  if (!tenantForm) return;
+  tenantForm.dataset.editingId = '';
+  tenantSlugInput.value = '';
+  tenantNameInput.value = '';
+  tenantDomainInput.value = '';
+  tenantPagesProjectInput.value = '';
+  tenantDeployHookInput.value = '';
+  tenantBuildTokenInput.value = '';
+  if (tenantFormStatus) setStatus(tenantFormStatus, '');
+}
+
+function resetUserForm() {
+  if (!userForm) return;
+  userForm.dataset.editingId = '';
+  userEmailInput.value = '';
+  userPasswordInput.value = '';
+  userRoleInput.value = 'editor';
+  if (userFormStatus) setStatus(userFormStatus, '');
+}
+
+function renderTenantSelect() {
+  if (!usersTenantSelect) return;
+  usersTenantSelect.innerHTML = '';
+  if (!currentTenants.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = '테넌트 없음';
+    usersTenantSelect.appendChild(option);
+    usersTenantSelect.disabled = true;
+    return;
+  }
+  currentTenants.forEach((tenant) => {
+    const option = document.createElement('option');
+    option.value = tenant.id;
+    option.textContent = `${tenant.name} (${tenant.slug})`;
+    usersTenantSelect.appendChild(option);
+  });
+  const match = currentTenants.find((tenant) => tenant.id === selectedTenantId);
+  usersTenantSelect.value = match ? selectedTenantId : currentTenants[0].id;
+}
+
+function renderTenants() {
+  if (!tenantsList || !tenantsStatus) return;
+  tenantsList.innerHTML = '';
+  if (!currentTenants.length) {
+    tenantsStatus.textContent = '테넌트가 없습니다.';
+    return;
+  }
+  tenantsStatus.textContent = `${currentTenants.length}개 테넌트`;
+  currentTenants.forEach((tenant) => {
+    const item = document.createElement('div');
+    item.className = 'category-item';
+    const createdLabel = tenant.createdAt ? formatMaybeDate(new Date(tenant.createdAt * 1000).toISOString()) : '-';
+    item.innerHTML = `
+      <div>
+        <strong>${tenant.name}</strong>
+        <div class="muted">${tenant.slug} · ${tenant.primaryDomain || '-'}</div>
+        <div class="muted">생성: ${createdLabel}</div>
+      </div>
+      <div class="row gap">
+        <button type="button" class="ghost" data-tenant-edit="${tenant.id}">편집</button>
+        <button type="button" class="ghost" data-tenant-select="${tenant.id}">선택</button>
+      </div>
+    `;
+    const editBtn = item.querySelector('[data-tenant-edit]');
+    const selectBtn = item.querySelector('[data-tenant-select]');
+    editBtn.disabled = !themeIsSuperAdmin;
+    selectBtn.disabled = !themeIsSuperAdmin;
+    editBtn.addEventListener('click', () => {
+      if (!themeIsSuperAdmin) return;
+      tenantForm.dataset.editingId = tenant.id;
+      tenantSlugInput.value = tenant.slug || '';
+      tenantNameInput.value = tenant.name || '';
+      tenantDomainInput.value = tenant.primaryDomain || '';
+      tenantPagesProjectInput.value = tenant.pagesProjectName || '';
+      tenantDeployHookInput.value = tenant.pagesDeployHookUrl || '';
+      tenantBuildTokenInput.value = tenant.buildToken || '';
+      setStatus(tenantFormStatus, `편집 중: ${tenant.name}`);
+    });
+    selectBtn.addEventListener('click', async () => {
+      if (!themeIsSuperAdmin) return;
+      selectedTenantId = tenant.id;
+      renderTenantSelect();
+      await fetchUsers();
+    });
+    tenantsList.appendChild(item);
+  });
+}
+
+function renderUsers() {
+  if (!usersList || !usersStatus) return;
+  usersList.innerHTML = '';
+  if (!selectedTenantId) {
+    usersStatus.textContent = '테넌트를 선택하세요.';
+    return;
+  }
+  if (!currentUsers.length) {
+    usersStatus.textContent = '유저가 없습니다.';
+    return;
+  }
+  usersStatus.textContent = `${currentUsers.length}명 유저`;
+  currentUsers.forEach((user) => {
+    const item = document.createElement('div');
+    item.className = 'category-item';
+    item.innerHTML = `
+      <div>
+        <strong>${user.email || '-'}</strong>
+        <div class="muted">권한: ${user.role}</div>
+      </div>
+      <button type="button" class="ghost" data-user-edit="${user.id}">편집</button>
+    `;
+    const editBtn = item.querySelector('[data-user-edit]');
+    editBtn.disabled = !themeIsSuperAdmin;
+    editBtn.addEventListener('click', () => {
+      if (!themeIsSuperAdmin) return;
+      userForm.dataset.editingId = user.id;
+      userEmailInput.value = user.email || '';
+      userRoleInput.value = user.role || 'editor';
+      userPasswordInput.value = '';
+      setStatus(userFormStatus, `편집 중: ${user.email}`);
+    });
+    usersList.appendChild(item);
+  });
+}
+
+async function fetchTenants() {
+  if (!tenantsStatus) return;
+  try {
+    setStatus(tenantsStatus, '불러오는 중...');
+    const data = await apiFetch('/cms/tenants');
+    const tenants = data?.tenants || [];
+    currentTenants = tenants.map(normalizeTenant);
+    if (!selectedTenantId && currentTenants.length) {
+      selectedTenantId = currentTenants[0].id;
+    }
+    renderTenantSelect();
+    renderTenants();
+  } catch (error) {
+    setStatus(tenantsStatus, formatError(error), true);
+  }
+}
+
+async function fetchUsers() {
+  if (!usersStatus) return;
+  if (!selectedTenantId) {
+    currentUsers = [];
+    renderUsers();
+    return;
+  }
+  try {
+    setStatus(usersStatus, '불러오는 중...');
+    const data = await apiFetch(`/cms/users?tenant_id=${selectedTenantId}`);
+    const users = data?.users || [];
+    currentUsers = users.map(normalizeUser);
+    renderUsers();
+  } catch (error) {
+    setStatus(usersStatus, formatError(error), true);
   }
 }
 
@@ -1842,6 +2105,149 @@ if (themeSaveBtn) {
       setStatus(themeSaveStatus, data?.deploy_job?.id ? `배포 Job: ${data.deploy_job.id}` : '저장 완료');
     } catch (error) {
       setStatus(themeSaveStatus, formatError(error), true);
+    }
+  });
+}
+
+if (refreshTenantsBtn) {
+  refreshTenantsBtn.addEventListener('click', () => {
+    if (!themeIsSuperAdmin) return;
+    fetchTenants();
+  });
+}
+
+if (refreshUsersBtn) {
+  refreshUsersBtn.addEventListener('click', () => {
+    if (!themeIsSuperAdmin) return;
+    fetchUsers();
+  });
+}
+
+if (usersTenantSelect) {
+  usersTenantSelect.addEventListener('change', async () => {
+    if (!themeIsSuperAdmin) return;
+    selectedTenantId = usersTenantSelect.value || null;
+    resetUserForm();
+    await fetchUsers();
+  });
+}
+
+if (tenantResetBtn) {
+  tenantResetBtn.addEventListener('click', () => {
+    resetTenantForm();
+  });
+}
+
+if (userResetBtn) {
+  userResetBtn.addEventListener('click', () => {
+    resetUserForm();
+  });
+}
+
+if (tenantForm) {
+  tenantForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!themeIsSuperAdmin) return;
+    const slug = tenantSlugInput.value.trim();
+    const name = tenantNameInput.value.trim();
+    const primaryDomain = tenantDomainInput.value.trim();
+    const pagesProjectName = tenantPagesProjectInput.value.trim();
+    const pagesDeployHookUrl = tenantDeployHookInput.value.trim();
+    const buildToken = tenantBuildTokenInput.value.trim();
+    const editingId = tenantForm.dataset.editingId;
+
+    if (!slug || !name || !primaryDomain || !buildToken) {
+      setStatus(tenantFormStatus, '필수 항목을 입력하세요.', true);
+      return;
+    }
+
+    try {
+      setStatus(tenantFormStatus, editingId ? '수정 중...' : '생성 중...');
+      if (editingId) {
+        await apiFetch(`/cms/tenants/${editingId}`, {
+          method: 'PATCH',
+          body: {
+            slug,
+            name,
+            primary_domain: primaryDomain,
+            pages_project_name: pagesProjectName,
+            pages_deploy_hook_url: pagesDeployHookUrl,
+            build_token: buildToken,
+          },
+        });
+      } else {
+        await apiFetch('/cms/tenants', {
+          method: 'POST',
+          body: {
+            slug,
+            name,
+            primary_domain: primaryDomain,
+            pages_project_name: pagesProjectName,
+            pages_deploy_hook_url: pagesDeployHookUrl,
+            build_token: buildToken,
+          },
+        });
+      }
+      resetTenantForm();
+      await fetchTenants();
+      setStatus(tenantFormStatus, '저장 완료');
+    } catch (error) {
+      setStatus(tenantFormStatus, formatError(error), true);
+    }
+  });
+}
+
+if (userForm) {
+  userForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!themeIsSuperAdmin) return;
+    const tenantId = usersTenantSelect?.value || selectedTenantId;
+    if (!tenantId) {
+      setStatus(userFormStatus, '테넌트를 선택하세요.', true);
+      return;
+    }
+    const email = userEmailInput.value.trim();
+    const role = userRoleInput.value;
+    const password = userPasswordInput.value.trim();
+    const editingId = userForm.dataset.editingId;
+
+    if (!email || !role) {
+      setStatus(userFormStatus, '이메일과 권한을 입력하세요.', true);
+      return;
+    }
+    if (!editingId && !password) {
+      setStatus(userFormStatus, '신규 유저는 비밀번호가 필요합니다.', true);
+      return;
+    }
+
+    try {
+      setStatus(userFormStatus, editingId ? '수정 중...' : '생성 중...');
+      if (editingId) {
+        await apiFetch(`/cms/users/${editingId}`, {
+          method: 'PATCH',
+          body: {
+            tenant_id: tenantId,
+            email,
+            role,
+            password: password || undefined,
+          },
+        });
+      } else {
+        await apiFetch('/cms/users', {
+          method: 'POST',
+          body: {
+            tenant_id: tenantId,
+            email,
+            password,
+            role,
+          },
+        });
+      }
+      resetUserForm();
+      await fetchUsers();
+      setStatus(userFormStatus, '저장 완료');
+    } catch (error) {
+      setStatus(userFormStatus, formatError(error), true);
     }
   });
 }
