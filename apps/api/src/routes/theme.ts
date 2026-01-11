@@ -29,19 +29,23 @@ function resolvePreset(presetId: string | null | undefined) {
 }
 
 async function readThemeConfig(c: any, tenantId: string): Promise<ThemeConfig> {
-  const bucket = getBucket(c);
-  const object = await bucket.get(getThemeKey(tenantId));
-  if (!object) {
-    return { preset_id: DEFAULT_PRESET_ID, updated_at: Date.now() };
-  }
-  const text = await object.text();
   try {
-    const parsed = JSON.parse(text) as ThemeConfig;
-    const preset = resolvePreset(parsed?.preset_id || DEFAULT_PRESET_ID);
-    return {
-      preset_id: preset.id,
-      updated_at: parsed?.updated_at || Date.now(),
-    };
+    const bucket = getBucket(c);
+    const object = await bucket.get(getThemeKey(tenantId));
+    if (!object) {
+      return { preset_id: DEFAULT_PRESET_ID, updated_at: Date.now() };
+    }
+    const text = await object.text();
+    try {
+      const parsed = JSON.parse(text) as ThemeConfig;
+      const preset = resolvePreset(parsed?.preset_id || DEFAULT_PRESET_ID);
+      return {
+        preset_id: preset.id,
+        updated_at: parsed?.updated_at || Date.now(),
+      };
+    } catch {
+      return { preset_id: DEFAULT_PRESET_ID, updated_at: Date.now() };
+    }
   } catch {
     return { preset_id: DEFAULT_PRESET_ID, updated_at: Date.now() };
   }
@@ -109,6 +113,12 @@ router.put('/cms/theme', async (c) => {
   const session = c.get('session') as SessionData;
   if (!isSuperAdmin(session, c.env)) {
     return c.json({ ok: false, error: 'forbidden' }, 403);
+  }
+  try {
+    getBucket(c);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'MEDIA_BUCKET binding is required';
+    return c.json({ ok: false, error: message }, 500);
   }
   const body = await c.req.json();
   const presetId = body?.preset_id;
