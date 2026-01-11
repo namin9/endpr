@@ -72,6 +72,7 @@ const prReportPeriodEndInput = document.getElementById('prReportPeriodEndInput')
 const prReportHighlightsInput = document.getElementById('prReportHighlightsInput');
 const prReportsStatus = document.getElementById('prReportsStatus');
 const prReportsList = document.getElementById('prReportsList');
+const clearPrSelectionBtn = document.getElementById('clearPrSelectionBtn');
 
 let autosaveTimer = null;
 let previewTimer = null;
@@ -138,6 +139,19 @@ function formatClock(value) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return '-';
   return new Intl.DateTimeFormat('ko', { timeStyle: 'medium' }).format(parsed);
+}
+
+function formatDatetimeLocal(value) {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const pad = (num) => String(num).padStart(2, '0');
+  const year = parsed.getFullYear();
+  const month = pad(parsed.getMonth() + 1);
+  const day = pad(parsed.getDate());
+  const hours = pad(parsed.getHours());
+  const minutes = pad(parsed.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
 function initQuillEditor() {
@@ -941,6 +955,13 @@ function renderPrCampaigns() {
           selectedPrCampaignId = null;
           currentPrMentions = [];
           currentPrReports = [];
+          if (prCampaignForm) {
+            prCampaignForm.dataset.editingId = '';
+          }
+          prCampaignNameInput.value = '';
+          prCampaignDescriptionInput.value = '';
+          prCampaignScheduledInput.value = '';
+          prCampaignStatusInput.value = 'draft';
           renderSelectedPrCampaign();
           renderPrMentions();
           renderPrReports();
@@ -960,11 +981,17 @@ function renderSelectedPrCampaign() {
   if (!prSelectedCampaign) return;
   if (!selectedPrCampaignId) {
     prSelectedCampaign.textContent = '선택된 캠페인이 없습니다.';
+    if (prCampaignForm) {
+      prCampaignForm.dataset.editingId = '';
+    }
     return;
   }
   const campaign = currentPrCampaigns.find((item) => item.id === selectedPrCampaignId);
   if (!campaign) {
     prSelectedCampaign.textContent = '선택된 캠페인이 없습니다.';
+    if (prCampaignForm) {
+      prCampaignForm.dataset.editingId = '';
+    }
     return;
   }
   const scheduledLabel = campaign.scheduledAt ? formatMaybeDate(campaign.scheduledAt) : '-';
@@ -1102,6 +1129,14 @@ async function fetchPrReports() {
 
 async function selectPrCampaign(campaignId) {
   selectedPrCampaignId = campaignId;
+  const campaign = currentPrCampaigns.find((item) => item.id === campaignId);
+  if (campaign) {
+    prCampaignNameInput.value = campaign.name;
+    prCampaignStatusInput.value = campaign.status;
+    prCampaignScheduledInput.value = formatDatetimeLocal(campaign.scheduledAt);
+    prCampaignDescriptionInput.value = campaign.description || '';
+    prCampaignForm.dataset.editingId = campaign.id;
+  }
   renderSelectedPrCampaign();
   await Promise.all([fetchPrMentions(), fetchPrReports()]);
 }
@@ -1649,6 +1684,24 @@ if (refreshPrCampaignsBtn) {
   });
 }
 
+if (clearPrSelectionBtn) {
+  clearPrSelectionBtn.addEventListener('click', () => {
+    selectedPrCampaignId = null;
+    currentPrMentions = [];
+    currentPrReports = [];
+    if (prCampaignForm) {
+      prCampaignForm.dataset.editingId = '';
+    }
+    prCampaignNameInput.value = '';
+    prCampaignStatusInput.value = 'draft';
+    prCampaignScheduledInput.value = '';
+    prCampaignDescriptionInput.value = '';
+    renderSelectedPrCampaign();
+    renderPrMentions();
+    renderPrReports();
+  });
+}
+
 if (categoryForm) {
   categoryForm.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -1677,21 +1730,37 @@ if (prCampaignForm) {
     if (!name) return;
     try {
       setStatus(prCampaignStatus, '추가 중...');
+      const editingId = prCampaignForm.dataset.editingId;
       const scheduledValue = prCampaignScheduledInput.value;
       const scheduledAt = scheduledValue ? Math.floor(new Date(scheduledValue).getTime() / 1000) : undefined;
-      await apiFetch('/cms/pr-campaigns', {
-        method: 'POST',
-        body: {
-          name,
-          status: prCampaignStatusInput.value,
-          scheduled_at: scheduledAt,
-          description: prCampaignDescriptionInput.value.trim() || undefined,
-        },
-      });
+      const payload = {
+        name,
+        status: prCampaignStatusInput.value,
+        scheduled_at: scheduledAt,
+        description: prCampaignDescriptionInput.value.trim() || undefined,
+      };
+      if (editingId) {
+        await apiFetch(`/cms/pr-campaigns/${editingId}`, {
+          method: 'PATCH',
+          body: payload,
+        });
+      } else {
+        await apiFetch('/cms/pr-campaigns', {
+          method: 'POST',
+          body: payload,
+        });
+      }
       prCampaignNameInput.value = '';
       prCampaignDescriptionInput.value = '';
       prCampaignScheduledInput.value = '';
+      prCampaignStatusInput.value = 'draft';
+      prCampaignForm.dataset.editingId = '';
+      selectedPrCampaignId = null;
+      currentPrMentions = [];
+      currentPrReports = [];
       await fetchPrCampaigns();
+      renderPrMentions();
+      renderPrReports();
     } catch (error) {
       setStatus(prCampaignStatus, formatError(error), true);
     }
