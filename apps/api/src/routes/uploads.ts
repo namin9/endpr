@@ -3,9 +3,6 @@ import { sessionMiddleware } from '../middleware/rbac';
 
 const router = new Hono();
 
-router.use('/cms/uploads/*', sessionMiddleware);
-router.use('/cms/uploads', sessionMiddleware);
-
 function getBucket(c: any) {
   const bucket = c.env?.MEDIA_BUCKET;
   if (!bucket) {
@@ -20,10 +17,10 @@ function buildPublicUrl(c: any, key: string) {
     return `${base}/${key}`;
   }
   const origin = new URL(c.req.url).origin;
-  return `${origin}/cms/uploads/${key}`;
+  return `${origin}/uploads/${key}`;
 }
 
-router.post('/cms/uploads', async (c) => {
+router.post('/cms/uploads', sessionMiddleware, async (c) => {
   let bucket;
   try {
     bucket = getBucket(c);
@@ -52,7 +49,7 @@ router.post('/cms/uploads', async (c) => {
   return c.json({ ok: true, key, url: buildPublicUrl(c, key) });
 });
 
-router.get('/cms/uploads/:key{.+}', async (c) => {
+async function handleGetUpload(c: any) {
   let bucket;
   try {
     bucket = getBucket(c);
@@ -71,6 +68,9 @@ router.get('/cms/uploads/:key{.+}', async (c) => {
   object.writeHttpMetadata(headers);
   headers.set('etag', object.httpEtag);
   return new Response(object.body, { headers });
-});
+}
+
+router.get('/cms/uploads/:key{.+}', handleGetUpload);
+router.get('/uploads/:key{.+}', handleGetUpload);
 
 export default router;
