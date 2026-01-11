@@ -67,17 +67,41 @@ router.post('/cms/posts/:id/autosave', async (c) => {
   const existing = await getPost(c.env.DB, tenant.id, id);
   if (!existing) return c.json({ error: 'Post not found' }, 404);
 
-  const updated = await updatePost(c.env.DB, tenant.id, id, {
-    title,
-    slug: slug ? generateSlug(slug) : undefined,
-    excerpt,
-    body_md,
-    category_slug,
-    status,
-    publish_at,
-  });
+  const nextSlug = slug ? generateSlug(slug) : title ? generateSlug(title) : undefined;
 
-  return c.json({ post: mapPost(updated), saved_at: mapPost(updated).updated_at_iso });
+  try {
+    const updated = await updatePost(c.env.DB, tenant.id, id, {
+      title,
+      slug: nextSlug,
+      excerpt,
+      body_md,
+      category_slug,
+      status,
+      publish_at,
+    });
+
+    return c.json({ post: mapPost(updated), saved_at: mapPost(updated).updated_at_iso });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    const isUniqueSlug = message.includes('UNIQUE constraint failed: posts.tenant_id, posts.slug');
+    if (isUniqueSlug && slug) {
+      return c.json({ error: 'slug already exists' }, 409);
+    }
+    if (isUniqueSlug && nextSlug) {
+      const retrySlug = generateSlug(`${nextSlug}-${crypto.randomUUID().slice(0, 8)}`);
+      const updated = await updatePost(c.env.DB, tenant.id, id, {
+        title,
+        slug: retrySlug,
+        excerpt,
+        body_md,
+        category_slug,
+        status,
+        publish_at,
+      });
+      return c.json({ post: mapPost(updated), saved_at: mapPost(updated).updated_at_iso });
+    }
+    throw error;
+  }
 });
 
 router.post('/cms/posts/:id/publish', async (c) => {
