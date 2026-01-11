@@ -52,6 +52,38 @@ export type CategoryRow = {
   order_index: number;
 };
 
+export type PrCampaignRow = {
+  id: string;
+  tenant_id: string;
+  name: string;
+  status: 'draft' | 'scheduled' | 'in_progress' | 'completed';
+  scheduled_at: number | null;
+  description: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+export type PrMentionRow = {
+  id: string;
+  tenant_id: string;
+  campaign_id: string;
+  outlet_name: string;
+  url: string;
+  published_at: number | null;
+  memo: string | null;
+  created_at: number;
+};
+
+export type PrReportRow = {
+  id: string;
+  tenant_id: string;
+  campaign_id: string;
+  period_start: string | null;
+  period_end: string | null;
+  highlights: string | null;
+  created_at: number;
+};
+
 export async function getTenantBySlug(db: D1Database, slug: string): Promise<TenantRow | null> {
   const result = await db
     .prepare('SELECT id, slug, name, pages_deploy_hook_url, build_token FROM tenants WHERE slug = ?')
@@ -316,6 +348,195 @@ export async function updateCategory(
   return updated;
 }
 
+export async function listPrCampaigns(db: D1Database, tenantId: string): Promise<PrCampaignRow[]> {
+  const { results } = await db
+    .prepare('SELECT * FROM pr_campaigns WHERE tenant_id = ? ORDER BY created_at DESC')
+    .bind(tenantId)
+    .all<PrCampaignRow>();
+  return (results ?? []) as PrCampaignRow[];
+}
+
+export async function getPrCampaign(db: D1Database, tenantId: string, id: string): Promise<PrCampaignRow | null> {
+  const campaign = await db
+    .prepare('SELECT * FROM pr_campaigns WHERE id = ? AND tenant_id = ?')
+    .bind(id, tenantId)
+    .first<PrCampaignRow>();
+  return campaign ?? null;
+}
+
+export async function createPrCampaign(db: D1Database, tenantId: string, input: Partial<PrCampaignRow>): Promise<PrCampaignRow> {
+  const id = uuidv4();
+  const now = Math.floor(Date.now() / 1000);
+  await db
+    .prepare(
+      `INSERT INTO pr_campaigns (id, tenant_id, name, status, scheduled_at, description, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(id, tenantId, input.name, input.status ?? 'draft', input.scheduled_at ?? null, input.description ?? null, now, now)
+    .run();
+  const created = await getPrCampaign(db, tenantId, id);
+  if (!created) throw new Error('Failed to create PR campaign');
+  return created;
+}
+
+export async function updatePrCampaign(
+  db: D1Database,
+  tenantId: string,
+  id: string,
+  updates: Partial<PrCampaignRow>
+): Promise<PrCampaignRow> {
+  await db
+    .prepare(
+      `UPDATE pr_campaigns SET
+        name = COALESCE(?, name),
+        status = COALESCE(?, status),
+        scheduled_at = COALESCE(?, scheduled_at),
+        description = COALESCE(?, description)
+       WHERE id = ? AND tenant_id = ?`
+    )
+    .bind(
+      updates.name ?? null,
+      updates.status ?? null,
+      updates.scheduled_at ?? null,
+      updates.description ?? null,
+      id,
+      tenantId
+    )
+    .run();
+  const updated = await getPrCampaign(db, tenantId, id);
+  if (!updated) throw new Error('Failed to update PR campaign');
+  return updated;
+}
+
+export async function deletePrCampaign(db: D1Database, tenantId: string, id: string): Promise<void> {
+  await db.prepare('DELETE FROM pr_campaigns WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+}
+
+export async function listPrMentions(db: D1Database, tenantId: string, campaignId: string): Promise<PrMentionRow[]> {
+  const { results } = await db
+    .prepare('SELECT * FROM pr_mentions WHERE tenant_id = ? AND campaign_id = ? ORDER BY created_at DESC')
+    .bind(tenantId, campaignId)
+    .all<PrMentionRow>();
+  return (results ?? []) as PrMentionRow[];
+}
+
+export async function createPrMention(db: D1Database, tenantId: string, input: Partial<PrMentionRow>): Promise<PrMentionRow> {
+  const id = uuidv4();
+  const now = Math.floor(Date.now() / 1000);
+  await db
+    .prepare(
+      `INSERT INTO pr_mentions (id, tenant_id, campaign_id, outlet_name, url, published_at, memo, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      id,
+      tenantId,
+      input.campaign_id,
+      input.outlet_name,
+      input.url,
+      input.published_at ?? null,
+      input.memo ?? null,
+      now
+    )
+    .run();
+  const mention = await db
+    .prepare('SELECT * FROM pr_mentions WHERE id = ? AND tenant_id = ?')
+    .bind(id, tenantId)
+    .first<PrMentionRow>();
+  if (!mention) throw new Error('Failed to create PR mention');
+  return mention;
+}
+
+export async function updatePrMention(
+  db: D1Database,
+  tenantId: string,
+  id: string,
+  updates: Partial<PrMentionRow>
+): Promise<PrMentionRow> {
+  await db
+    .prepare(
+      `UPDATE pr_mentions SET
+        outlet_name = COALESCE(?, outlet_name),
+        url = COALESCE(?, url),
+        published_at = COALESCE(?, published_at),
+        memo = COALESCE(?, memo)
+       WHERE id = ? AND tenant_id = ?`
+    )
+    .bind(
+      updates.outlet_name ?? null,
+      updates.url ?? null,
+      updates.published_at ?? null,
+      updates.memo ?? null,
+      id,
+      tenantId
+    )
+    .run();
+  const mention = await db
+    .prepare('SELECT * FROM pr_mentions WHERE id = ? AND tenant_id = ?')
+    .bind(id, tenantId)
+    .first<PrMentionRow>();
+  if (!mention) throw new Error('Failed to update PR mention');
+  return mention;
+}
+
+export async function deletePrMention(db: D1Database, tenantId: string, id: string): Promise<void> {
+  await db.prepare('DELETE FROM pr_mentions WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+}
+
+export async function listPrReports(db: D1Database, tenantId: string, campaignId: string): Promise<PrReportRow[]> {
+  const { results } = await db
+    .prepare('SELECT * FROM pr_reports WHERE tenant_id = ? AND campaign_id = ? ORDER BY created_at DESC')
+    .bind(tenantId, campaignId)
+    .all<PrReportRow>();
+  return (results ?? []) as PrReportRow[];
+}
+
+export async function createPrReport(db: D1Database, tenantId: string, input: Partial<PrReportRow>): Promise<PrReportRow> {
+  const id = uuidv4();
+  const now = Math.floor(Date.now() / 1000);
+  await db
+    .prepare(
+      `INSERT INTO pr_reports (id, tenant_id, campaign_id, period_start, period_end, highlights, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(id, tenantId, input.campaign_id, input.period_start ?? null, input.period_end ?? null, input.highlights ?? null, now)
+    .run();
+  const report = await db
+    .prepare('SELECT * FROM pr_reports WHERE id = ? AND tenant_id = ?')
+    .bind(id, tenantId)
+    .first<PrReportRow>();
+  if (!report) throw new Error('Failed to create PR report');
+  return report;
+}
+
+export async function updatePrReport(
+  db: D1Database,
+  tenantId: string,
+  id: string,
+  updates: Partial<PrReportRow>
+): Promise<PrReportRow> {
+  await db
+    .prepare(
+      `UPDATE pr_reports SET
+        period_start = COALESCE(?, period_start),
+        period_end = COALESCE(?, period_end),
+        highlights = COALESCE(?, highlights)
+       WHERE id = ? AND tenant_id = ?`
+    )
+    .bind(updates.period_start ?? null, updates.period_end ?? null, updates.highlights ?? null, id, tenantId)
+    .run();
+  const report = await db
+    .prepare('SELECT * FROM pr_reports WHERE id = ? AND tenant_id = ?')
+    .bind(id, tenantId)
+    .first<PrReportRow>();
+  if (!report) throw new Error('Failed to update PR report');
+  return report;
+}
+
+export async function deletePrReport(db: D1Database, tenantId: string, id: string): Promise<void> {
+  await db.prepare('DELETE FROM pr_reports WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+}
+
 export function toNumber(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   const num = Number(value);
@@ -360,6 +581,50 @@ export function mapDeployJob(row: DeployJobRow) {
     created_at: createdAt ?? undefined,
     updated_at: updatedAt ?? undefined,
     updated_at_iso: toIso(updatedAt),
+  };
+}
+
+export function mapPrCampaign(row: PrCampaignRow) {
+  const scheduledAt = toNumber((row as any).scheduled_at ?? row.scheduled_at);
+  const createdAt = toNumber((row as any).created_at ?? row.created_at);
+  const updatedAt = toNumber((row as any).updated_at ?? row.updated_at);
+  return {
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    scheduled_at: scheduledAt,
+    description: row.description,
+    created_at: createdAt ?? undefined,
+    updated_at: updatedAt ?? undefined,
+    scheduled_at_iso: toIso(scheduledAt),
+    updated_at_iso: toIso(updatedAt),
+  };
+}
+
+export function mapPrMention(row: PrMentionRow) {
+  const publishedAt = toNumber((row as any).published_at ?? row.published_at);
+  const createdAt = toNumber((row as any).created_at ?? row.created_at);
+  return {
+    id: row.id,
+    campaign_id: row.campaign_id,
+    outlet_name: row.outlet_name,
+    url: row.url,
+    published_at: publishedAt,
+    memo: row.memo,
+    created_at: createdAt ?? undefined,
+    published_at_iso: toIso(publishedAt),
+  };
+}
+
+export function mapPrReport(row: PrReportRow) {
+  const createdAt = toNumber((row as any).created_at ?? row.created_at);
+  return {
+    id: row.id,
+    campaign_id: row.campaign_id,
+    period_start: row.period_start,
+    period_end: row.period_end,
+    highlights: row.highlights,
+    created_at: createdAt ?? undefined,
   };
 }
 

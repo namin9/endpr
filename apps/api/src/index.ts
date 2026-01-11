@@ -8,6 +8,9 @@ import categoryRoutes from './routes/categories';
 import shareRoutes from './routes/share';
 import publicRoutes from './routes/public';
 import scheduledRoutes from './routes/scheduled';
+import prCampaignRoutes from './routes/pr_campaigns';
+import prMentionRoutes from './routes/pr_mentions';
+import prReportRoutes from './routes/pr_reports';
 import { corsMiddleware } from './middleware/cors';
 
 const app = new Hono();
@@ -23,6 +26,9 @@ app.route('/', categoryRoutes);
 app.route('/', shareRoutes);
 app.route('/', publicRoutes);
 app.route('/', scheduledRoutes);
+app.route('/', prCampaignRoutes);
+app.route('/', prMentionRoutes);
+app.route('/', prReportRoutes);
 
 app.notFound((c) => c.json({ error: 'Not Found' }, 404));
 

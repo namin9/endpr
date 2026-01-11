@@ -276,6 +276,12 @@ body {
   gap: 12px;
 }
 
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 16px 0;
+}
+
 .field {
   display: flex;
   flex-direction: column;

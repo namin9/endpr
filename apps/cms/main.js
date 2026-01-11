@@ -50,6 +50,28 @@ const categorySlugInput = document.getElementById('categorySlugInput');
 const categoriesStatus = document.getElementById('categoriesStatus');
 const categoriesList = document.getElementById('categoriesList');
 const refreshCategoriesBtn = document.getElementById('refreshCategoriesBtn');
+const prCampaignForm = document.getElementById('prCampaignForm');
+const prCampaignNameInput = document.getElementById('prCampaignNameInput');
+const prCampaignStatusInput = document.getElementById('prCampaignStatusInput');
+const prCampaignScheduledInput = document.getElementById('prCampaignScheduledInput');
+const prCampaignDescriptionInput = document.getElementById('prCampaignDescriptionInput');
+const prCampaignStatus = document.getElementById('prCampaignStatus');
+const prCampaignList = document.getElementById('prCampaignList');
+const refreshPrCampaignsBtn = document.getElementById('refreshPrCampaignsBtn');
+const prSelectedCampaign = document.getElementById('prSelectedCampaign');
+const prMentionForm = document.getElementById('prMentionForm');
+const prMentionOutletInput = document.getElementById('prMentionOutletInput');
+const prMentionUrlInput = document.getElementById('prMentionUrlInput');
+const prMentionPublishedInput = document.getElementById('prMentionPublishedInput');
+const prMentionMemoInput = document.getElementById('prMentionMemoInput');
+const prMentionsStatus = document.getElementById('prMentionsStatus');
+const prMentionsList = document.getElementById('prMentionsList');
+const prReportForm = document.getElementById('prReportForm');
+const prReportPeriodStartInput = document.getElementById('prReportPeriodStartInput');
+const prReportPeriodEndInput = document.getElementById('prReportPeriodEndInput');
+const prReportHighlightsInput = document.getElementById('prReportHighlightsInput');
+const prReportsStatus = document.getElementById('prReportsStatus');
+const prReportsList = document.getElementById('prReportsList');
 
 let autosaveTimer = null;
 let previewTimer = null;
@@ -59,6 +81,10 @@ let currentPosts = [];
 let allPosts = [];
 let currentJobs = load(JOB_KEY, []);
 let currentCategories = [];
+let currentPrCampaigns = [];
+let currentPrMentions = [];
+let currentPrReports = [];
+let selectedPrCampaignId = null;
 let quill = null;
 let suppressQuillChange = false;
 let postsView = {
@@ -416,7 +442,7 @@ loginForm.addEventListener('submit', async (event) => {
       body: { tenantSlug: tenant, email, password },
     });
     await fetchSession();
-    await Promise.all([fetchPosts(), fetchDeployJobs()]);
+    await Promise.all([fetchPosts(), fetchDeployJobs(), fetchCategories(), fetchPrCampaigns()]);
     publishMessage.textContent = '';
   } catch (error) {
     setStatus(sessionStatus, formatError(error), true);
@@ -843,6 +869,241 @@ async function fetchCategories() {
   } catch (error) {
     setStatus(categoriesStatus, formatError(error), true);
   }
+}
+
+function normalizePrCampaign(rawCampaign) {
+  const scheduledValue = rawCampaign?.scheduled_at_iso || rawCampaign?.scheduled_at || null;
+  const scheduledAt =
+    typeof scheduledValue === 'number' ? new Date(scheduledValue * 1000).toISOString() : scheduledValue;
+  return {
+    id: rawCampaign?.id,
+    name: rawCampaign?.name || '이름 없음',
+    status: rawCampaign?.status || 'draft',
+    scheduledAt,
+    description: rawCampaign?.description || '',
+  };
+}
+
+function normalizePrMention(rawMention) {
+  const publishedValue = rawMention?.published_at_iso || rawMention?.published_at || null;
+  const publishedAt =
+    typeof publishedValue === 'number' ? new Date(publishedValue * 1000).toISOString() : publishedValue;
+  return {
+    id: rawMention?.id,
+    outletName: rawMention?.outlet_name || rawMention?.outletName || '매체명 없음',
+    url: rawMention?.url || '',
+    publishedAt,
+    memo: rawMention?.memo || '',
+  };
+}
+
+function normalizePrReport(rawReport) {
+  return {
+    id: rawReport?.id,
+    periodStart: rawReport?.period_start || rawReport?.periodStart || '',
+    periodEnd: rawReport?.period_end || rawReport?.periodEnd || '',
+    highlights: rawReport?.highlights || '',
+  };
+}
+
+function renderPrCampaigns() {
+  if (!prCampaignList || !prCampaignStatus) return;
+  prCampaignList.innerHTML = '';
+  if (!currentPrCampaigns.length) {
+    prCampaignStatus.textContent = '캠페인이 없습니다.';
+    return;
+  }
+  prCampaignStatus.textContent = `${currentPrCampaigns.length}개 캠페인`;
+  currentPrCampaigns.forEach((campaign) => {
+    const item = document.createElement('div');
+    item.className = 'category-item';
+    const scheduledLabel = campaign.scheduledAt ? formatMaybeDate(campaign.scheduledAt) : '-';
+    item.innerHTML = `
+      <div>
+        <strong>${campaign.name}</strong>
+        <div class="muted">${campaign.status} · 예약: ${scheduledLabel}</div>
+      </div>
+      <div class="row gap">
+        <button type="button" class="ghost" data-pr-select="${campaign.id}">선택</button>
+        <button type="button" class="ghost" data-pr-delete="${campaign.id}">삭제</button>
+      </div>
+    `;
+    const selectBtn = item.querySelector('[data-pr-select]');
+    const deleteBtn = item.querySelector('[data-pr-delete]');
+    selectBtn.addEventListener('click', async () => {
+      await selectPrCampaign(campaign.id);
+    });
+    deleteBtn.addEventListener('click', async () => {
+      try {
+        deleteBtn.disabled = true;
+        await apiFetch(`/cms/pr-campaigns/${campaign.id}`, { method: 'DELETE' });
+        if (selectedPrCampaignId === campaign.id) {
+          selectedPrCampaignId = null;
+          currentPrMentions = [];
+          currentPrReports = [];
+          renderSelectedPrCampaign();
+          renderPrMentions();
+          renderPrReports();
+        }
+        await fetchPrCampaigns();
+      } catch (error) {
+        setStatus(prCampaignStatus, formatError(error), true);
+      } finally {
+        deleteBtn.disabled = false;
+      }
+    });
+    prCampaignList.appendChild(item);
+  });
+}
+
+function renderSelectedPrCampaign() {
+  if (!prSelectedCampaign) return;
+  if (!selectedPrCampaignId) {
+    prSelectedCampaign.textContent = '선택된 캠페인이 없습니다.';
+    return;
+  }
+  const campaign = currentPrCampaigns.find((item) => item.id === selectedPrCampaignId);
+  if (!campaign) {
+    prSelectedCampaign.textContent = '선택된 캠페인이 없습니다.';
+    return;
+  }
+  const scheduledLabel = campaign.scheduledAt ? formatMaybeDate(campaign.scheduledAt) : '-';
+  prSelectedCampaign.innerHTML = `
+    <strong>${campaign.name}</strong><br />
+    상태: ${campaign.status} · 예약: ${scheduledLabel}
+  `;
+}
+
+function renderPrMentions() {
+  if (!prMentionsList || !prMentionsStatus) return;
+  prMentionsList.innerHTML = '';
+  if (!selectedPrCampaignId) {
+    prMentionsStatus.textContent = '캠페인을 선택하세요.';
+    return;
+  }
+  if (!currentPrMentions.length) {
+    prMentionsStatus.textContent = '멘션이 없습니다.';
+    return;
+  }
+  prMentionsStatus.textContent = `${currentPrMentions.length}개 멘션`;
+  currentPrMentions.forEach((mention) => {
+    const item = document.createElement('div');
+    item.className = 'category-item';
+    const publishedLabel = mention.publishedAt ? formatMaybeDate(mention.publishedAt) : '-';
+    item.innerHTML = `
+      <div>
+        <strong>${mention.outletName}</strong>
+        <div class="muted">${publishedLabel}</div>
+        <div class="muted">${mention.url}</div>
+        ${mention.memo ? `<div class="muted">${mention.memo}</div>` : ''}
+      </div>
+      <button type="button" class="ghost" data-pr-mention-delete="${mention.id}">삭제</button>
+    `;
+    const deleteBtn = item.querySelector('[data-pr-mention-delete]');
+    deleteBtn.addEventListener('click', async () => {
+      try {
+        deleteBtn.disabled = true;
+        await apiFetch(`/cms/pr-mentions/${mention.id}`, { method: 'DELETE' });
+        await fetchPrMentions();
+      } catch (error) {
+        setStatus(prMentionsStatus, formatError(error), true);
+      } finally {
+        deleteBtn.disabled = false;
+      }
+    });
+    prMentionsList.appendChild(item);
+  });
+}
+
+function renderPrReports() {
+  if (!prReportsList || !prReportsStatus) return;
+  prReportsList.innerHTML = '';
+  if (!selectedPrCampaignId) {
+    prReportsStatus.textContent = '캠페인을 선택하세요.';
+    return;
+  }
+  if (!currentPrReports.length) {
+    prReportsStatus.textContent = '리포트가 없습니다.';
+    return;
+  }
+  prReportsStatus.textContent = `${currentPrReports.length}개 리포트`;
+  currentPrReports.forEach((report) => {
+    const item = document.createElement('div');
+    item.className = 'category-item';
+    const period = report.periodStart || report.periodEnd ? `${report.periodStart || '-'} ~ ${report.periodEnd || '-'}` : '-';
+    item.innerHTML = `
+      <div>
+        <strong>${period}</strong>
+        ${report.highlights ? `<div class="muted">${report.highlights}</div>` : ''}
+      </div>
+      <button type="button" class="ghost" data-pr-report-delete="${report.id}">삭제</button>
+    `;
+    const deleteBtn = item.querySelector('[data-pr-report-delete]');
+    deleteBtn.addEventListener('click', async () => {
+      try {
+        deleteBtn.disabled = true;
+        await apiFetch(`/cms/pr-reports/${report.id}`, { method: 'DELETE' });
+        await fetchPrReports();
+      } catch (error) {
+        setStatus(prReportsStatus, formatError(error), true);
+      } finally {
+        deleteBtn.disabled = false;
+      }
+    });
+    prReportsList.appendChild(item);
+  });
+}
+
+async function fetchPrCampaigns() {
+  if (!prCampaignStatus) return;
+  try {
+    setStatus(prCampaignStatus, '불러오는 중...');
+    const data = await apiFetch('/cms/pr-campaigns');
+    const campaigns = data?.campaigns || [];
+    currentPrCampaigns = campaigns.map(normalizePrCampaign);
+    renderPrCampaigns();
+    renderSelectedPrCampaign();
+  } catch (error) {
+    setStatus(prCampaignStatus, formatError(error), true);
+  }
+}
+
+async function fetchPrMentions() {
+  if (!prMentionsStatus || !selectedPrCampaignId) {
+    renderPrMentions();
+    return;
+  }
+  try {
+    setStatus(prMentionsStatus, '불러오는 중...');
+    const data = await apiFetch(`/cms/pr-mentions?campaign_id=${selectedPrCampaignId}`);
+    const mentions = data?.mentions || [];
+    currentPrMentions = mentions.map(normalizePrMention);
+    renderPrMentions();
+  } catch (error) {
+    setStatus(prMentionsStatus, formatError(error), true);
+  }
+}
+
+async function fetchPrReports() {
+  if (!prReportsStatus || !selectedPrCampaignId) {
+    renderPrReports();
+    return;
+  }
+  try {
+    setStatus(prReportsStatus, '불러오는 중...');
+    const data = await apiFetch(`/cms/pr-reports?campaign_id=${selectedPrCampaignId}`);
+    const reports = data?.reports || [];
+    currentPrReports = reports.map(normalizePrReport);
+    renderPrReports();
+  } catch (error) {
+    setStatus(prReportsStatus, formatError(error), true);
+  }
+}
+
+async function selectPrCampaign(campaignId) {
+  selectedPrCampaignId = campaignId;
+  renderSelectedPrCampaign();
+  await Promise.all([fetchPrMentions(), fetchPrReports()]);
 }
 
 function getFilteredPosts() {
@@ -1382,6 +1643,12 @@ if (refreshCategoriesBtn) {
   });
 }
 
+if (refreshPrCampaignsBtn) {
+  refreshPrCampaignsBtn.addEventListener('click', () => {
+    fetchPrCampaigns();
+  });
+}
+
 if (categoryForm) {
   categoryForm.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -1399,6 +1666,97 @@ if (categoryForm) {
       await fetchCategories();
     } catch (error) {
       setStatus(categoriesStatus, formatError(error), true);
+    }
+  });
+}
+
+if (prCampaignForm) {
+  prCampaignForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const name = prCampaignNameInput.value.trim();
+    if (!name) return;
+    try {
+      setStatus(prCampaignStatus, '추가 중...');
+      const scheduledValue = prCampaignScheduledInput.value;
+      const scheduledAt = scheduledValue ? Math.floor(new Date(scheduledValue).getTime() / 1000) : undefined;
+      await apiFetch('/cms/pr-campaigns', {
+        method: 'POST',
+        body: {
+          name,
+          status: prCampaignStatusInput.value,
+          scheduled_at: scheduledAt,
+          description: prCampaignDescriptionInput.value.trim() || undefined,
+        },
+      });
+      prCampaignNameInput.value = '';
+      prCampaignDescriptionInput.value = '';
+      prCampaignScheduledInput.value = '';
+      await fetchPrCampaigns();
+    } catch (error) {
+      setStatus(prCampaignStatus, formatError(error), true);
+    }
+  });
+}
+
+if (prMentionForm) {
+  prMentionForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!selectedPrCampaignId) {
+      setStatus(prMentionsStatus, '캠페인을 먼저 선택하세요.', true);
+      return;
+    }
+    const outletName = prMentionOutletInput.value.trim();
+    const url = prMentionUrlInput.value.trim();
+    if (!outletName || !url) return;
+    try {
+      setStatus(prMentionsStatus, '추가 중...');
+      const publishedValue = prMentionPublishedInput.value;
+      const publishedAt = publishedValue ? Math.floor(new Date(publishedValue).getTime() / 1000) : undefined;
+      await apiFetch('/cms/pr-mentions', {
+        method: 'POST',
+        body: {
+          campaign_id: selectedPrCampaignId,
+          outlet_name: outletName,
+          url,
+          published_at: publishedAt,
+          memo: prMentionMemoInput.value.trim() || undefined,
+        },
+      });
+      prMentionOutletInput.value = '';
+      prMentionUrlInput.value = '';
+      prMentionPublishedInput.value = '';
+      prMentionMemoInput.value = '';
+      await fetchPrMentions();
+    } catch (error) {
+      setStatus(prMentionsStatus, formatError(error), true);
+    }
+  });
+}
+
+if (prReportForm) {
+  prReportForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!selectedPrCampaignId) {
+      setStatus(prReportsStatus, '캠페인을 먼저 선택하세요.', true);
+      return;
+    }
+    try {
+      setStatus(prReportsStatus, '저장 중...');
+      await apiFetch('/cms/pr-reports', {
+        method: 'POST',
+        body: {
+          campaign_id: selectedPrCampaignId,
+          period_start: prReportPeriodStartInput.value || undefined,
+          period_end: prReportPeriodEndInput.value || undefined,
+          highlights: prReportHighlightsInput.value.trim() || undefined,
+        },
+      });
+      prReportPeriodStartInput.value = '';
+      prReportPeriodEndInput.value = '';
+      prReportHighlightsInput.value = '';
+      await fetchPrReports();
+    } catch (error) {
+      setStatus(prReportsStatus, formatError(error), true);
     }
   });
 }
@@ -1424,6 +1782,7 @@ fetchSession();
 fetchPosts();
 fetchDeployJobs();
 fetchCategories();
+fetchPrCampaigns();
 
 window.addEventListener('beforeunload', (event) => {
   if (!autosaveState.dirty) return;
