@@ -599,6 +599,12 @@ button:active {
   overflow-y: auto;
 }
 
+.preview-scope {
+  min-height: 100%;
+  padding: 16px;
+  border-radius: 10px;
+}
+
 .preview h1,
 .preview h2,
 .preview h3 {
@@ -621,6 +627,39 @@ button:active {
   padding: 12px;
   border-radius: 10px;
   overflow-x: auto;
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.theme-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 10px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.theme-card .swatch {
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.theme-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.2);
+}
+
+.theme-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .editor-card[data-view-mode='edit'] .preview-pane {

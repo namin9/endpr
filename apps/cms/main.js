@@ -50,6 +50,12 @@ const categorySlugInput = document.getElementById('categorySlugInput');
 const categoriesStatus = document.getElementById('categoriesStatus');
 const categoriesList = document.getElementById('categoriesList');
 const refreshCategoriesBtn = document.getElementById('refreshCategoriesBtn');
+const themeStatus = document.getElementById('themeStatus');
+const themeCurrent = document.getElementById('themeCurrent');
+const themePresetList = document.getElementById('themePresetList');
+const themeSaveBtn = document.getElementById('themeSaveBtn');
+const themeSaveStatus = document.getElementById('themeSaveStatus');
+const refreshThemeBtn = document.getElementById('refreshThemeBtn');
 const prCampaignForm = document.getElementById('prCampaignForm');
 const prCampaignNameInput = document.getElementById('prCampaignNameInput');
 const prCampaignStatusInput = document.getElementById('prCampaignStatusInput');
@@ -86,6 +92,11 @@ let currentPrCampaigns = [];
 let currentPrMentions = [];
 let currentPrReports = [];
 let selectedPrCampaignId = null;
+let themePresets = [];
+let currentThemeConfig = { presetId: 'minimal-clean', updatedAt: null };
+let selectedThemePresetId = null;
+let currentThemeTokens = null;
+let themeIsSuperAdmin = false;
 let quill = null;
 let suppressQuillChange = false;
 let postsView = {
@@ -152,6 +163,37 @@ function formatDatetimeLocal(value) {
   const hours = pad(parsed.getHours());
   const minutes = pad(parsed.getMinutes());
   return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function resolveIsSuperAdmin(session) {
+  const user = session?.user || {};
+  if (typeof user.is_super_admin === 'boolean') return user.is_super_admin;
+  if (typeof user.isSuperAdmin === 'boolean') return user.isSuperAdmin;
+  if (user.role) return user.role === 'super';
+  return false;
+}
+
+function buildThemeStyle(tokens, scopeSelector) {
+  if (!tokens) return '';
+  const toCss = (vars) =>
+    Object.entries(vars)
+      .map(([key, value]) => `  ${key}: ${value};`)
+      .join('\n');
+  return `${scopeSelector} {\n${toCss(tokens.light)}\n}\n@media (prefers-color-scheme: dark) {\n  ${scopeSelector} {\n${toCss(
+    tokens.dark
+  )}\n  }\n}\n${scopeSelector} {\n  background: var(--bg);\n  color: var(--fg);\n  font-family: var(--font-sans);\n  border: 1px solid var(--border);\n  border-radius: var(--radius);\n}\n${scopeSelector} a {\n  color: var(--link);\n}\n${scopeSelector} hr {\n  border-color: var(--border);\n}\n${scopeSelector} .card, ${scopeSelector} .border {\n  border-color: var(--border);\n  border-radius: var(--radius);\n}`;
+}
+
+function applyPreviewTheme(tokens) {
+  currentThemeTokens = tokens;
+  const styleId = 'theme-tokens-preview';
+  let styleEl = document.getElementById(styleId);
+  if (!styleEl) {
+    styleEl = document.createElement('style');
+    styleEl.id = styleId;
+    document.head.appendChild(styleEl);
+  }
+  styleEl.textContent = buildThemeStyle(tokens, '.preview-scope');
 }
 
 function initQuillEditor() {
@@ -407,8 +449,11 @@ function formatError(error) {
 function persistSession(session) {
   currentSession = session;
   save(SESSION_KEY, session);
+  themeIsSuperAdmin = resolveIsSuperAdmin(session);
   renderSession();
   updateViewOnBlogButton();
+  renderThemeCurrent();
+  renderThemePresets();
 }
 
 function renderSession() {
@@ -433,6 +478,7 @@ async function fetchSession() {
     const data = await apiFetch('/cms/auth/me');
     const loggedInAt = currentSession?.loggedInAt || new Date().toISOString();
     persistSession({ ...data, loggedInAt });
+    await Promise.all([fetchThemeConfig(), fetchThemePresets(), fetchThemeTokens()]);
   } catch (error) {
     currentSession = null;
     localStorage.removeItem(SESSION_KEY);
@@ -466,23 +512,28 @@ loginForm.addEventListener('submit', async (event) => {
 logoutBtn.addEventListener('click', () => {
   localStorage.removeItem(SESSION_KEY);
   currentSession = null;
+  themeIsSuperAdmin = false;
   renderSession();
+  renderThemeCurrent();
+  renderThemePresets();
 });
 
 function renderPreview() {
   const draft = currentDraft || { title: '', body: '' };
   const body = draft.body || '';
   if (!draft.title && !body) {
-    previewPane.textContent = '작성된 내용이 없습니다.';
+    previewPane.innerHTML = '<div class="preview-scope muted">작성된 내용이 없습니다.</div>';
     return;
   }
   const hasHtml = isHtmlContent(body);
+  let content = '';
   if (hasHtml) {
-    previewPane.innerHTML = body;
+    content = body;
   } else {
     const markdown = `# ${draft.title || '제목 없음'}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
-    previewPane.innerHTML = renderMarkdown(markdown);
+    content = renderMarkdown(markdown);
   }
+  previewPane.innerHTML = `<div class="preview-scope">${content}</div>`;
   previewStatus.textContent = '실시간';
 }
 
@@ -882,6 +933,92 @@ async function fetchCategories() {
     renderCategories();
   } catch (error) {
     setStatus(categoriesStatus, formatError(error), true);
+  }
+}
+
+function renderThemePresets() {
+  if (!themePresetList || !themeStatus) return;
+  themePresetList.innerHTML = '';
+  if (!themePresets.length) {
+    themeStatus.textContent = '프리셋이 없습니다.';
+    return;
+  }
+  themeStatus.textContent = `${themePresets.length}개 프리셋`;
+  themePresets.forEach((preset) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'theme-card';
+    if (preset.id === selectedThemePresetId) {
+      button.classList.add('is-selected');
+    }
+    button.disabled = !themeIsSuperAdmin;
+    button.innerHTML = `
+      <div class="swatch" style="background:${preset.swatch.bg}; border-color:${preset.swatch.primary}"></div>
+      <strong>${preset.name}</strong>
+      <span class="muted">${preset.id}</span>
+    `;
+    button.addEventListener('click', () => {
+      if (!themeIsSuperAdmin) return;
+      selectedThemePresetId = preset.id;
+      renderThemePresets();
+    });
+    themePresetList.appendChild(button);
+  });
+}
+
+function renderThemeCurrent() {
+  if (!themeCurrent) return;
+  const preset = themePresets.find((item) => item.id === currentThemeConfig.presetId);
+  const label = preset ? `${preset.name} (${preset.id})` : currentThemeConfig.presetId;
+  themeCurrent.textContent = `현재 테마: ${label}`;
+  if (themeSaveBtn) {
+    themeSaveBtn.disabled = !themeIsSuperAdmin;
+  }
+  if (themeSaveStatus) {
+    themeSaveStatus.textContent = themeIsSuperAdmin ? '' : '읽기 전용';
+  }
+}
+
+async function fetchThemePresets() {
+  if (!themeStatus) return;
+  try {
+    setStatus(themeStatus, '불러오는 중...');
+    const data = await apiFetch('/cms/theme/presets');
+    themePresets = data?.presets || [];
+    if (!selectedThemePresetId && currentThemeConfig.presetId) {
+      selectedThemePresetId = currentThemeConfig.presetId;
+    }
+    renderThemePresets();
+    renderThemeCurrent();
+  } catch (error) {
+    setStatus(themeStatus, formatError(error), true);
+  }
+}
+
+async function fetchThemeConfig() {
+  try {
+    const data = await apiFetch('/cms/theme');
+    currentThemeConfig = {
+      presetId: data?.preset_id || 'minimal-clean',
+      updatedAt: data?.updated_at || null,
+    };
+    if (!selectedThemePresetId) {
+      selectedThemePresetId = currentThemeConfig.presetId;
+    }
+    renderThemeCurrent();
+  } catch (error) {
+    if (themeStatus) setStatus(themeStatus, formatError(error), true);
+  }
+}
+
+async function fetchThemeTokens() {
+  try {
+    const data = await apiFetch('/cms/theme/tokens');
+    if (data?.tokens) {
+      applyPreviewTheme(data.tokens);
+    }
+  } catch (error) {
+    if (themeStatus) setStatus(themeStatus, formatError(error), true);
   }
 }
 
@@ -1675,6 +1812,37 @@ if (revokeShareBtn) {
 if (refreshCategoriesBtn) {
   refreshCategoriesBtn.addEventListener('click', () => {
     fetchCategories();
+  });
+}
+
+if (refreshThemeBtn) {
+  refreshThemeBtn.addEventListener('click', () => {
+    fetchThemeConfig();
+    fetchThemePresets();
+    fetchThemeTokens();
+  });
+}
+
+if (themeSaveBtn) {
+  themeSaveBtn.addEventListener('click', async () => {
+    if (!themeIsSuperAdmin) return;
+    if (!selectedThemePresetId) return;
+    try {
+      setStatus(themeSaveStatus, '저장 중...');
+      const data = await apiFetch('/cms/theme', {
+        method: 'PUT',
+        body: { preset_id: selectedThemePresetId },
+      });
+      currentThemeConfig = {
+        presetId: data?.preset_id || selectedThemePresetId,
+        updatedAt: data?.updated_at || Date.now(),
+      };
+      renderThemeCurrent();
+      await fetchThemeTokens();
+      setStatus(themeSaveStatus, data?.deploy_job?.id ? `배포 Job: ${data.deploy_job.id}` : '저장 완료');
+    } catch (error) {
+      setStatus(themeSaveStatus, formatError(error), true);
+    }
   });
 }
 
