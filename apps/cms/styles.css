@@ -276,6 +276,42 @@ body {
   gap: 12px;
 }
 
+.tab-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.tab-button {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.tab-button.is-active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(124, 58, 237, 0.16);
+}
+
+.tab-panel {
+  display: none;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tab-panel.is-active {
+  display: flex;
+}
+
 .divider {
   height: 1px;
   background: var(--border);

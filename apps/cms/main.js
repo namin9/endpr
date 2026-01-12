@@ -78,6 +78,10 @@ const userRoleInput = document.getElementById('userRoleInput');
 const userPasswordInput = document.getElementById('userPasswordInput');
 const userFormStatus = document.getElementById('userFormStatus');
 const userResetBtn = document.getElementById('userResetBtn');
+const tabButtons = Array.from(document.querySelectorAll('[data-tab-target]'));
+const tabPanels = Array.from(document.querySelectorAll('[data-tab-panel]'));
+const adminTabButton = document.querySelector('[data-admin-tab]');
+const adminTabPanel = document.querySelector('[data-admin-panel]');
 const prCampaignForm = document.getElementById('prCampaignForm');
 const prCampaignNameInput = document.getElementById('prCampaignNameInput');
 const prCampaignStatusInput = document.getElementById('prCampaignStatusInput');
@@ -122,6 +126,7 @@ let themeIsSuperAdmin = false;
 let currentTenants = [];
 let currentUsers = [];
 let selectedTenantId = null;
+let activeTabId = 'content';
 let quill = null;
 let suppressQuillChange = false;
 let postsView = {
@@ -198,6 +203,21 @@ function resolveIsSuperAdmin(session) {
   return false;
 }
 
+function setActiveTab(tabId) {
+  activeTabId = tabId;
+  tabButtons.forEach((button) => {
+    const target = button.dataset.tabTarget;
+    const isActive = target === tabId;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    button.setAttribute('tabindex', isActive ? '0' : '-1');
+  });
+  tabPanels.forEach((panel) => {
+    const panelId = panel.dataset.tabPanel;
+    panel.classList.toggle('is-active', panelId === tabId);
+  });
+}
+
 function toggleFormDisabled(form, disabled) {
   if (!form) return;
   const elements = Array.from(form.elements || []);
@@ -214,12 +234,21 @@ function applyAdminUiState(isSuperAdmin) {
   if (userResetBtn) userResetBtn.disabled = !isSuperAdmin;
   toggleFormDisabled(tenantForm, !isSuperAdmin);
   toggleFormDisabled(userForm, !isSuperAdmin);
+  if (adminTabButton) {
+    adminTabButton.style.display = isSuperAdmin ? '' : 'none';
+  }
+  if (adminTabPanel) {
+    adminTabPanel.style.display = isSuperAdmin ? '' : 'none';
+  }
 
   if (!isSuperAdmin) {
     if (tenantsStatus) setStatus(tenantsStatus, '슈퍼 관리자만 접근할 수 있습니다.', true);
     if (usersStatus) setStatus(usersStatus, '슈퍼 관리자만 접근할 수 있습니다.', true);
     if (tenantFormStatus) setStatus(tenantFormStatus, '읽기 전용', true);
     if (userFormStatus) setStatus(userFormStatus, '읽기 전용', true);
+    if (activeTabId === 'admin') {
+      setActiveTab('content');
+    }
   } else {
     if (tenantFormStatus) setStatus(tenantFormStatus, '');
     if (userFormStatus) setStatus(userFormStatus, '');
@@ -2076,6 +2105,17 @@ if (refreshCategoriesBtn) {
   refreshCategoriesBtn.addEventListener('click', () => {
     fetchCategories();
   });
+}
+
+if (tabButtons.length) {
+  tabButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const target = button.dataset.tabTarget;
+      if (!target) return;
+      setActiveTab(target);
+    });
+  });
+  setActiveTab(activeTabId);
 }
 
 if (refreshThemeBtn) {
