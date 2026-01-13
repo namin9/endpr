@@ -44,14 +44,20 @@ function extractImageKeys({
   publicBaseUrl: string | null;
 }): string[] {
   const keys = new Set<string>(explicitKeys);
+  const allowedOrigin = publicBaseUrl ? new URL(publicBaseUrl).origin : null;
   if (bodyText) {
     const urls = extractImageUrlsFromText(bodyText);
     urls.forEach((url) => {
-      if (!publicBaseUrl) return;
-      const normalizedBase = publicBaseUrl.replace(/\/+$/, '');
-      if (!url.startsWith(normalizedBase)) return;
-      const key = url.slice(normalizedBase.length).replace(/^\/+/, '');
-      if (key) keys.add(key);
+      if (!allowedOrigin) return;
+      try {
+        const parsed = new URL(url, allowedOrigin);
+        if (parsed.origin !== allowedOrigin) return;
+        const key = parsed.pathname.replace(/^\/+/, '');
+        if (!key) return;
+        keys.add(key);
+      } catch (error) {
+        return;
+      }
     });
   }
   return Array.from(keys);
