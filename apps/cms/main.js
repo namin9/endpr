@@ -588,28 +588,30 @@ async function fetchSession() {
   }
 }
 
-loginForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const formData = new FormData(loginForm);
-  const tenant = formData.get('tenant')?.toString().trim();
-  const email = formData.get('email')?.toString().trim();
-  const password = formData.get('password')?.toString().trim();
+if (loginForm) {
+  loginForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(loginForm);
+    const tenant = formData.get('tenant')?.toString().trim();
+    const email = formData.get('email')?.toString().trim();
+    const password = formData.get('password')?.toString().trim();
 
-  if (!tenant || !email || !password) return;
+    if (!tenant || !email || !password) return;
 
-  try {
-    setStatus(sessionStatus, '로그인 중…');
-    await apiFetch('/cms/auth/login', {
-      method: 'POST',
-      body: { tenantSlug: tenant, email, password },
-    });
-    await fetchSession();
-    await Promise.all([fetchPosts(), fetchDeployJobs(), fetchCategories(), fetchPrCampaigns()]);
-    publishMessage.textContent = '';
-  } catch (error) {
-    setStatus(sessionStatus, formatError(error), true);
-  }
-});
+    try {
+      setStatus(sessionStatus, '로그인 중…');
+      await apiFetch('/cms/auth/login', {
+        method: 'POST',
+        body: { tenantSlug: tenant, email, password },
+      });
+      await fetchSession();
+      await Promise.all([fetchPosts(), fetchDeployJobs(), fetchCategories(), fetchPrCampaigns()]);
+      publishMessage.textContent = '';
+    } catch (error) {
+      setStatus(sessionStatus, formatError(error), true);
+    }
+  });
+}
 
 logoutBtn.addEventListener('click', () => {
   localStorage.removeItem(SESSION_KEY);
