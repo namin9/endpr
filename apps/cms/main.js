@@ -584,7 +584,11 @@ async function fetchSession() {
     renderTenants();
     renderUsers();
     localStorage.removeItem(SESSION_KEY);
-    setStatus(sessionStatus, error.status === 401 ? '로그인이 필요합니다.' : formatError(error), true);
+    if (error.status === 401) {
+      window.location.href = 'login.html';
+      return;
+    }
+    setStatus(sessionStatus, formatError(error), true);
   }
 }
 
