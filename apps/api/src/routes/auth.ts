@@ -36,8 +36,33 @@ function getClientIp(c: any) {
 
 async function ensureAuthTables(c: any): Promise<boolean> {
   try {
-    await c.env.DB.prepare('SELECT 1 FROM auth_login_attempts LIMIT 1').run();
-    await c.env.DB.prepare('SELECT 1 FROM auth_audit_logs LIMIT 1').run();
+    await c.env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS auth_login_attempts (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT,
+        email TEXT NOT NULL,
+        ip TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        first_attempt_at INTEGER NOT NULL,
+        last_attempt_at INTEGER NOT NULL,
+        locked_until INTEGER
+      )`
+    ).run();
+    await c.env.DB.prepare(
+      'CREATE UNIQUE INDEX IF NOT EXISTS auth_login_attempts_unique ON auth_login_attempts (tenant_id, email, ip)'
+    ).run();
+    await c.env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS auth_audit_logs (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT,
+        email TEXT,
+        ip TEXT,
+        action TEXT NOT NULL,
+        success INTEGER NOT NULL DEFAULT 0,
+        message TEXT,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+      )`
+    ).run();
     return true;
   } catch (error) {
     console.error('Auth tables missing or unavailable.', error);
