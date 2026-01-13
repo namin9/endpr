@@ -1,7 +1,12 @@
 # apps/api/wrangler.toml
-name = 'endpr-api'
+name = 'endpr'
 main = "src/index.ts"
 compatibility_date = "2024-08-01"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "endpr-assets"
+preview_bucket_name = "endpr-assets"
 
 [[d1_databases]]
 binding = "DB"

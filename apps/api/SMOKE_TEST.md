@@ -100,6 +100,45 @@ $me
 
 Expected: **200** with the same `user` and `tenant` fields. Missing/invalid cookie should return **401**.
 
+## 3.5) Theme endpoints (CMS + build)
+
+Fetch current theme:
+
+```powershell
+$theme = Invoke-RestMethod -Uri "$BaseUrl/cms/theme" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Get
+$theme
+```
+
+Expected: **200** with `{ ok: true, preset_id, updated_at }`.
+
+Fetch preset list:
+
+```powershell
+$themePresets = Invoke-RestMethod -Uri "$BaseUrl/cms/theme/presets" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Get
+$themePresets
+```
+
+Expected: **200** with `{ ok: true, presets: [ { id, name, swatch } ] }`.
+
+Try updating theme (super admin only):
+
+```powershell
+$themeUpdateBody = @{ preset_id = "minimal-clean" } | ConvertTo-Json
+$themeUpdate = Invoke-RestMethod -Uri "$BaseUrl/cms/theme" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Put -ContentType "application/json" -Body $themeUpdateBody
+$themeUpdate
+```
+
+Expected: **200** for super admins; **403** `{ ok:false, error:"forbidden" }` for non-super admins.
+
+Build theme (requires build token):
+
+```powershell
+$buildTheme = Invoke-RestMethod -Uri "$BaseUrl/build/theme" -Headers @{ "x-build-token" = $BuildToken }
+$buildTheme
+```
+
+Expected: **200** with `{ ok: true, preset_id, tokens }`.
+
 ## 4) Post lifecycle: create → autosave → publish
 
 Create draft (captures ID safely):

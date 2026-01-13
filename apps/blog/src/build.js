@@ -27,6 +27,7 @@ function resolveSiteBaseUrl() {
 }
 
 let siteBaseUrl = "";
+let themeStyle = "";
 
 function assertSlugAllowed(slug, entityType) {
   const normalized = `${slug}`.toLowerCase();
@@ -60,6 +61,7 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
     return {
       posts: parsed.posts || [],
       categories: parsed.categories || [],
+      theme: parsed.theme || null,
     };
   }
 
@@ -79,7 +81,9 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
     throw new Error("Invalid /build/categories response shape");
   }
 
-  return { posts: postsIndex, categories: categoriesIndex };
+  const themeResp = await fetchJson(`${apiBase}/build/theme`, buildToken);
+  const themePayload = themeResp?.tokens ? themeResp : null;
+  return { posts: postsIndex, categories: categoriesIndex, theme: themePayload };
 }
 
 async function resetDist() {
@@ -343,6 +347,7 @@ function layoutHtml({ title, content, description = "" }) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(description)}" />
+  ${themeStyle}
 </head>
 <body>
   <header>
@@ -356,6 +361,30 @@ function layoutHtml({ title, content, description = "" }) {
   </main>
 </body>
 </html>`;
+}
+
+function buildThemeStyle(tokens) {
+  if (!tokens) return "";
+  const toCss = (vars) =>
+    Object.entries(vars)
+      .map(([key, value]) => `  ${key}: ${value};`)
+      .join("\n");
+  const light = toCss(tokens.light || {});
+  const dark = toCss(tokens.dark || {});
+  return `<style id="theme-tokens">
+:root {
+${light}
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+${dark}
+  }
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font-sans); }
+a { color: var(--link); }
+hr, .border, .card, .post-card { border-color: var(--border); }
+.card, .post-card { border-radius: var(--radius); }
+</style>`;
 }
 
 async function writeHtml(filePath, html) {
@@ -681,11 +710,15 @@ async function build() {
   if (!siteBase) throw new Error("SITE_BASE_URL is required for sitemap generation.");
   siteBaseUrl = resolveSiteBaseUrl();
 
-  const { posts: rawPosts, categories } = await loadBuildData({
+  const { posts: rawPosts, categories, theme } = await loadBuildData({
     apiBase,
     buildToken,
     useMock,
   });
+
+  if (theme?.tokens) {
+    themeStyle = buildThemeStyle(theme.tokens);
+  }
 
   const bodySummary = rawPosts.reduce(
     (acc, post) => {

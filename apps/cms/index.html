@@ -21,88 +21,279 @@
       <div class="actions">
         <button id="printBtn" class="ghost">PDF / Print</button>
       </div>
+      <div class="link-stack">
+        <span class="muted">Quick Links</span>
+        <div class="link-list">
+          <a href="https://cms.startuppr.kr" target="_blank" rel="noopener">cms.startuppr.kr</a>
+          <a href="https://api.startuppr.kr" target="_blank" rel="noopener">api.startuppr.kr</a>
+          <a href="https://endpr.ni041372.workers.dev" target="_blank" rel="noopener">endpr.ni041372.workers.dev</a>
+        </div>
+      </div>
     </header>
 
     <main class="app-shell">
       <aside class="panel stack" aria-label="Session and posts">
-        <section class="card" aria-labelledby="login-heading">
+        <section class="card" aria-labelledby="session-heading">
           <div class="card-header">
-            <h2 id="login-heading">로그인</h2>
+            <h2 id="session-heading">세션</h2>
             <span class="pill">필수</span>
           </div>
-          <form id="loginForm" class="stack">
-            <label class="field">
-              <span>테넌트 슬러그</span>
-              <input name="tenant" required placeholder="acme" />
-            </label>
-            <label class="field">
-              <span>이메일</span>
-              <input type="email" name="email" required placeholder="editor@acme.com" />
-            </label>
-            <label class="field">
-              <span>비밀번호</span>
-              <input type="password" name="password" required placeholder="••••••••" />
-            </label>
+          <div class="stack">
+            <p class="muted">로그인 페이지에서 계정 인증을 진행합니다.</p>
             <div class="row between">
-              <button type="submit" class="primary">로그인</button>
+              <a class="button-link primary" href="login.html">로그인 페이지 열기</a>
               <button type="button" id="logoutBtn" class="ghost">세션 초기화</button>
             </div>
-          </form>
-          <div class="session" id="sessionStatus" role="status"></div>
-        </section>
-
-        <section class="card" aria-labelledby="posts-heading">
-          <div class="card-header">
-            <h2 id="posts-heading">게시글 목록</h2>
-            <button type="button" id="refreshPostsBtn" class="ghost">새로고침</button>
-          </div>
-          <div class="posts-toolbar">
-            <button type="button" id="newPostBtn" class="primary">새 글</button>
-            <div class="posts-toolbar-inputs">
-              <input id="postsSearchInput" placeholder="제목 검색" />
-              <select id="postsStatusFilter">
-                <option value="all">전체</option>
-                <option value="draft">draft</option>
-                <option value="published">published</option>
-              </select>
-            </div>
-          </div>
-          <p id="postsStatus" class="muted">로딩 전</p>
-          <div class="posts-table" role="table" aria-label="Posts">
-            <div class="posts-row posts-row--head" role="row">
-              <div class="posts-cell">제목</div>
-              <div class="posts-cell">상태</div>
-              <div class="posts-cell">마지막 수정</div>
-              <div class="posts-cell">발행일</div>
-            </div>
-            <div id="postsList" class="posts-body" role="rowgroup"></div>
-          </div>
-          <div class="posts-pagination">
-            <button type="button" id="postsPrevBtn" class="ghost">이전</button>
-            <span id="postsPageInfo" class="muted">페이지 1 / 1</span>
-            <button type="button" id="postsNextBtn" class="ghost">다음</button>
+            <div class="session" id="sessionStatus" role="status"></div>
           </div>
         </section>
 
-        <section class="card" aria-labelledby="categories-heading">
-          <div class="card-header">
-            <h2 id="categories-heading">카테고리</h2>
-            <button type="button" id="refreshCategoriesBtn" class="ghost">새로고침</button>
-          </div>
-          <form id="categoryForm" class="stack">
+        <div class="tab-bar" role="tablist" aria-label="CMS Navigation">
+          <button type="button" class="tab-button is-active" data-tab-target="content" role="tab">콘텐츠</button>
+          <button type="button" class="tab-button" data-tab-target="theme" role="tab">테마</button>
+          <button type="button" class="tab-button" data-tab-target="admin" role="tab" data-admin-tab>관리</button>
+          <button type="button" class="tab-button" data-tab-target="pr" role="tab">PR</button>
+        </div>
+
+        <div class="tab-panel is-active" data-tab-panel="content" role="tabpanel">
+          <section class="card" aria-labelledby="posts-heading">
+            <div class="card-header">
+              <h2 id="posts-heading">게시글 목록</h2>
+              <button type="button" id="refreshPostsBtn" class="ghost">새로고침</button>
+            </div>
+            <div class="posts-toolbar">
+              <button type="button" id="newPostBtn" class="primary">새 글</button>
+              <div class="posts-toolbar-inputs">
+                <input id="postsSearchInput" placeholder="제목 검색" />
+                <select id="postsStatusFilter">
+                  <option value="all">전체</option>
+                  <option value="draft">draft</option>
+                  <option value="published">published</option>
+                </select>
+              </div>
+            </div>
+            <p id="postsStatus" class="muted">로딩 전</p>
+            <div class="posts-table" role="table" aria-label="Posts">
+              <div class="posts-row posts-row--head" role="row">
+                <div class="posts-cell">제목</div>
+                <div class="posts-cell">상태</div>
+                <div class="posts-cell">마지막 수정</div>
+                <div class="posts-cell">발행일</div>
+              </div>
+              <div id="postsList" class="posts-body" role="rowgroup"></div>
+            </div>
+            <div class="posts-pagination">
+              <button type="button" id="postsPrevBtn" class="ghost">이전</button>
+              <span id="postsPageInfo" class="muted">페이지 1 / 1</span>
+              <button type="button" id="postsNextBtn" class="ghost">다음</button>
+            </div>
+          </section>
+
+          <section class="card" aria-labelledby="categories-heading">
+            <div class="card-header">
+              <h2 id="categories-heading">카테고리</h2>
+              <button type="button" id="refreshCategoriesBtn" class="ghost">새로고침</button>
+            </div>
+            <form id="categoryForm" class="stack">
+              <label class="field">
+                <span>이름</span>
+                <input id="categoryNameInput" required placeholder="예: 뉴스" />
+              </label>
+              <label class="field">
+                <span>슬러그(선택)</span>
+                <input id="categorySlugInput" placeholder="news" />
+              </label>
+              <button type="submit" class="primary">카테고리 추가</button>
+            </form>
+            <p id="categoriesStatus" class="muted">로딩 전</p>
+            <div id="categoriesList" class="category-list"></div>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="theme" role="tabpanel">
+          <section class="card" aria-labelledby="theme-heading">
+            <div class="card-header">
+              <h2 id="theme-heading">테마 프리셋</h2>
+              <button type="button" id="refreshThemeBtn" class="ghost">새로고침</button>
+            </div>
+            <p id="themeStatus" class="muted">로딩 전</p>
+            <div id="themeCurrent" class="muted"></div>
+            <div id="themePresetList" class="theme-grid"></div>
+            <div class="row gap">
+              <button type="button" id="themeSaveBtn" class="primary">테마 저장</button>
+              <span id="themeSaveStatus" class="muted"></span>
+            </div>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="admin" role="tabpanel" data-admin-panel>
+          <section class="card" aria-labelledby="tenants-heading">
+            <div class="card-header">
+              <h2 id="tenants-heading">테넌트 관리</h2>
+              <button type="button" id="refreshTenantsBtn" class="ghost">새로고침</button>
+            </div>
+            <p id="tenantsStatus" class="muted">로딩 전</p>
+            <div id="tenantsList" class="category-list"></div>
+            <div class="divider"></div>
+            <form id="tenantForm" class="stack">
+              <label class="field">
+                <span>슬러그</span>
+                <input id="tenantSlugInput" required placeholder="acme" />
+              </label>
+              <label class="field">
+                <span>이름</span>
+                <input id="tenantNameInput" required placeholder="Acme Corp" />
+              </label>
+              <label class="field">
+                <span>기본 도메인</span>
+                <input id="tenantDomainInput" required placeholder="blog.acme.com" />
+              </label>
+              <label class="field">
+                <span>Pages 프로젝트명</span>
+                <input id="tenantPagesProjectInput" placeholder="acme-pages" />
+              </label>
+              <label class="field">
+                <span>Pages Deploy Hook URL</span>
+                <input id="tenantDeployHookInput" placeholder="https://api.cloudflare.com/..." />
+              </label>
+              <label class="field">
+                <span>Build Token</span>
+                <input id="tenantBuildTokenInput" required placeholder="build-token" />
+              </label>
+              <div class="row between">
+                <button type="submit" class="primary">테넌트 저장</button>
+                <button type="button" id="tenantResetBtn" class="ghost">폼 초기화</button>
+              </div>
+              <div id="tenantFormStatus" class="muted"></div>
+            </form>
+          </section>
+
+          <section class="card" aria-labelledby="users-heading">
+            <div class="card-header">
+              <h2 id="users-heading">유저 관리</h2>
+              <button type="button" id="refreshUsersBtn" class="ghost">새로고침</button>
+            </div>
             <label class="field">
-              <span>이름</span>
-              <input id="categoryNameInput" required placeholder="예: 뉴스" />
+              <span>테넌트 선택</span>
+              <select id="usersTenantSelect"></select>
             </label>
-            <label class="field">
-              <span>슬러그(선택)</span>
-              <input id="categorySlugInput" placeholder="news" />
-            </label>
-            <button type="submit" class="primary">카테고리 추가</button>
-          </form>
-          <p id="categoriesStatus" class="muted">로딩 전</p>
-          <div id="categoriesList" class="category-list"></div>
-        </section>
+            <p id="usersStatus" class="muted">로딩 전</p>
+            <div id="usersList" class="category-list"></div>
+            <div class="divider"></div>
+            <form id="userForm" class="stack">
+              <label class="field">
+                <span>이메일</span>
+                <input id="userEmailInput" type="email" required placeholder="editor@acme.com" />
+              </label>
+              <label class="field">
+                <span>권한</span>
+                <select id="userRoleInput">
+                  <option value="editor">editor</option>
+                  <option value="admin">admin</option>
+                  <option value="super">super</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>비밀번호</span>
+                <input id="userPasswordInput" type="password" placeholder="••••••••" />
+              </label>
+              <div class="row between">
+                <button type="submit" class="primary">유저 저장</button>
+                <button type="button" id="userResetBtn" class="ghost">폼 초기화</button>
+              </div>
+              <div id="userFormStatus" class="muted"></div>
+            </form>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="pr" role="tabpanel">
+          <section class="card" aria-labelledby="pr-heading">
+            <div class="card-header">
+              <h2 id="pr-heading">PR 캠페인</h2>
+              <button type="button" id="refreshPrCampaignsBtn" class="ghost">새로고침</button>
+            </div>
+            <form id="prCampaignForm" class="stack">
+              <label class="field">
+                <span>캠페인명</span>
+                <input id="prCampaignNameInput" required placeholder="예: 2025 Q1 브랜드 캠페인" />
+              </label>
+              <label class="field">
+                <span>상태</span>
+                <select id="prCampaignStatusInput">
+                  <option value="draft">draft</option>
+                  <option value="scheduled">scheduled</option>
+                  <option value="in_progress">in_progress</option>
+                  <option value="completed">completed</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>예약 시간(선택)</span>
+                <input id="prCampaignScheduledInput" type="datetime-local" />
+              </label>
+              <label class="field">
+                <span>설명</span>
+                <textarea id="prCampaignDescriptionInput" rows="3" placeholder="캠페인 개요"></textarea>
+              </label>
+              <button type="submit" class="primary">캠페인 생성</button>
+            </form>
+            <p id="prCampaignStatus" class="muted">로딩 전</p>
+            <div id="prCampaignList" class="category-list"></div>
+
+            <div class="divider"></div>
+
+            <div class="stack">
+              <h3 class="muted">선택된 캠페인</h3>
+              <div id="prSelectedCampaign" class="muted">선택된 캠페인이 없습니다.</div>
+              <div class="row gap">
+                <button type="button" id="clearPrSelectionBtn" class="ghost">선택 해제</button>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <form id="prMentionForm" class="stack">
+              <label class="field">
+                <span>매체명</span>
+                <input id="prMentionOutletInput" placeholder="예: TechCrunch" />
+              </label>
+              <label class="field">
+                <span>URL</span>
+                <input id="prMentionUrlInput" placeholder="https://..." />
+              </label>
+              <label class="field">
+                <span>발행일(선택)</span>
+                <input id="prMentionPublishedInput" type="date" />
+              </label>
+              <label class="field">
+                <span>메모</span>
+                <textarea id="prMentionMemoInput" rows="2"></textarea>
+              </label>
+              <button type="submit" class="ghost">Mention 추가</button>
+            </form>
+            <div id="prMentionsStatus" class="muted"></div>
+            <div id="prMentionsList" class="category-list"></div>
+
+            <div class="divider"></div>
+
+            <form id="prReportForm" class="stack">
+              <label class="field">
+                <span>기간 시작</span>
+                <input id="prReportPeriodStartInput" type="date" />
+              </label>
+              <label class="field">
+                <span>기간 종료</span>
+                <input id="prReportPeriodEndInput" type="date" />
+              </label>
+              <label class="field">
+                <span>하이라이트</span>
+                <textarea id="prReportHighlightsInput" rows="3"></textarea>
+              </label>
+              <button type="submit" class="ghost">리포트 저장</button>
+            </form>
+            <div id="prReportsStatus" class="muted"></div>
+            <div id="prReportsList" class="category-list"></div>
+          </section>
+        </div>
       </aside>
 
       <section class="editor-shell" aria-label="Editor">
