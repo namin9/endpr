@@ -9,6 +9,8 @@ const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 export type EnvBindings = {
   DB: D1Database;
   SESSION_SECRET: string;
+  R2_BUCKET?: R2Bucket;
+  R2_PUBLIC_BASE_URL?: string;
 };
 
 export type Ctx = Context<{ Bindings: EnvBindings; Variables: { session: SessionData; tenant: TenantRow; buildTenant: TenantRow } }>;

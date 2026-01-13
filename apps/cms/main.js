@@ -38,14 +38,17 @@ const viewModeButtons = Array.from(document.querySelectorAll('[data-view-mode]')
 const viewOnBlogBtn = document.getElementById('viewOnBlogBtn');
 const viewOnBlogHint = document.getElementById('viewOnBlogHint');
 const deployJobsScope = document.getElementById('deployJobsScope');
+const categorySelect = document.getElementById('categorySelect');
+const deletePostBtn = document.getElementById('deletePostBtn');
 
 let autosaveTimer = null;
 let previewTimer = null;
-let currentDraft = load(DRAFT_KEY, { id: null, title: '', body: '', savedAt: null, status: null });
+let currentDraft = load(DRAFT_KEY, { id: null, title: '', body: '', savedAt: null, status: null, category: '' });
 let currentSession = load(SESSION_KEY, null);
 let currentPosts = [];
 let allPosts = [];
 let currentJobs = load(JOB_KEY, []);
+let currentCategories = [];
 let postsView = {
   search: '',
   status: 'all',
@@ -177,6 +180,7 @@ async function fetchSession() {
     const data = await apiFetch('/cms/auth/me');
     const loggedInAt = currentSession?.loggedInAt || new Date().toISOString();
     persistSession({ ...data, loggedInAt });
+    await fetchCategories();
   } catch (error) {
     currentSession = null;
     localStorage.removeItem(SESSION_KEY);
@@ -405,7 +409,7 @@ async function ensurePostId(title, body) {
   if (currentDraft?.id) return currentDraft.id;
   const created = await apiFetch('/cms/posts', {
     method: 'POST',
-    body: { title: title || '제목 없음', body_md: body },
+    body: { title: title || '제목 없음', body_md: body, category_slug: currentDraft.category || null },
   });
   const postId = created?.post?.id;
   if (!postId) throw new Error('게시글 ID를 받을 수 없습니다.');
@@ -435,10 +439,17 @@ async function saveDraftToApi(title, body) {
     const postId = await ensurePostId(title, body);
     const saved = await apiFetch(`/cms/posts/${postId}/autosave`, {
       method: 'POST',
-      body: { title, body_md: body },
+      body: { title, body_md: body, category_slug: currentDraft.category || null },
     });
     const savedAt = saved?.saved_at || saved?.post?.updated_at_iso || new Date().toISOString();
-    persistDraft({ id: postId, title, body, savedAt, status: saved?.post?.status });
+    persistDraft({
+      id: postId,
+      title,
+      body,
+      savedAt,
+      status: saved?.post?.status,
+      category: saved?.post?.category_slug || currentDraft.category,
+    });
     autosaveState = {
       dirty: false,
       saving: false,
@@ -486,9 +497,10 @@ retrySaveBtn.addEventListener('click', () => {
 
 clearDraftBtn.addEventListener('click', () => {
   localStorage.removeItem(DRAFT_KEY);
-  currentDraft = { id: null, title: '', body: '', savedAt: null, status: null };
+  currentDraft = { id: null, title: '', body: '', savedAt: null, status: null, category: '' };
   titleInput.value = '';
   bodyInput.value = '';
+  if (categorySelect) categorySelect.value = '';
   autosaveState = {
     dirty: false,
     saving: false,
@@ -510,6 +522,7 @@ function normalizePost(rawPost) {
     slug: rawPost?.slug || rawPost?.slug_id || rawPost?.slugId || null,
     publicUrl: rawPost?.public_url || rawPost?.publicUrl || null,
     body: rawPost?.body_md || rawPost?.body || '',
+    category: rawPost?.category_slug || rawPost?.category || '',
   };
 }
 
@@ -669,9 +682,11 @@ async function selectPost(post) {
     status: next.status,
     slug: next.slug,
     publicUrl: next.publicUrl,
+    category: next.category || '',
   });
   titleInput.value = next.title || '';
   bodyInput.value = next.body || '';
+  if (categorySelect) categorySelect.value = next.category || '';
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPosts();
 }
@@ -725,7 +740,7 @@ newPostBtn.addEventListener('click', async () => {
     renderPostsState({ message: '새 글 생성 중...', isLoading: true });
     const created = await apiFetch('/cms/posts', {
       method: 'POST',
-      body: { title: '제목 없음', body_md: '' },
+      body: { title: '제목 없음', body_md: '', category_slug: currentDraft.category || null },
     });
     const newPost = normalizePost(created?.post || created);
     if (!newPost?.id) throw new Error('게시글 ID를 받을 수 없습니다.');
@@ -958,6 +973,37 @@ if (viewOnBlogBtn) {
   });
 }
 
+if (categorySelect) {
+  categorySelect.addEventListener('change', () => {
+    persistDraft({ category: categorySelect.value });
+    handleAutosave();
+  });
+}
+
+if (deletePostBtn) {
+  deletePostBtn.addEventListener('click', async () => {
+    if (!currentSession || !currentDraft?.id) {
+      setStatus(publishMessage, '삭제할 게시글을 선택해주세요.', true);
+      return;
+    }
+    const confirmed = window.confirm('이 게시글을 삭제할까요? 삭제하면 복구할 수 없습니다.');
+    if (!confirmed) return;
+
+    try {
+      setStatus(publishMessage, '게시글 삭제 중…');
+      await apiFetch(`/cms/posts/${currentDraft.id}`, {
+        method: 'DELETE',
+        body: { body_md: currentDraft.body || '' },
+      });
+      clearDraftBtn.click();
+      await fetchPosts();
+      setStatus(publishMessage, '게시글이 삭제되었습니다.');
+    } catch (error) {
+      setStatus(publishMessage, formatError(error), true);
+    }
+  });
+}
+
 publishBtn.addEventListener('click', async () => {
   if (!currentSession) {
     setStatus(publishMessage, '로그인 세션이 없습니다. 먼저 로그인하세요.', true);
@@ -972,7 +1018,7 @@ publishBtn.addEventListener('click', async () => {
     const postId = await ensurePostId(title, body);
     await apiFetch(`/cms/posts/${postId}/autosave`, {
       method: 'POST',
-      body: { title, body_md: body },
+      body: { title, body_md: body, category_slug: currentDraft.category || null },
     });
     const response = await apiFetch(`/cms/posts/${postId}/publish`, {
       method: 'POST',
@@ -1006,6 +1052,7 @@ printBtn.addEventListener('click', () => {
 function hydrateFromStorage() {
   titleInput.value = currentDraft.title || '';
   bodyInput.value = currentDraft.body || '';
+  if (categorySelect) categorySelect.value = currentDraft.category || '';
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPreview();
   renderSelectedPostMeta();
@@ -1018,6 +1065,32 @@ hydrateFromStorage();
 fetchSession();
 fetchPosts();
 fetchDeployJobs();
+
+async function fetchCategories() {
+  if (!categorySelect) return;
+  if (!currentSession) {
+    categorySelect.innerHTML = '<option value="">로그인 후 카테고리 선택</option>';
+    return;
+  }
+  try {
+    const data = await apiFetch('/cms/categories');
+    const categories = data?.categories || [];
+    currentCategories = categories.slice();
+    const options = [
+      { value: '', label: '카테고리 없음' },
+      ...currentCategories.map((category) => ({
+        value: category.slug,
+        label: `${category.name}${category.enabled ? '' : ' (비활성)'}`,
+      })),
+    ];
+    categorySelect.innerHTML = options.map((option) => `<option value="${option.value}">${option.label}</option>`).join('');
+    categorySelect.value = currentDraft.category || '';
+  } catch (error) {
+    categorySelect.innerHTML = '<option value="">카테고리 로드 실패</option>';
+  }
+}
+
+fetchCategories();
 
 window.addEventListener('beforeunload', (event) => {
   if (!autosaveState.dirty) return;

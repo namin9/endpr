@@ -126,6 +126,11 @@ export async function listPosts(db: D1Database, tenantId: string): Promise<PostR
   return (results ?? []) as PostRow[];
 }
 
+export async function deletePost(db: D1Database, tenantId: string, id: string): Promise<boolean> {
+  const result = await db.prepare('DELETE FROM posts WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+  return (result.changes ?? 0) > 0;
+}
+
 export async function getPost(db: D1Database, tenantId: string, id: string): Promise<PostRow | null> {
   const post = await db.prepare('SELECT * FROM posts WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first<PostRow>();
   return post ?? null;
@@ -242,6 +247,14 @@ export async function listPublishedPosts(db: D1Database, tenantId: string): Prom
 export async function listEnabledCategories(db: D1Database, tenantId: string): Promise<CategoryRow[]> {
   const { results } = await db
     .prepare(`SELECT slug, name, enabled, order_index, tenant_id, id FROM categories WHERE tenant_id = ? AND enabled = 1 ORDER BY order_index ASC`)
+    .bind(tenantId)
+    .all<CategoryRow>();
+  return (results ?? []) as CategoryRow[];
+}
+
+export async function listCategories(db: D1Database, tenantId: string): Promise<CategoryRow[]> {
+  const { results } = await db
+    .prepare(`SELECT slug, name, enabled, order_index, tenant_id, id FROM categories WHERE tenant_id = ? ORDER BY order_index ASC`)
     .bind(tenantId)
     .all<CategoryRow>();
   return (results ?? []) as CategoryRow[];

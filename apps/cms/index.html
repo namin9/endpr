@@ -99,6 +99,7 @@
               </div>
               <button type="button" id="manualSaveBtn" class="ghost">임시저장</button>
               <button type="button" id="publishBtn" class="primary">발행</button>
+              <button type="button" id="deletePostBtn" class="danger">삭제</button>
               <button type="button" id="viewOnBlogBtn" class="ghost" disabled>View on blog</button>
             </div>
           </div>
@@ -106,6 +107,12 @@
           <label class="field">
             <span>제목</span>
             <input id="titleInput" placeholder="새 글 제목" />
+          </label>
+          <label class="field">
+            <span>카테고리</span>
+            <select id="categorySelect">
+              <option value="">카테고리 없음</option>
+            </select>
           </label>
           <div class="editor-split">
             <label class="field editor-pane">
