@@ -1,7 +1,7 @@
 import type { Context, Next } from 'hono';
 
-const ALLOWED_ORIGINS = ['https://cms.ourcompany.com', 'https://cms.startuppr.kr', 'https://endpr.pages.dev'];
-const ALLOWED_METHODS = 'GET,POST,PUT,PATCH,DELETE,OPTIONS';
+const ALLOWED_ORIGINS = ['https://cms.ourcompany.com', 'https://endpr.pages.dev'];
+const ALLOWED_METHODS = 'GET,POST,OPTIONS';
 const ALLOWED_HEADERS = 'content-type';
 
 function isAllowed(origin: string | undefined): origin is string {
