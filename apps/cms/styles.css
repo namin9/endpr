@@ -66,28 +66,6 @@ body {
   color: var(--muted);
 }
 
-.link-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.link-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 13px;
-}
-
-.link-list a {
-  color: var(--text);
-  text-decoration: none;
-}
-
-.link-list a:hover {
-  color: var(--accent-strong);
-}
-
 .hero .eyebrow {
   margin: 0;
   color: var(--accent-strong);
@@ -137,11 +115,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-
-.login-shell {
-  max-width: 520px;
-  margin: 0 auto;
 }
 
 .editor-header {
@@ -303,48 +276,6 @@ body {
   gap: 12px;
 }
 
-.tab-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px;
-  border-radius: 12px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-}
-
-.tab-button {
-  padding: 6px 12px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--muted);
-  font-weight: 600;
-  font-size: 13px;
-}
-
-.tab-button.is-active {
-  color: var(--text);
-  border-color: var(--accent);
-  background: rgba(124, 58, 237, 0.16);
-}
-
-.tab-panel {
-  display: none;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.tab-panel.is-active {
-  display: flex;
-}
-
-.divider {
-  height: 1px;
-  background: var(--border);
-  margin: 16px 0;
-}
-
 .field {
   display: flex;
   flex-direction: column;
@@ -389,22 +320,6 @@ button {
 }
 
 button:active {
-  transform: translateY(1px);
-}
-
-.button-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  text-decoration: none;
-  border-radius: 10px;
-  padding: 10px 14px;
-  font-weight: 700;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
-  white-space: nowrap;
-}
-
-.button-link:active {
   transform: translateY(1px);
 }
 
@@ -678,12 +593,6 @@ button:active {
   overflow-y: auto;
 }
 
-.preview-scope {
-  min-height: 100%;
-  padding: 16px;
-  border-radius: 10px;
-}
-
 .preview h1,
 .preview h2,
 .preview h3 {
@@ -706,39 +615,6 @@ button:active {
   padding: 12px;
   border-radius: 10px;
   overflow-x: auto;
-}
-
-.theme-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 10px;
-}
-
-.theme-card {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  padding: 10px;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.theme-card .swatch {
-  height: 24px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-}
-
-.theme-card.is-selected {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.2);
-}
-
-.theme-card:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
 }
 
 .editor-card[data-view-mode='edit'] .preview-pane {

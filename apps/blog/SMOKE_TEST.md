@@ -17,8 +17,3 @@
 
 ## Regression Checks
 1) sitemap/목록/페이지네이션/홈 페이지가 기존대로 생성되는지 확인한다.
-
-## Theme tokens
-1) build 시 `/build/theme` 호출이 성공하는지 확인한다.
-2) 배포된 HTML `<head>`에 `#theme-tokens` style이 포함되는지 확인한다.
-3) `body` 배경/글자색, 링크 색상, border 색상이 테마 토큰대로 반영되는지 확인한다.

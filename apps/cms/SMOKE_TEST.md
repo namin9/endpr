@@ -50,22 +50,15 @@ Base URL: `https://cms.ourcompany.com`
    - Click **새로고침** in Deploy Job 이력.
    - Click a job in the list.
    - Expect: Job 상세 panel shows status, message, and update time.
-9. **Theme presets**
-   - Login as a super admin account.
-   - Open **테마 프리셋** card, select a preset, and click **테마 저장**.
-   - Expect: 저장 상태가 표시되고 deploy job이 트리거된다.
-   - Switch to a non-super account.
-   - Expect: 프리셋 선택/저장 버튼이 비활성(읽기 전용) 상태이다.
-   - Confirm Preview pane theme reflects the current preset.
-10. **Unauthorized handling**
+9. **Unauthorized handling**
    - Click **세션 초기화**.
    - Try autosaving or publishing.
    - Expect: inline error telling you to log in; no requests succeed.
-11. **View on blog**
+10. **View on blog**
    - In the editor, locate **View on blog**.
    - If base URL exists: click and confirm a new tab opens `{base}/{slug}`.
    - If base URL is missing: button is disabled and 안내 문구가 표시된다.
-12. **Deploy job history panel**
+11. **Deploy job history panel**
    - In Deploy Job 이력, confirm recent items show status badges and timestamps.
    - Click a job; confirm 상세 영역에 상태/메시지/시간이 표시된다.
    - Force an error (network off) and confirm 에러 메시지가 표시된다.
