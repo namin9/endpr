@@ -6,6 +6,7 @@ import {
   listPosts,
   mapPost,
   publishPost,
+  deletePost,
   updatePost,
   generateSlug,
   isReservedSlug,
@@ -124,7 +125,7 @@ router.post('/cms/posts/:id/publish', async (c) => {
   const now = Math.floor(Date.now() / 1000);
   const published = await publishPost(c.env.DB, tenant.id, id, now);
 
-  const job = await createDeployJob(c.env.DB, tenant.id, session.userId, 'queued', 'Publish triggered');
+  const job = await createDeployJob(c.env.DB, tenant.id, session.userId, 'queued', 'Publish triggered', id);
   const buildingJob = await updateDeployJobStatus(c.env.DB, job.id, 'building', 'Deploy hook triggered');
 
   let status: 'building' | 'success' | 'failed' = 'building';
@@ -153,6 +154,20 @@ router.post('/cms/posts/:id/publish', async (c) => {
   const finalJob = await updateDeployJobStatus(c.env.DB, buildingJob.id, status, message);
 
   return c.json({ post: mapPost(published), deploy_job: mapDeployJob(finalJob) });
+});
+
+router.delete('/cms/posts/:id', async (c) => {
+  const session = c.get('session') as SessionData;
+  const tenant = c.get('tenant');
+  const id = c.req.param('id');
+
+  if (!requireRole(session, ['admin', 'super'])) return c.json({ error: 'Forbidden' }, 403);
+
+  const existing = await getPost(c.env.DB, tenant.id, id);
+  if (!existing) return c.json({ error: 'Post not found' }, 404);
+
+  await deletePost(c.env.DB, tenant.id, id);
+  return c.json({ ok: true });
 });
 
 export default router;

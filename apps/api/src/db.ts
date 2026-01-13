@@ -48,7 +48,8 @@ export type DeployJobRow = {
   id: string;
   tenant_id: string;
   triggered_by_user_id: string | null;
-  status: 'queued' | 'building' | 'success' | 'failed';
+  post_id: string | null;
+  status: 'queued' | 'building' | 'success' | 'failed' | 'canceled';
   message: string | null;
   created_at: number;
   updated_at: number;
@@ -348,6 +349,10 @@ export async function updatePost(db: D1Database, tenantId: string, id: string, u
   return updated;
 }
 
+export async function deletePost(db: D1Database, tenantId: string, id: string): Promise<void> {
+  await db.prepare('DELETE FROM posts WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+}
+
 export async function publishPost(db: D1Database, tenantId: string, id: string, publishTime: number): Promise<PostRow> {
   await db
     .prepare(
@@ -369,12 +374,15 @@ export async function createDeployJob(
   tenantId: string,
   triggeredBy: string | null,
   status: DeployJobRow['status'],
-  message: string | null
+  message: string | null,
+  postId: string | null = null
 ): Promise<DeployJobRow> {
   const id = uuidv4();
   await db
-    .prepare('INSERT INTO deploy_jobs (id, tenant_id, triggered_by_user_id, status, message) VALUES (?, ?, ?, ?, ?)')
-    .bind(id, tenantId, triggeredBy, status, message)
+    .prepare(
+      'INSERT INTO deploy_jobs (id, tenant_id, triggered_by_user_id, post_id, status, message) VALUES (?, ?, ?, ?, ?, ?)'
+    )
+    .bind(id, tenantId, triggeredBy, postId, status, message)
     .run();
   const job = await db.prepare('SELECT * FROM deploy_jobs WHERE id = ?').bind(id).first<DeployJobRow>();
   if (!job) throw new Error('Failed to create deploy job');
@@ -734,6 +742,7 @@ export function mapDeployJob(row: DeployJobRow) {
   const createdAt = toNumber((row as any).created_at ?? row.created_at);
   return {
     id: row.id,
+    post_id: row.post_id,
     status: row.status,
     message: row.message,
     triggered_by_user_id: row.triggered_by_user_id,
