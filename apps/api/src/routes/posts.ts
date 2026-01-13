@@ -8,6 +8,7 @@ import {
   publishPost,
   updatePost,
   generateSlug,
+  isReservedSlug,
   createDeployJob,
   updateDeployJobStatus,
   mapDeployJob,
@@ -26,6 +27,9 @@ router.post('/cms/posts', async (c) => {
   if (!title) return c.json({ error: 'title is required' }, 400);
 
   const finalSlug = slug ? generateSlug(slug) : generateSlug(title);
+  if (isReservedSlug(finalSlug)) {
+    return c.json({ error: 'slug is reserved' }, 409);
+  }
   try {
     const post = await createPost(c.env.DB, tenant.id, { title, slug: finalSlug, excerpt, body_md, category_slug });
     return c.json({ post: mapPost(post) }, 201);
@@ -68,6 +72,9 @@ router.post('/cms/posts/:id/autosave', async (c) => {
   if (!existing) return c.json({ error: 'Post not found' }, 404);
 
   const nextSlug = slug ? generateSlug(slug) : title ? generateSlug(title) : undefined;
+  if (isReservedSlug(nextSlug)) {
+    return c.json({ error: 'slug is reserved' }, 409);
+  }
 
   try {
     const updated = await updatePost(c.env.DB, tenant.id, id, {
@@ -133,8 +140,8 @@ router.post('/cms/posts/:id/publish', async (c) => {
         status = 'failed';
         message = `Deploy hook failed with status ${resp.status}`;
       } else {
-        status = 'success';
-        message = 'Deploy hook accepted';
+        status = 'building';
+        message = 'Deploy hook accepted; awaiting webhook';
       }
     } catch (error) {
       status = 'failed';

@@ -119,6 +119,14 @@ export async function getTenantByBuildToken(db: D1Database, token: string): Prom
   return result ?? null;
 }
 
+export async function getTenantByPagesProjectName(db: D1Database, projectName: string): Promise<TenantRow | null> {
+  const result = await db
+    .prepare('SELECT id, slug, name, pages_deploy_hook_url, build_token FROM tenants WHERE pages_project_name = ?')
+    .bind(projectName)
+    .first<TenantRow>();
+  return result ?? null;
+}
+
 export async function listTenants(db: D1Database): Promise<TenantAdminRow[]> {
   const { results } = await db
     .prepare(
@@ -397,6 +405,19 @@ export async function getDeployJob(db: D1Database, tenantId: string, id: string)
   const job = await db
     .prepare('SELECT * FROM deploy_jobs WHERE id = ? AND tenant_id = ?')
     .bind(id, tenantId)
+    .first<DeployJobRow>();
+  return job ?? null;
+}
+
+export async function getLatestActiveDeployJob(db: D1Database, tenantId: string): Promise<DeployJobRow | null> {
+  const job = await db
+    .prepare(
+      `SELECT * FROM deploy_jobs
+       WHERE tenant_id = ? AND status IN ('queued', 'building')
+       ORDER BY created_at DESC
+       LIMIT 1`
+    )
+    .bind(tenantId)
     .first<DeployJobRow>();
   return job ?? null;
 }
@@ -767,6 +788,22 @@ export function mapPrReport(row: PrReportRow) {
 }
 
 const SLUG_REGEX = /^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u;
+const RESERVED_SLUGS = new Set([
+  'posts',
+  'category',
+  'tag',
+  'search',
+  'assets',
+  'api',
+  'cms',
+  'sitemap.xml',
+  'robots.txt',
+]);
+
+export function isReservedSlug(input: string | undefined | null): boolean {
+  if (!input) return false;
+  return RESERVED_SLUGS.has(input.toLowerCase());
+}
 
 export function generateSlug(input: string | undefined | null): string {
   const safe = (input ?? '')

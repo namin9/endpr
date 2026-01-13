@@ -4,6 +4,17 @@ const BLOG_BASE = window.__BLOG_BASE__ || window.BLOG_BASE || 'https://endpr.pag
 const SESSION_KEY = 'cms-session';
 const DRAFT_KEY = 'cms-draft';
 const JOB_KEY = 'cms-jobs';
+const RESERVED_SLUGS = new Set([
+  'posts',
+  'category',
+  'tag',
+  'search',
+  'assets',
+  'api',
+  'cms',
+  'sitemap.xml',
+  'robots.txt',
+]);
 
 const loginForm = document.getElementById('loginForm');
 const sessionStatus = document.getElementById('sessionStatus');
@@ -526,6 +537,11 @@ async function apiFetch(path, options = {}) {
 function formatError(error) {
   const statusSuffix = error?.status ? ` (HTTP ${error.status})` : '';
   return (error?.message || '요청 중 문제가 발생했습니다.') + statusSuffix;
+}
+
+function isReservedSlug(value) {
+  if (!value) return false;
+  return RESERVED_SLUGS.has(value.toLowerCase());
 }
 
 function persistSession(session) {
@@ -2333,6 +2349,10 @@ if (categoryForm) {
     const name = categoryNameInput.value.trim();
     const slug = categorySlugInput.value.trim();
     if (!name) return;
+    if (isReservedSlug(slug)) {
+      setStatus(categoriesStatus, '예약어 slug는 사용할 수 없습니다.', true);
+      return;
+    }
     try {
       setStatus(categoriesStatus, '추가 중...');
       await apiFetch('/cms/categories', {

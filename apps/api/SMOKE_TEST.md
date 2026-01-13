@@ -191,6 +191,23 @@ $jobDetail = Invoke-RestMethod -Uri "$BaseUrl/cms/deploy-jobs/$jobId" -Headers @
 
 Expected: **200** for both. List returns `jobs` array including the publish-triggered job. Detail returns `job` with `status`, `message`, `updated_at_iso`.
 
+### 5.1) Pages deploy webhook (optional, if configured)
+If you have configured `PAGES_WEBHOOK_SECRET`, you can simulate a deploy completion webhook to move an active job to `success` or `failed`.
+
+```powershell
+$WebhookSecret = "<PAGES_WEBHOOK_SECRET>"
+$ProjectName = "<pages_project_name>"
+$payload = @{
+  project_name = $ProjectName
+  status = "success"
+  message = "Pages build completed"
+  deployment_id = "example-deployment-id"
+}
+Invoke-RestMethod -Uri "$BaseUrl/public/deploy-jobs/webhook" -Method Post -Headers @{ "x-pages-webhook-secret" = $WebhookSecret } -Body ($payload | ConvertTo-Json) -ContentType "application/json"
+```
+
+Expected: **200** with `{ ok: true, deploy_job: { status: "success" } }`.
+
 ## 6) Build endpoints (`x-build-token` required)
 
 If the build token is unknown, retrieve it from Cloudflare D1 Console (Dashboard → Workers & KV → D1 → Database → Query):
