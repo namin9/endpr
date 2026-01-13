@@ -171,7 +171,11 @@ router.post('/cms/auth/login', async (c) => {
     email: user.email,
   };
 
-  await refreshSessionCookie(c as any, session);
+  const sessionIssued = await refreshSessionCookie(c as any, session);
+  if (!sessionIssued) {
+    await logAuthEvent(c, { tenantId: tenant.id, email, ip, action: 'login', success: false, message: 'session_secret_missing' });
+    return c.json({ error: 'Server misconfigured: SESSION_SECRET missing' }, 500);
+  }
   await recordLoginAttempt(c, { tenantId: tenant.id, email, ip, success: true });
   await logAuthEvent(c, { tenantId: tenant.id, email, ip, action: 'login', success: true, message: 'ok' });
 
