@@ -617,7 +617,12 @@ if (loginForm) {
   });
 }
 
-logoutBtn.addEventListener('click', () => {
+logoutBtn.addEventListener('click', async () => {
+  try {
+    await apiFetch('/cms/auth/logout', { method: 'POST' });
+  } catch (error) {
+    console.warn('Logout request failed', error);
+  }
   localStorage.removeItem(SESSION_KEY);
   currentSession = null;
   themeIsSuperAdmin = false;

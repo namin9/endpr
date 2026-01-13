@@ -65,3 +65,7 @@ export async function refreshSessionCookie(c: Ctx, session: SessionData) {
     `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=None; Secure; Max-Age=${SESSION_MAX_AGE}`
   );
 }
+
+export function clearSessionCookie(c: Ctx) {
+  c.header('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=None; Secure; Max-Age=0`);
+}

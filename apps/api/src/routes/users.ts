@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import bcrypt from 'bcryptjs';
 import { sessionMiddleware } from '../middleware/rbac';
-import { createUser, listUsersByTenant, updateUser } from '../db';
+import { createUser, getUserById, listUsersByTenant, updateUser } from '../db';
+import { v4 as uuidv4 } from 'uuid';
 import { SessionData } from '../session';
 import { isSuperAdmin } from '../super_admin';
 
@@ -56,6 +57,54 @@ router.patch('/cms/users/:id', async (c) => {
   };
   const user = await updateUser(c.env.DB, tenant_id, id, updates);
   return c.json({ user: { id: user.id, tenant_id: user.tenant_id, email: user.email, role: user.role } });
+});
+
+router.post('/cms/users/:id/password', async (c) => {
+  const session = c.get('session') as SessionData;
+  if (!isSuperAdmin(session, c.env)) {
+    return c.json({ ok: false, error: 'forbidden' }, 403);
+  }
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  const { tenant_id, password } = body || {};
+  if (!tenant_id || !password) {
+    return c.json({ ok: false, error: 'tenant_id and password are required' }, 400);
+  }
+  const hashed = await bcrypt.hash(password, 10);
+  const user = await updateUser(c.env.DB, tenant_id, id, { password_hash: hashed });
+  return c.json({ user: { id: user.id, tenant_id: user.tenant_id, email: user.email, role: user.role } });
+});
+
+router.post('/cms/users/:id/password-reset-link', async (c) => {
+  const session = c.get('session') as SessionData;
+  if (!isSuperAdmin(session, c.env)) {
+    return c.json({ ok: false, error: 'forbidden' }, 403);
+  }
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  const { tenant_id, expires_in_seconds } = body || {};
+  if (!tenant_id) {
+    return c.json({ ok: false, error: 'tenant_id is required' }, 400);
+  }
+  const user = await getUserById(c.env.DB, tenant_id, id);
+  if (!user) {
+    return c.json({ ok: false, error: 'user not found' }, 404);
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const ttl = Number.isFinite(expires_in_seconds) && expires_in_seconds > 0 ? expires_in_seconds : 60 * 60;
+  const expiresAt = now + ttl;
+  const token = uuidv4();
+
+  await c.env.DB.prepare(
+    `INSERT INTO auth_password_resets (id, tenant_id, user_id, token, expires_at)
+     VALUES (?, ?, ?, ?, ?)`
+  )
+    .bind(uuidv4(), tenant_id, id, token, expiresAt)
+    .run();
+
+  const origin = new URL(c.req.url).origin;
+  const url = `${origin}/reset-password?token=${token}`;
+  return c.json({ ok: true, url, expires_at: expiresAt });
 });
 
 export default router;
