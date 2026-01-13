@@ -242,6 +242,7 @@ Expected: **200** each with `posts` (published only), `post`, and `categories`. 
 ## Troubleshooting
 
 - **Missing `SESSION_SECRET`**: Any authenticated route may throw; set the binding in Worker environment and redeploy.
+- **Missing auth tables**: `auth_login_attempts` or `auth_audit_logs` not migrated; run the D1 migrations for `0001_init.sql` and redeploy.
 - **D1 binding mismatch**: 500s or `Tenant not found` despite valid credentials/build token; confirm the Worker uses the correct D1 binding name and database.
 - **CORS headers missing**: Preflight may fail or `Access-Control-Allow-Origin` absent; verify `Origin` is exactly `https://cms.ourcompany.com` and that the Worker deployed with the current CORS middleware.
 - **Deploy hook missing (`expected deploy_job failed`)**: Publish may return `deploy_job.status: failed` with message about `pages_deploy_hook_url`; set the deploy hook URL in the tenant record and retry publish.

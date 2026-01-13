@@ -34,6 +34,17 @@ function getClientIp(c: any) {
   );
 }
 
+async function ensureAuthTables(c: any): Promise<boolean> {
+  try {
+    await c.env.DB.prepare('SELECT 1 FROM auth_login_attempts LIMIT 1').run();
+    await c.env.DB.prepare('SELECT 1 FROM auth_audit_logs LIMIT 1').run();
+    return true;
+  } catch (error) {
+    console.error('Auth tables missing or unavailable.', error);
+    return false;
+  }
+}
+
 async function logAuthEvent(c: any, payload: { tenantId?: string | null; email?: string | null; ip?: string; action: string; success: boolean; message?: string | null }) {
   const now = Math.floor(Date.now() / 1000);
   await c.env.DB.prepare(
@@ -123,6 +134,11 @@ router.post('/cms/auth/login', async (c) => {
   const body = await c.req.json();
   const { tenantSlug, email, password } = body;
   if (!tenantSlug || !email || !password) return c.json({ error: 'tenantSlug, email, and password are required' }, 400);
+
+  const authTablesReady = await ensureAuthTables(c);
+  if (!authTablesReady) {
+    return c.json({ error: 'Server misconfigured: auth tables missing' }, 500);
+  }
 
   const tenant = await getTenantBySlug(c.env.DB, tenantSlug);
   const ip = getClientIp(c);
