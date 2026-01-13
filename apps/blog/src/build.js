@@ -27,6 +27,7 @@ function resolveSiteBaseUrl() {
 }
 
 let siteBaseUrl = "";
+let themeStyle = "";
 
 function assertSlugAllowed(slug, entityType) {
   const normalized = `${slug}`.toLowerCase();
@@ -59,7 +60,8 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
     const parsed = JSON.parse(raw);
     return {
       posts: parsed.posts || [],
-      categories: [],
+      categories: parsed.categories || [],
+      theme: parsed.theme || null,
     };
   }
 
@@ -71,7 +73,17 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
     throw new Error("Invalid /build/posts response shape");
   }
 
-  return { posts: postsIndex, categories: [] };
+  const categoriesResp = await fetchJson(`${apiBase}/build/categories`, buildToken);
+  const categoriesIndex = Array.isArray(categoriesResp)
+    ? categoriesResp
+    : categoriesResp.categories ?? [];
+  if (!Array.isArray(categoriesIndex)) {
+    throw new Error("Invalid /build/categories response shape");
+  }
+
+  const themeResp = await fetchJson(`${apiBase}/build/theme`, buildToken);
+  const themePayload = themeResp?.tokens ? themeResp : null;
+  return { posts: postsIndex, categories: categoriesIndex, theme: themePayload };
 }
 
 async function resetDist() {
@@ -88,10 +100,229 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function sanitizeUrl(url, { allowDataImage = false } = {}) {
+  if (!url) return null;
+  const trimmed = `${url}`.trim();
+  if (allowDataImage && /^data:image\//i.test(trimmed)) return trimmed;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("/")) return trimmed;
+  return null;
+}
+
+function sanitizeHtmlAttributes(rawAttrs) {
+  if (!rawAttrs) return "";
+  const attrs = [];
+  const attrRegex = /([^\s=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/gi;
+  let match;
+  while ((match = attrRegex.exec(rawAttrs))) {
+    const name = match[1];
+    const rawValue = match[2] ?? match[3] ?? match[4] ?? "";
+    if (/^on/i.test(name)) continue;
+    if (["href", "src"].includes(name.toLowerCase())) {
+      const sanitized = sanitizeUrl(rawValue, { allowDataImage: name.toLowerCase() === "src" });
+      if (!sanitized) continue;
+      attrs.push(`${name}="${escapeHtml(sanitized)}"`);
+      continue;
+    }
+    if (["alt", "title"].includes(name.toLowerCase())) {
+      attrs.push(`${name}="${escapeHtml(rawValue)}"`);
+    }
+  }
+  return attrs.length ? ` ${attrs.join(" ")}` : "";
+}
+
+function sanitizeHtmlBlock(html) {
+  const withoutScripts = `${html}`.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+  // Allowed HTML tags if raw HTML appears in body_md (others are escaped).
+  const allowedTags = new Set([
+    "br",
+    "p",
+    "strong",
+    "em",
+    "code",
+    "pre",
+    "blockquote",
+    "ul",
+    "ol",
+    "li",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "a",
+    "img",
+  ]);
+
+  return withoutScripts.replace(/<\/?([a-z0-9]+)([^>]*)>/gi, (match, tagName, attrs) => {
+    const tag = tagName.toLowerCase();
+    if (!allowedTags.has(tag)) {
+      return escapeHtml(match);
+    }
+    if (tag === "br") return "<br />";
+    if (tag === "img") {
+      const sanitized = sanitizeHtmlAttributes(attrs);
+      return `<img${sanitized} />`;
+    }
+    const sanitizedAttrs = sanitizeHtmlAttributes(attrs);
+    if (match.startsWith("</")) {
+      return `</${tag}>`;
+    }
+    return `<${tag}${sanitizedAttrs}>`;
+  });
+}
+
+function renderInlineMarkdown(text) {
+  if (!text) return "";
+  const replacements = [];
+  let output = `${text}`;
+
+  const store = (html) => {
+    const token = `__INLINE_TOKEN_${replacements.length}__`;
+    replacements.push(html);
+    return token;
+  };
+
+  output = output.replace(/`([^`]+)`/g, (_, code) => {
+    return store(`<code>${escapeHtml(code)}</code>`);
+  });
+
+  output = output.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => {
+    const sanitized = sanitizeUrl(url, { allowDataImage: true });
+    if (!sanitized) return store(escapeHtml(_));
+    return store(`<img src="${escapeHtml(sanitized)}" alt="${escapeHtml(alt)}" />`);
+  });
+
+  output = output.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
+    const sanitized = sanitizeUrl(url);
+    if (!sanitized) return store(escapeHtml(label));
+    return store(
+      `<a href="${escapeHtml(sanitized)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`
+    );
+  });
+
+  output = output.replace(/\*\*([^*]+)\*\*/g, (_, content) => {
+    return store(`<strong>${escapeHtml(content)}</strong>`);
+  });
+
+  output = output.replace(/\*([^*]+)\*/g, (_, content) => {
+    return store(`<em>${escapeHtml(content)}</em>`);
+  });
+
+  output = escapeHtml(output);
+  replacements.forEach((replacement, index) => {
+    output = output.replace(`__INLINE_TOKEN_${index}__`, replacement);
+  });
+
+  return output;
+}
+
 function renderMarkdown(md = "") {
-  const safe = escapeHtml(md);
-  const paragraphs = safe.trim().split(/\n{2,}/);
-  return paragraphs.map((p) => `<p>${p.replace(/\n/g, "<br />")}</p>`).join("\n");
+  if (!md) return "";
+  const lines = `${md}`.split("\n");
+  const blocks = [];
+  let currentParagraph = [];
+  let currentList = null;
+  let inCodeBlock = false;
+  let codeBuffer = [];
+
+  const flushParagraph = () => {
+    if (!currentParagraph.length) return;
+    blocks.push(`<p>${currentParagraph.join("<br />")}</p>`);
+    currentParagraph = [];
+  };
+
+  const flushList = () => {
+    if (!currentList || !currentList.items.length) return;
+    const tag = currentList.type === "ol" ? "ol" : "ul";
+    blocks.push(`<${tag}>${currentList.items.map((item) => `<li>${item}</li>`).join("")}</${tag}>`);
+    currentList = null;
+  };
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trimEnd();
+    if (line.startsWith("```")) {
+      if (inCodeBlock) {
+        blocks.push(`<pre><code>${escapeHtml(codeBuffer.join("\n"))}</code></pre>`);
+        codeBuffer = [];
+        inCodeBlock = false;
+      } else {
+        flushParagraph();
+        flushList();
+        inCodeBlock = true;
+      }
+      return;
+    }
+
+    if (inCodeBlock) {
+      codeBuffer.push(rawLine);
+      return;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    if (/^<\/?[a-z][\s\S]*>/i.test(line.trim())) {
+      flushParagraph();
+      flushList();
+      blocks.push(sanitizeHtmlBlock(line));
+      return;
+    }
+
+    const headingMatch = line.match(/^(#{1,6})\s+(.+)/);
+    if (headingMatch) {
+      flushParagraph();
+      flushList();
+      const level = headingMatch[1].length;
+      blocks.push(`<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`);
+      return;
+    }
+
+    const blockquoteMatch = line.match(/^>\s+(.+)/);
+    if (blockquoteMatch) {
+      flushParagraph();
+      flushList();
+      blocks.push(`<blockquote>${renderInlineMarkdown(blockquoteMatch[1])}</blockquote>`);
+      return;
+    }
+
+    const orderedMatch = line.match(/^\d+\.\s+(.+)/);
+    if (orderedMatch) {
+      flushParagraph();
+      if (!currentList || currentList.type !== "ol") {
+        flushList();
+        currentList = { type: "ol", items: [] };
+      }
+      currentList.items.push(renderInlineMarkdown(orderedMatch[1]));
+      return;
+    }
+
+    const listMatch = line.match(/^[-*]\s+(.+)/);
+    if (listMatch) {
+      flushParagraph();
+      if (!currentList || currentList.type !== "ul") {
+        flushList();
+        currentList = { type: "ul", items: [] };
+      }
+      currentList.items.push(renderInlineMarkdown(listMatch[1]));
+      return;
+    }
+
+    currentParagraph.push(renderInlineMarkdown(line));
+  });
+
+  flushParagraph();
+  flushList();
+
+  if (inCodeBlock) {
+    blocks.push(`<pre><code>${escapeHtml(codeBuffer.join("\n"))}</code></pre>`);
+  }
+
+  return blocks.join("\n");
 }
 
 function renderPostBody(post) {
@@ -99,6 +330,13 @@ function renderPostBody(post) {
   if (post.body_md) return renderMarkdown(post.body_md);
   if (post.body) return renderMarkdown(post.body);
   return "<p></p>";
+}
+
+function summarizeBodyFormat(post) {
+  if (post.body_html) return "body_html";
+  if (post.body_md) return "body_md";
+  if (post.body) return "body";
+  return "empty";
 }
 
 function layoutHtml({ title, content, description = "" }) {
@@ -109,6 +347,7 @@ function layoutHtml({ title, content, description = "" }) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(description)}" />
+  ${themeStyle}
 </head>
 <body>
   <header>
@@ -122,6 +361,30 @@ function layoutHtml({ title, content, description = "" }) {
   </main>
 </body>
 </html>`;
+}
+
+function buildThemeStyle(tokens) {
+  if (!tokens) return "";
+  const toCss = (vars) =>
+    Object.entries(vars)
+      .map(([key, value]) => `  ${key}: ${value};`)
+      .join("\n");
+  const light = toCss(tokens.light || {});
+  const dark = toCss(tokens.dark || {});
+  return `<style id="theme-tokens">
+:root {
+${light}
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+${dark}
+  }
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font-sans); }
+a { color: var(--link); }
+hr, .border, .card, .post-card { border-color: var(--border); }
+.card, .post-card { border-radius: var(--radius); }
+</style>`;
 }
 
 async function writeHtml(filePath, html) {
@@ -447,11 +710,33 @@ async function build() {
   if (!siteBase) throw new Error("SITE_BASE_URL is required for sitemap generation.");
   siteBaseUrl = resolveSiteBaseUrl();
 
-  const { posts: rawPosts, categories } = await loadBuildData({
+  const { posts: rawPosts, categories, theme } = await loadBuildData({
     apiBase,
     buildToken,
     useMock,
   });
+
+  if (theme?.tokens) {
+    themeStyle = buildThemeStyle(theme.tokens);
+  }
+
+  const bodySummary = rawPosts.reduce(
+    (acc, post) => {
+      const key = summarizeBodyFormat(post);
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    },
+    {}
+  );
+  console.log("Post body format summary:", bodySummary);
+
+  const htmlTagCount = rawPosts.reduce((acc, post) => {
+    if (!post.body_md) return acc;
+    return acc + (/<\/?[a-z][\s\S]*>/i.test(post.body_md) ? 1 : 0);
+  }, 0);
+  if (htmlTagCount) {
+    console.log(`Post body markdown contains HTML tags: ${htmlTagCount}`);
+  }
 
   const posts = sortPosts(rawPosts);
 
