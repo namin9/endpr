@@ -737,6 +737,7 @@ async function build() {
   const useMock = process.argv.includes("--mock") || !!process.env.MOCK_BUILD_DATA_PATH;
   const buildToken = process.env.BUILD_TOKEN;
   const apiBase = process.env.PUBLIC_API_BASE;
+  const analyticsBase = process.env.ANALYTICS_API_BASE || apiBase;
   const siteBase = process.env.SITE_BASE_URL;
 
   if (!useMock) {
@@ -752,7 +753,7 @@ async function build() {
     useMock,
   });
   analyticsConfig = {
-    apiBase: apiBase || "",
+    apiBase: analyticsBase || "",
     tenantSlug: meta?.tenantSlug || "",
   };
 
