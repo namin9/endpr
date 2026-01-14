@@ -3,12 +3,19 @@ type Env = {
 };
 
 function corsHeaders(origin: string | null) {
-  return {
-    'Access-Control-Allow-Origin': origin || '*',
+  const headers: Record<string, string> = {
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin',
   };
+  if (origin) {
+    headers['Access-Control-Allow-Origin'] = origin;
+    headers['Access-Control-Allow-Credentials'] = 'true';
+  } else {
+    headers['Access-Control-Allow-Origin'] = '*';
+  }
+  return headers;
 }
 
 function jsonResponse(body: unknown, init: ResponseInit = {}, origin?: string | null) {
