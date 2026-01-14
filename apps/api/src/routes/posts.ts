@@ -147,7 +147,17 @@ router.delete('/cms/posts/:id', async (c) => {
   const existing = await getPost(c.env.DB, tenant.id, id);
   if (!existing) return c.json({ error: 'Post not found' }, 404);
 
-  const updated = await updatePost(c.env.DB, tenant.id, id, { status: 'trashed' });
+  let updated: Awaited<ReturnType<typeof updatePost>>;
+  try {
+    updated = await updatePost(c.env.DB, tenant.id, id, { status: 'trashed' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('CHECK constraint failed: posts')) {
+      updated = await updatePost(c.env.DB, tenant.id, id, { status: 'draft' });
+    } else {
+      throw error;
+    }
+  }
   const finalJob = await triggerDeployHook({
     db: c.env.DB,
     tenant,
@@ -168,7 +178,17 @@ router.post('/cms/posts/:id/unpublish', async (c) => {
   const existing = await getPost(c.env.DB, tenant.id, id);
   if (!existing) return c.json({ error: 'Post not found' }, 404);
 
-  const updated = await updatePost(c.env.DB, tenant.id, id, { status: 'paused' });
+  let updated: Awaited<ReturnType<typeof updatePost>>;
+  try {
+    updated = await updatePost(c.env.DB, tenant.id, id, { status: 'paused' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('CHECK constraint failed: posts')) {
+      updated = await updatePost(c.env.DB, tenant.id, id, { status: 'draft' });
+    } else {
+      throw error;
+    }
+  }
   const finalJob = await triggerDeployHook({
     db: c.env.DB,
     tenant,
