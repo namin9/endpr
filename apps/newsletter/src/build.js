@@ -821,6 +821,7 @@ async function build() {
   const apiBase = process.env.PUBLIC_API_BASE;
   const analyticsBase = process.env.ANALYTICS_API_BASE || apiBase;
   const siteBase = process.env.SITE_BASE_URL;
+  console.log("Current Environment Keys:", Object.keys(process.env));
 
   const shouldUseMock = useMock || !buildToken || !apiBase;
   if (!useMock && shouldUseMock) {
