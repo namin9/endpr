@@ -52,6 +52,8 @@ const bulkTrashBtn = document.getElementById('bulkTrashBtn');
 const bulkUnpublishBtn = document.getElementById('bulkUnpublishBtn');
 const bulkRepublishBtn = document.getElementById('bulkRepublishBtn');
 const bulkPublishBtn = document.getElementById('bulkPublishBtn');
+const globalLoading = document.getElementById('globalLoading');
+const globalLoadingMessage = document.getElementById('globalLoadingMessage');
 const refreshJobsBtn = document.getElementById('refreshJobsBtn');
 const jobDetailEl = document.getElementById('jobDetail');
 const selectedPostMeta = document.getElementById('selectedPostMeta');
@@ -248,6 +250,14 @@ function formatDatetimeLocal(value) {
   const hours = pad(parsed.getHours());
   const minutes = pad(parsed.getMinutes());
   return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function setGlobalLoading(isLoading, message = '처리 중...') {
+  if (!globalLoading) return;
+  if (globalLoadingMessage) {
+    globalLoadingMessage.textContent = message;
+  }
+  globalLoading.classList.toggle('hidden', !isLoading);
 }
 
 function resolveIsSuperAdmin(session) {
@@ -1027,6 +1037,7 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
   }
   try {
     setStatus(statusEl, '예약 저장 중...');
+    setGlobalLoading(true, '예약 발행 저장 중...');
     const postId = await ensurePostId(titleInput.value.trim() || '제목 없음', getBodyValue());
     const response = await apiFetch(`/cms/posts/${postId}/autosave`, {
       method: 'POST',
@@ -1058,6 +1069,8 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
     }
   } catch (error) {
     setStatus(statusEl, formatError(error), true);
+  } finally {
+    setGlobalLoading(false);
   }
 }
 
@@ -2031,6 +2044,7 @@ async function runBulkAction({ key, label, filter, handler }) {
   if (!window.confirm(`${eligible.length}개 게시글을 ${label}할까요?`)) return;
   try {
     setStatus(postsStatusEl, `${label} 처리 중...`);
+    setGlobalLoading(true, `${label} 처리 중...`);
     for (const post of eligible) {
       await handler(post);
     }
@@ -2040,6 +2054,7 @@ async function runBulkAction({ key, label, filter, handler }) {
   } catch (error) {
     setStatus(postsStatusEl, formatError(error), true);
   } finally {
+    setGlobalLoading(false);
     updateBulkSelectionUI();
   }
 }
@@ -2154,11 +2169,13 @@ function renderPosts() {
           if (!window.confirm('이 게시글을 휴지통으로 보낼까요?')) return;
           try {
             target.setAttribute('disabled', 'true');
+            setGlobalLoading(true, '휴지통으로 이동 중...');
             await trashPost(post.id);
             await fetchPosts();
           } catch (error) {
             setStatus(postsStatusEl, formatError(error), true);
           } finally {
+            setGlobalLoading(false);
             target.removeAttribute('disabled');
           }
         }
@@ -2166,22 +2183,26 @@ function renderPosts() {
           if (!window.confirm('이 게시글을 영구 삭제할까요?')) return;
           try {
             target.setAttribute('disabled', 'true');
+            setGlobalLoading(true, '삭제 중...');
             await purgePost(post.id);
             await fetchPosts();
           } catch (error) {
             setStatus(postsStatusEl, formatError(error), true);
           } finally {
+            setGlobalLoading(false);
             target.removeAttribute('disabled');
           }
         }
         if (action === 'restore') {
           try {
             target.setAttribute('disabled', 'true');
+            setGlobalLoading(true, '복원 중...');
             await restorePost(post.id);
             await fetchPosts();
           } catch (error) {
             setStatus(postsStatusEl, formatError(error), true);
           } finally {
+            setGlobalLoading(false);
             target.removeAttribute('disabled');
           }
         }
@@ -2189,11 +2210,13 @@ function renderPosts() {
           if (!window.confirm('게시글을 게시 중단할까요?')) return;
           try {
             target.setAttribute('disabled', 'true');
+            setGlobalLoading(true, '게시 중단 중...');
             await unpublishPost(post.id);
             await fetchPosts();
           } catch (error) {
             setStatus(postsStatusEl, formatError(error), true);
           } finally {
+            setGlobalLoading(false);
             target.removeAttribute('disabled');
           }
         }
@@ -2201,11 +2224,13 @@ function renderPosts() {
           if (!window.confirm('게시글을 다시 발행할까요?')) return;
           try {
             target.setAttribute('disabled', 'true');
+            setGlobalLoading(true, '발행 재개 중...');
             await apiFetch(`/cms/posts/${post.id}/publish`, { method: 'POST' });
             await fetchPosts();
           } catch (error) {
             setStatus(postsStatusEl, formatError(error), true);
           } finally {
+            setGlobalLoading(false);
             target.removeAttribute('disabled');
           }
         }
@@ -2776,6 +2801,7 @@ publishBtn.addEventListener('click', async () => {
 
   try {
     setStatus(publishMessage, '발행 요청 중…');
+    setGlobalLoading(true, '발행 중...');
     const postId = await ensurePostId(title, body);
     await apiFetch(`/cms/posts/${postId}/autosave`, {
       method: 'POST',
@@ -2804,6 +2830,8 @@ publishBtn.addEventListener('click', async () => {
     }
   } catch (error) {
     setStatus(publishMessage, formatError(error), true);
+  } finally {
+    setGlobalLoading(false);
   }
 });
 
