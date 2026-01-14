@@ -2964,6 +2964,7 @@ function hydrateFromStorage() {
   updateViewOnBlogButton();
   clearShareLink();
   updateScheduleButtons();
+  closeScheduleModal();
 }
 
 hydrateFromStorage();
