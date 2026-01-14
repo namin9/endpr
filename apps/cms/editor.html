@@ -378,15 +378,15 @@
               </div>
               <div class="schedule-step hidden" data-schedule-step="time">
                 <span class="muted">시간 선택 (10분 단위)</span>
-                <div class="schedule-wheel">
-                  <div class="schedule-wheel-column">
+                <div class="row gap">
+                  <label class="field">
                     <span class="muted">시</span>
-                    <div class="wheel-list" id="scheduleHourList"></div>
-                  </div>
-                  <div class="schedule-wheel-column">
+                    <select id="scheduleHourSelect"></select>
+                  </label>
+                  <label class="field">
                     <span class="muted">분</span>
-                    <div class="wheel-list" id="scheduleMinuteList"></div>
-                  </div>
+                    <select id="scheduleMinuteSelect"></select>
+                  </label>
                 </div>
               </div>
               <div id="scheduleStatus" class="muted"></div>

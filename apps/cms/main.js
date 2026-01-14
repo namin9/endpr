@@ -57,8 +57,8 @@ const cancelScheduleBtn = document.getElementById('cancelScheduleBtn');
 const scheduleModal = document.getElementById('scheduleModal');
 const scheduleCloseBtn = document.getElementById('scheduleCloseBtn');
 const scheduleDateInput = document.getElementById('scheduleDateInput');
-const scheduleHourList = document.getElementById('scheduleHourList');
-const scheduleMinuteList = document.getElementById('scheduleMinuteList');
+const scheduleHourSelect = document.getElementById('scheduleHourSelect');
+const scheduleMinuteSelect = document.getElementById('scheduleMinuteSelect');
 const scheduleStatus = document.getElementById('scheduleStatus');
 const scheduleBackBtn = document.getElementById('scheduleBackBtn');
 const scheduleNextBtn = document.getElementById('scheduleNextBtn');
@@ -939,24 +939,15 @@ function buildScheduleMinutes() {
   return Array.from({ length: 6 }, (_, idx) => String(idx * 10).padStart(2, '0'));
 }
 
-function buildWheelOption(value, list, onSelect) {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'wheel-option';
-  button.textContent = value;
-  button.dataset.value = value;
-  button.addEventListener('click', () => {
-    Array.from(list.querySelectorAll('.wheel-option')).forEach((item) => {
-      item.classList.toggle('is-selected', item === button);
-    });
-    onSelect?.(value);
+function buildScheduleSelectOptions(select, options) {
+  if (!select) return;
+  select.innerHTML = '';
+  options.forEach((value) => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = value;
+    select.appendChild(option);
   });
-  return button;
-}
-
-function getSelectedWheelValue(list) {
-  const selected = list?.querySelector('.wheel-option.is-selected');
-  return selected?.dataset?.value || null;
 }
 
 function setScheduleStep(step) {
@@ -972,7 +963,7 @@ function setScheduleStep(step) {
 }
 
 function openScheduleModal() {
-  if (!scheduleModal || !scheduleDateInput || !scheduleHourList || !scheduleMinuteList) return;
+  if (!scheduleModal || !scheduleDateInput || !scheduleHourSelect || !scheduleMinuteSelect) return;
   scheduleModal.classList.remove('hidden');
   scheduleStatus.textContent = '';
   const today = new Date();
@@ -984,32 +975,20 @@ function openScheduleModal() {
     scheduleDateInput.value = scheduleDateInput.value || todayValue;
   }
   scheduleDateInput.min = todayValue;
-  scheduleHourList.innerHTML = '';
-  scheduleMinuteList.innerHTML = '';
-  buildScheduleHours().forEach((hour) => {
-    scheduleHourList.appendChild(buildWheelOption(hour, scheduleHourList));
-  });
-  buildScheduleMinutes().forEach((minute) => {
-    scheduleMinuteList.appendChild(buildWheelOption(minute, scheduleMinuteList));
-  });
+  const hours = buildScheduleHours();
+  const minutes = buildScheduleMinutes();
+  buildScheduleSelectOptions(scheduleHourSelect, hours);
+  buildScheduleSelectOptions(scheduleMinuteSelect, minutes);
 
-  let selectedHour = buildScheduleHours()[0];
-  let selectedMinute = buildScheduleMinutes()[0];
+  let selectedHour = hours[0];
+  let selectedMinute = minutes[0];
   if (currentDraft?.publishAt) {
     const publishDate = new Date(currentDraft.publishAt * 1000);
     selectedHour = String(publishDate.getHours()).padStart(2, '0');
     selectedMinute = String(Math.floor(publishDate.getMinutes() / 10) * 10).padStart(2, '0');
   }
-  Array.from(scheduleHourList.querySelectorAll('.wheel-option')).forEach((option) => {
-    option.classList.toggle('is-selected', option.dataset.value === selectedHour);
-  });
-  Array.from(scheduleMinuteList.querySelectorAll('.wheel-option')).forEach((option) => {
-    option.classList.toggle('is-selected', option.dataset.value === selectedMinute);
-  });
-  const hourSelectedEl = scheduleHourList.querySelector('.wheel-option.is-selected');
-  const minuteSelectedEl = scheduleMinuteList.querySelector('.wheel-option.is-selected');
-  hourSelectedEl?.scrollIntoView({ block: 'center' });
-  minuteSelectedEl?.scrollIntoView({ block: 'center' });
+  scheduleHourSelect.value = selectedHour;
+  scheduleMinuteSelect.value = selectedMinute;
 
   setScheduleStep('date');
 }
@@ -1027,23 +1006,17 @@ function parseScheduleDateTime(dateValue, timeValue) {
   return parsed;
 }
 
-async function schedulePublish() {
+async function applyScheduledPublish(publishAt, statusEl, { closeModal = false } = {}) {
   if (!currentSession) {
-    scheduleStatus.textContent = '로그인 세션이 없습니다.';
+    setStatus(statusEl, '로그인 세션이 없습니다.', true);
     return;
   }
-  const dateValue = scheduleDateInput?.value;
-  const hourValue = getSelectedWheelValue(scheduleHourList);
-  const minuteValue = getSelectedWheelValue(scheduleMinuteList);
-  const timeValue = hourValue && minuteValue ? `${hourValue}:${minuteValue}` : null;
-  const scheduleDate = parseScheduleDateTime(dateValue, timeValue);
-  if (!scheduleDate) {
-    scheduleStatus.textContent = '날짜와 시간을 확인해 주세요.';
+  if (!publishAt) {
+    setStatus(statusEl, '예약 시간을 먼저 설정하세요.', true);
     return;
   }
-  const publishAt = Math.floor(scheduleDate.getTime() / 1000);
   try {
-    scheduleStatus.textContent = '예약 저장 중...';
+    setStatus(statusEl, '예약 저장 중...');
     const postId = await ensurePostId(titleInput.value.trim() || '제목 없음', getBodyValue());
     const response = await apiFetch(`/cms/posts/${postId}/autosave`, {
       method: 'POST',
@@ -1067,12 +1040,26 @@ async function schedulePublish() {
       categorySlug: updated.categorySlug || '',
       publishAt: updated.publishAt,
     });
-    scheduleStatus.textContent = '예약 완료';
-    closeScheduleModal();
+    setStatus(statusEl, '예약 완료');
+    if (closeModal) closeScheduleModal();
     fetchPosts();
   } catch (error) {
-    scheduleStatus.textContent = formatError(error);
+    setStatus(statusEl, formatError(error), true);
   }
+}
+
+async function schedulePublish() {
+  const dateValue = scheduleDateInput?.value;
+  const hourValue = scheduleHourSelect?.value || null;
+  const minuteValue = scheduleMinuteSelect?.value || null;
+  const timeValue = hourValue && minuteValue ? `${hourValue}:${minuteValue}` : null;
+  const scheduleDate = parseScheduleDateTime(dateValue, timeValue);
+  if (!scheduleDate) {
+    setStatus(scheduleStatus, '날짜와 시간을 확인해 주세요.', true);
+    return;
+  }
+  const publishAt = Math.floor(scheduleDate.getTime() / 1000);
+  await applyScheduledPublish(publishAt, scheduleStatus, { closeModal: true });
 }
 
 async function cancelSchedule() {
@@ -2555,7 +2542,11 @@ if (viewOnBlogBtn) {
 
 publishBtn.addEventListener('click', async () => {
   if (currentDraft?.status === 'scheduled') {
-    openScheduleModal();
+    if (!currentDraft?.publishAt) {
+      openScheduleModal();
+      return;
+    }
+    await applyScheduledPublish(currentDraft.publishAt, publishMessage);
     return;
   }
   if (!currentSession) {
