@@ -4,6 +4,17 @@ const BLOG_BASE = window.__BLOG_BASE__ || window.BLOG_BASE || 'https://endpr.pag
 const SESSION_KEY = 'cms-session';
 const DRAFT_KEY = 'cms-draft';
 const JOB_KEY = 'cms-jobs';
+const RESERVED_SLUGS = new Set([
+  'posts',
+  'category',
+  'tag',
+  'search',
+  'assets',
+  'api',
+  'cms',
+  'sitemap.xml',
+  'robots.txt',
+]);
 
 const loginForm = document.getElementById('loginForm');
 const sessionStatus = document.getElementById('sessionStatus');
@@ -30,6 +41,7 @@ const refreshPostsBtn = document.getElementById('refreshPostsBtn');
 const newPostBtn = document.getElementById('newPostBtn');
 const postsSearchInput = document.getElementById('postsSearchInput');
 const postsStatusFilter = document.getElementById('postsStatusFilter');
+const postsFilterButtons = Array.from(document.querySelectorAll('[data-post-filter]'));
 const postsPrevBtn = document.getElementById('postsPrevBtn');
 const postsNextBtn = document.getElementById('postsNextBtn');
 const postsPageInfo = document.getElementById('postsPageInfo');
@@ -38,12 +50,29 @@ const jobDetailEl = document.getElementById('jobDetail');
 const selectedPostMeta = document.getElementById('selectedPostMeta');
 const printBtn = document.getElementById('printBtn');
 const editorCard = document.querySelector('.editor-card');
+const previewToggleBtn = document.getElementById('previewToggleBtn');
+const previewCloseBtn = document.getElementById('previewCloseBtn');
+const scheduleBtn = document.getElementById('scheduleBtn');
+const cancelScheduleBtn = document.getElementById('cancelScheduleBtn');
+const scheduleModal = document.getElementById('scheduleModal');
+const scheduleCloseBtn = document.getElementById('scheduleCloseBtn');
+const scheduleDateInput = document.getElementById('scheduleDateInput');
+const scheduleHourList = document.getElementById('scheduleHourList');
+const scheduleMinuteList = document.getElementById('scheduleMinuteList');
+const scheduleStatus = document.getElementById('scheduleStatus');
+const scheduleBackBtn = document.getElementById('scheduleBackBtn');
+const scheduleNextBtn = document.getElementById('scheduleNextBtn');
+const scheduleConfirmBtn = document.getElementById('scheduleConfirmBtn');
+const previewModal = document.getElementById('previewModal');
+const previewModalCloseBtn = document.getElementById('previewModalCloseBtn');
+const previewModalContent = document.getElementById('previewModalContent');
 const viewModeButtons = Array.from(document.querySelectorAll('[data-view-mode]'));
 const viewOnBlogBtn = document.getElementById('viewOnBlogBtn');
 const viewOnBlogHint = document.getElementById('viewOnBlogHint');
 const deployJobsScope = document.getElementById('deployJobsScope');
 const quillEditorEl = document.getElementById('quillEditor');
 const editorToolbar = document.getElementById('editorToolbar');
+const categorySelect = document.getElementById('categorySelect');
 const categoryForm = document.getElementById('categoryForm');
 const categoryNameInput = document.getElementById('categoryNameInput');
 const categorySlugInput = document.getElementById('categorySlugInput');
@@ -106,9 +135,23 @@ const prReportsStatus = document.getElementById('prReportsStatus');
 const prReportsList = document.getElementById('prReportsList');
 const clearPrSelectionBtn = document.getElementById('clearPrSelectionBtn');
 
+const pageMode = document.body?.dataset?.page || 'editor';
+const isDashboard = pageMode === 'dashboard';
+const isEditorPage = pageMode === 'editor';
+
 let autosaveTimer = null;
 let previewTimer = null;
-let currentDraft = load(DRAFT_KEY, { id: null, title: '', body: '', savedAt: null, status: null });
+let currentDraft = load(DRAFT_KEY, {
+  id: null,
+  title: '',
+  body: '',
+  savedAt: null,
+  status: null,
+  categorySlug: '',
+  slug: null,
+  publicUrl: null,
+  publishAt: null,
+});
 let currentSession = load(SESSION_KEY, null);
 let currentPosts = [];
 let allPosts = [];
@@ -129,6 +172,7 @@ let selectedTenantId = null;
 let activeTabId = 'content';
 let quill = null;
 let suppressQuillChange = false;
+let initialPostRequestHandled = false;
 let postsView = {
   search: '',
   status: 'all',
@@ -144,7 +188,8 @@ let autosaveState = {
   savedAt: null,
   error: null,
 };
-let currentViewMode = 'split';
+let currentViewMode = isEditorPage ? 'edit' : 'split';
+let scheduleStep = 'date';
 
 function load(key, fallback) {
   const raw = localStorage.getItem(key);
@@ -528,6 +573,11 @@ function formatError(error) {
   return (error?.message || '요청 중 문제가 발생했습니다.') + statusSuffix;
 }
 
+function isReservedSlug(value) {
+  if (!value) return false;
+  return RESERVED_SLUGS.has(value.toLowerCase());
+}
+
 function persistSession(session) {
   currentSession = session;
   save(SESSION_KEY, session);
@@ -617,7 +667,12 @@ if (loginForm) {
   });
 }
 
-logoutBtn.addEventListener('click', () => {
+logoutBtn.addEventListener('click', async () => {
+  try {
+    await apiFetch('/cms/auth/logout', { method: 'POST' });
+  } catch (error) {
+    console.warn('Logout request failed', error);
+  }
   localStorage.removeItem(SESSION_KEY);
   currentSession = null;
   themeIsSuperAdmin = false;
@@ -818,6 +873,7 @@ function persistDraft(partial) {
   renderPreview();
   renderSelectedPostMeta();
   updateViewOnBlogButton();
+  updateScheduleButtons();
 }
 
 function renderSelectedPostMeta() {
@@ -828,6 +884,14 @@ function renderSelectedPostMeta() {
   const status = currentDraft.status ? ` · ${currentDraft.status}` : '';
   const savedAt = currentDraft.savedAt ? ` · ${formatTime(new Date(currentDraft.savedAt))}` : '';
   selectedPostMeta.textContent = `ID ${currentDraft.id}${status}${savedAt}`;
+}
+
+function updateScheduleButtons() {
+  if (!scheduleBtn || !cancelScheduleBtn || !publishBtn) return;
+  const isScheduled = currentDraft?.status === 'scheduled';
+  scheduleBtn.textContent = isScheduled ? '예약 수정' : '예약 발행';
+  cancelScheduleBtn.classList.toggle('hidden', !isScheduled);
+  publishBtn.textContent = isScheduled ? '예약 발행' : '발행';
 }
 
 function setAutosaveState(state, message, isError = false) {
@@ -867,15 +931,174 @@ function renderAutosaveSavedAt(savedAt) {
   updateAutosaveStatus();
 }
 
+function buildScheduleHours() {
+  return Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, '0'));
+}
+
+function buildScheduleMinutes() {
+  return Array.from({ length: 6 }, (_, idx) => String(idx * 10).padStart(2, '0'));
+}
+
+function buildWheelOption(value, list, onSelect) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'wheel-option';
+  button.textContent = value;
+  button.dataset.value = value;
+  button.addEventListener('click', () => {
+    Array.from(list.querySelectorAll('.wheel-option')).forEach((item) => {
+      item.classList.toggle('is-selected', item === button);
+    });
+    onSelect?.(value);
+  });
+  return button;
+}
+
+function getSelectedWheelValue(list) {
+  const selected = list?.querySelector('.wheel-option.is-selected');
+  return selected?.dataset?.value || null;
+}
+
+function setScheduleStep(step) {
+  scheduleStep = step;
+  if (!scheduleModal) return;
+  const dateStep = scheduleModal.querySelector('[data-schedule-step="date"]');
+  const timeStep = scheduleModal.querySelector('[data-schedule-step="time"]');
+  if (dateStep) dateStep.classList.toggle('hidden', step !== 'date');
+  if (timeStep) timeStep.classList.toggle('hidden', step !== 'time');
+  if (scheduleBackBtn) scheduleBackBtn.classList.toggle('hidden', step === 'date');
+  if (scheduleNextBtn) scheduleNextBtn.classList.toggle('hidden', step !== 'date');
+  if (scheduleConfirmBtn) scheduleConfirmBtn.classList.toggle('hidden', step !== 'time');
+}
+
+function openScheduleModal() {
+  if (!scheduleModal || !scheduleDateInput || !scheduleHourList || !scheduleMinuteList) return;
+  scheduleModal.classList.remove('hidden');
+  scheduleStatus.textContent = '';
+  const today = new Date();
+  const todayValue = today.toISOString().slice(0, 10);
+  if (currentDraft?.publishAt) {
+    const publishDate = new Date(currentDraft.publishAt * 1000);
+    scheduleDateInput.value = publishDate.toISOString().slice(0, 10);
+  } else {
+    scheduleDateInput.value = scheduleDateInput.value || todayValue;
+  }
+  scheduleDateInput.min = todayValue;
+  scheduleHourList.innerHTML = '';
+  scheduleMinuteList.innerHTML = '';
+  buildScheduleHours().forEach((hour) => {
+    scheduleHourList.appendChild(buildWheelOption(hour, scheduleHourList));
+  });
+  buildScheduleMinutes().forEach((minute) => {
+    scheduleMinuteList.appendChild(buildWheelOption(minute, scheduleMinuteList));
+  });
+
+  let selectedHour = buildScheduleHours()[0];
+  let selectedMinute = buildScheduleMinutes()[0];
+  if (currentDraft?.publishAt) {
+    const publishDate = new Date(currentDraft.publishAt * 1000);
+    selectedHour = String(publishDate.getHours()).padStart(2, '0');
+    selectedMinute = String(Math.floor(publishDate.getMinutes() / 10) * 10).padStart(2, '0');
+  }
+  Array.from(scheduleHourList.querySelectorAll('.wheel-option')).forEach((option) => {
+    option.classList.toggle('is-selected', option.dataset.value === selectedHour);
+  });
+  Array.from(scheduleMinuteList.querySelectorAll('.wheel-option')).forEach((option) => {
+    option.classList.toggle('is-selected', option.dataset.value === selectedMinute);
+  });
+  const hourSelectedEl = scheduleHourList.querySelector('.wheel-option.is-selected');
+  const minuteSelectedEl = scheduleMinuteList.querySelector('.wheel-option.is-selected');
+  hourSelectedEl?.scrollIntoView({ block: 'center' });
+  minuteSelectedEl?.scrollIntoView({ block: 'center' });
+
+  setScheduleStep('date');
+}
+
+function closeScheduleModal() {
+  if (!scheduleModal) return;
+  scheduleModal.classList.add('hidden');
+}
+
+function parseScheduleDateTime(dateValue, timeValue) {
+  if (!dateValue || !timeValue) return null;
+  const iso = `${dateValue}T${timeValue}:00`;
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
+async function schedulePublish() {
+  if (!currentSession) {
+    scheduleStatus.textContent = '로그인 세션이 없습니다.';
+    return;
+  }
+  const dateValue = scheduleDateInput?.value;
+  const hourValue = getSelectedWheelValue(scheduleHourList);
+  const minuteValue = getSelectedWheelValue(scheduleMinuteList);
+  const timeValue = hourValue && minuteValue ? `${hourValue}:${minuteValue}` : null;
+  const scheduleDate = parseScheduleDateTime(dateValue, timeValue);
+  if (!scheduleDate) {
+    scheduleStatus.textContent = '날짜와 시간을 확인해 주세요.';
+    return;
+  }
+  const publishAt = Math.floor(scheduleDate.getTime() / 1000);
+  try {
+    scheduleStatus.textContent = '예약 저장 중...';
+    const postId = await ensurePostId(titleInput.value.trim() || '제목 없음', getBodyValue());
+    const response = await apiFetch(`/cms/posts/${postId}/autosave`, {
+      method: 'POST',
+      body: {
+        title: titleInput.value.trim() || '제목 없음',
+        body_md: getBodyValue(),
+        category_slug: categorySelect?.value || undefined,
+        status: 'scheduled',
+        publish_at: publishAt,
+      },
+    });
+    const updated = normalizePost(response?.post || response);
+    persistDraft({
+      id: postId,
+      title: updated.title,
+      body: updated.body || '',
+      savedAt: updated.updatedAt || currentDraft.savedAt,
+      status: updated.status,
+      slug: updated.slug,
+      publicUrl: updated.publicUrl,
+      categorySlug: updated.categorySlug || '',
+      publishAt: updated.publishAt,
+    });
+    scheduleStatus.textContent = '예약 완료';
+    closeScheduleModal();
+    fetchPosts();
+  } catch (error) {
+    scheduleStatus.textContent = formatError(error);
+  }
+}
+
+async function cancelSchedule() {
+  if (!currentDraft?.id) return;
+  try {
+    await apiFetch(`/cms/posts/${currentDraft.id}/autosave`, {
+      method: 'POST',
+      body: { status: 'draft', publish_at: null },
+    });
+    persistDraft({ status: 'draft', publishAt: null });
+    fetchPosts();
+  } catch (error) {
+    setStatus(autosaveStatus, formatError(error), true);
+  }
+}
+
 async function ensurePostId(title, body) {
   if (currentDraft?.id) return currentDraft.id;
+  const categorySlug = categorySelect?.value || undefined;
   const created = await apiFetch('/cms/posts', {
     method: 'POST',
-    body: { title: title || '제목 없음', body_md: body },
+    body: { title: title || '제목 없음', body_md: body, category_slug: categorySlug },
   });
   const postId = created?.post?.id;
   if (!postId) throw new Error('게시글 ID를 받을 수 없습니다.');
-  persistDraft({ id: postId });
+  persistDraft({ id: postId, categorySlug: categorySlug || '' });
   return postId;
 }
 
@@ -899,12 +1122,21 @@ async function saveDraftToApi(title, body) {
     };
     updateAutosaveStatus();
     const postId = await ensurePostId(title, body);
+    const categorySlug = categorySelect?.value || undefined;
     const saved = await apiFetch(`/cms/posts/${postId}/autosave`, {
       method: 'POST',
-      body: { title, body_md: body },
+      body: { title, body_md: body, category_slug: categorySlug },
     });
     const savedAt = saved?.saved_at || saved?.post?.updated_at_iso || new Date().toISOString();
-    persistDraft({ id: postId, title, body, savedAt, status: saved?.post?.status });
+    persistDraft({
+      id: postId,
+      title,
+      body,
+      savedAt,
+      status: saved?.post?.status,
+      categorySlug: categorySlug || '',
+      publishAt: saved?.post?.publish_at ?? saved?.post?.publishAt ?? currentDraft.publishAt ?? null,
+    });
     autosaveState = {
       dirty: false,
       saving: false,
@@ -941,6 +1173,9 @@ function handleAutosave() {
 
 titleInput.addEventListener('input', handleAutosave);
 bodyInput.addEventListener('input', handleAutosave);
+if (categorySelect) {
+  categorySelect.addEventListener('change', handleAutosave);
+}
 
 if (quillEditorEl) {
   initQuillEditor();
@@ -963,8 +1198,18 @@ retrySaveBtn.addEventListener('click', () => {
 
 clearDraftBtn.addEventListener('click', () => {
   localStorage.removeItem(DRAFT_KEY);
-  currentDraft = { id: null, title: '', body: '', savedAt: null, status: null };
+  currentDraft = {
+    id: null,
+    title: '',
+    body: '',
+    savedAt: null,
+    status: null,
+    categorySlug: '',
+    slug: null,
+    publicUrl: null,
+  };
   titleInput.value = '';
+  if (categorySelect) categorySelect.value = '';
   setBodyValue('');
   autosaveState = {
     dirty: false,
@@ -984,9 +1229,12 @@ function normalizePost(rawPost) {
     status: rawPost?.status || rawPost?.state || 'draft',
     updatedAt: rawPost?.updated_at_iso || rawPost?.updated_at || rawPost?.saved_at || null,
     publishedAt: rawPost?.published_at_iso || rawPost?.published_at || rawPost?.publishedAt || null,
+    publishAt: rawPost?.publish_at ?? rawPost?.publishAt ?? null,
     slug: rawPost?.slug || rawPost?.slug_id || rawPost?.slugId || null,
     publicUrl: rawPost?.public_url || rawPost?.publicUrl || null,
     body: rawPost?.body_md || rawPost?.body || '',
+    categorySlug: rawPost?.category_slug || rawPost?.categorySlug || '',
+    viewCount: Number(rawPost?.view_count ?? rawPost?.viewCount ?? 0) || 0,
   };
 }
 
@@ -1023,12 +1271,19 @@ function normalizeUser(rawUser) {
 }
 
 function renderCategories() {
-  categoriesList.innerHTML = '';
+  if (categoriesList) {
+    categoriesList.innerHTML = '';
+  }
   if (!currentCategories.length) {
-    categoriesStatus.textContent = '카테고리가 없습니다.';
+    if (categoriesStatus) {
+      categoriesStatus.textContent = '카테고리가 없습니다.';
+    }
+    renderCategorySelect();
     return;
   }
-  categoriesStatus.textContent = `${currentCategories.length}개 카테고리`;
+  if (categoriesStatus) {
+    categoriesStatus.textContent = `${currentCategories.length}개 카테고리`;
+  }
   currentCategories.forEach((category) => {
     const item = document.createElement('div');
     item.className = 'category-item';
@@ -1056,8 +1311,25 @@ function renderCategories() {
         button.disabled = false;
       }
     });
-    categoriesList.appendChild(item);
+    if (categoriesList) {
+      categoriesList.appendChild(item);
+    }
   });
+  renderCategorySelect();
+}
+
+function renderCategorySelect() {
+  if (!categorySelect) return;
+  categorySelect.innerHTML = '<option value="">선택 안 함</option>';
+  currentCategories
+    .filter((category) => category.enabled)
+    .forEach((category) => {
+      const option = document.createElement('option');
+      option.value = category.slug || '';
+      option.textContent = category.name;
+      categorySelect.appendChild(option);
+    });
+  categorySelect.value = currentDraft?.categorySlug || '';
 }
 
 async function fetchCategories() {
@@ -1582,7 +1854,9 @@ function getFilteredPosts() {
   if (query) {
     list = list.filter((post) => (post.title || '').toLowerCase().includes(query));
   }
-  if (postsView.status !== 'all') {
+  if (postsView.status === 'all') {
+    list = list.filter((post) => post.status !== 'trashed');
+  } else {
     list = list.filter((post) => (post.status || 'draft') === postsView.status);
   }
   return list;
@@ -1608,6 +1882,47 @@ function renderPostsPagination(totalPages) {
   postsPrevBtn.disabled = postsView.page <= 1;
   postsNextBtn.disabled = postsView.page >= totalPages;
   postsPageInfo.textContent = `페이지 ${postsView.page} / ${totalPages}`;
+}
+
+function updatePostFilterButtons() {
+  postsFilterButtons.forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.postFilter === postsView.status);
+  });
+}
+
+function setPostFilter(status) {
+  postsView.status = status;
+  postsView.page = 1;
+  updatePostFilterButtons();
+  renderPosts();
+}
+
+const postStatusLabels = {
+  draft: '임시 저장',
+  scheduled: '발행 예약',
+  published: '발행',
+  paused: '게시 중단',
+  trashed: '휴지통',
+};
+
+async function trashPost(postId) {
+  if (!postId) return;
+  await apiFetch(`/cms/posts/${postId}`, { method: 'DELETE' });
+}
+
+async function purgePost(postId) {
+  if (!postId) return;
+  await apiFetch(`/cms/posts/${postId}/purge`, { method: 'DELETE' });
+}
+
+async function unpublishPost(postId) {
+  if (!postId) return;
+  await apiFetch(`/cms/posts/${postId}/unpublish`, { method: 'POST' });
+}
+
+async function restorePost(postId) {
+  if (!postId) return;
+  await apiFetch(`/cms/posts/${postId}/autosave`, { method: 'POST', body: { status: 'paused' } });
 }
 
 function renderPosts() {
@@ -1643,28 +1958,155 @@ function renderPosts() {
   pageItems.forEach((post) => {
     const item = document.createElement('div');
     item.className = 'posts-row';
-    if (currentDraft?.id === post.id) item.classList.add('active');
+    if (!isDashboard) item.classList.add('is-clickable');
+    if (!isDashboard && currentDraft?.id === post.id) item.classList.add('active');
     item.setAttribute('role', 'row');
     item.dataset.postId = post.id;
-    const updated = formatMaybeDate(post.updatedAt);
     const published = formatMaybeDate(post.publishedAt);
-    const status = post.status || 'draft';
+    const statusLabel = postStatusLabels[post.status] || post.status || '임시 저장';
+    const viewCount = Number.isFinite(post.viewCount) ? post.viewCount : 0;
+    const actions = [];
+    if (post.status !== 'trashed') {
+      actions.push({ key: 'edit', label: '수정' });
+      actions.push({ key: 'trash', label: '휴지통', danger: true });
+      if (post.status === 'published') {
+        actions.push({ key: 'unpublish', label: '게시 중단', danger: true });
+      }
+      if (post.status === 'paused') {
+        actions.push({ key: 'republish', label: '발행 재개' });
+      }
+    } else {
+      actions.push({ key: 'restore', label: '복원' });
+      actions.push({ key: 'purge', label: '영구 삭제', danger: true });
+    }
     item.innerHTML = `
       <div class="posts-cell posts-title">
         <strong>${post.title || '제목 없음'}</strong>
         <span class="posts-id muted">#${post.id || '-'}</span>
+        <span class="badge badge-${post.status || 'draft'}">${statusLabel}</span>
       </div>
-      <div class="posts-cell">
-        <span class="badge badge-${status}">${status}</span>
-      </div>
-      <div class="posts-cell">${updated}</div>
       <div class="posts-cell">${published}</div>
+      <div class="posts-cell">${viewCount.toLocaleString()}</div>
+      <div class="posts-cell posts-actions">
+        ${actions
+          .map(
+            (action) =>
+              `<button type="button" class="ghost${action.danger ? ' danger' : ''}" data-action="${action.key}">${
+                action.label
+              }</button>`
+          )
+          .join('')}
+      </div>
     `;
-    item.addEventListener('click', () => selectPost(post));
+    if (!isDashboard) {
+      item.addEventListener('click', () => selectPost(post));
+    }
+    const actionsEl = item.querySelector('.posts-actions');
+    if (actionsEl) {
+      actionsEl.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const action = target.dataset.action;
+        if (action === 'edit') {
+          window.location.href = `editor.html?postId=${post.id}`;
+          return;
+        }
+        if (action === 'trash') {
+          if (!window.confirm('이 게시글을 휴지통으로 보낼까요?')) return;
+          try {
+            target.setAttribute('disabled', 'true');
+            await trashPost(post.id);
+            await fetchPosts();
+          } catch (error) {
+            setStatus(postsStatusEl, formatError(error), true);
+          } finally {
+            target.removeAttribute('disabled');
+          }
+        }
+        if (action === 'purge') {
+          if (!window.confirm('이 게시글을 영구 삭제할까요?')) return;
+          try {
+            target.setAttribute('disabled', 'true');
+            await purgePost(post.id);
+            await fetchPosts();
+          } catch (error) {
+            setStatus(postsStatusEl, formatError(error), true);
+          } finally {
+            target.removeAttribute('disabled');
+          }
+        }
+        if (action === 'restore') {
+          try {
+            target.setAttribute('disabled', 'true');
+            await restorePost(post.id);
+            await fetchPosts();
+          } catch (error) {
+            setStatus(postsStatusEl, formatError(error), true);
+          } finally {
+            target.removeAttribute('disabled');
+          }
+        }
+        if (action === 'unpublish') {
+          if (!window.confirm('게시글을 게시 중단할까요?')) return;
+          try {
+            target.setAttribute('disabled', 'true');
+            await unpublishPost(post.id);
+            await fetchPosts();
+          } catch (error) {
+            setStatus(postsStatusEl, formatError(error), true);
+          } finally {
+            target.removeAttribute('disabled');
+          }
+        }
+        if (action === 'republish') {
+          if (!window.confirm('게시글을 다시 발행할까요?')) return;
+          try {
+            target.setAttribute('disabled', 'true');
+            await apiFetch(`/cms/posts/${post.id}/publish`, { method: 'POST' });
+            await fetchPosts();
+          } catch (error) {
+            setStatus(postsStatusEl, formatError(error), true);
+          } finally {
+            target.removeAttribute('disabled');
+          }
+        }
+      });
+    }
     postsListEl.appendChild(item);
   });
 
   renderPostsPagination(totalPages);
+}
+
+async function maybeOpenInitialPost() {
+  if (!isEditorPage || initialPostRequestHandled) return;
+  initialPostRequestHandled = true;
+  const params = new URLSearchParams(window.location.search);
+  const isNew = params.get('new') === '1';
+  const postId = params.get('postId');
+  if (isNew) {
+    await createNewPost();
+    return;
+  }
+  if (!postId) return;
+  const existing = allPosts.find((post) => post.id === postId);
+  if (existing) {
+    selectPost(existing);
+    return;
+  }
+  try {
+    const detail = await apiFetch(`/cms/posts/${postId}`);
+    const fetched = normalizePost(detail?.post || detail);
+    if (fetched?.id) {
+      allPosts = [fetched, ...allPosts.filter((post) => post.id !== fetched.id)];
+      currentPosts = allPosts.slice();
+      renderPosts();
+      selectPost(fetched);
+    }
+  } catch (error) {
+    setStatus(postsStatusEl, formatError(error), true);
+  }
 }
 
 function buildPostsQuery() {
@@ -1702,6 +2144,8 @@ async function fetchPosts() {
 
     currentPosts = allPosts.slice();
     renderPosts();
+    updatePostFilterButtons();
+    await maybeOpenInitialPost();
   } catch (error) {
     renderPostsState({
       message: '세션 만료 또는 오류가 발생했습니다. 다시 로그인해 주세요.',
@@ -1732,8 +2176,13 @@ async function selectPost(post) {
     status: next.status,
     slug: next.slug,
     publicUrl: next.publicUrl,
+    categorySlug: next.categorySlug || '',
+    publishAt: next.publishAt,
   });
   titleInput.value = next.title || '';
+  if (categorySelect) {
+    categorySelect.value = next.categorySlug || '';
+  }
   setBodyValue(next.body || '');
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPosts();
@@ -1743,16 +2192,27 @@ refreshPostsBtn.addEventListener('click', () => {
   fetchPosts();
 });
 
-postsSearchInput.addEventListener('input', (event) => {
-  postsView.search = event.target.value;
-  postsView.page = 1;
-  renderPosts();
-});
+if (postsSearchInput) {
+  postsSearchInput.addEventListener('input', (event) => {
+    postsView.search = event.target.value;
+    postsView.page = 1;
+    renderPosts();
+  });
+}
 
-postsStatusFilter.addEventListener('change', (event) => {
-  postsView.status = event.target.value;
-  postsView.page = 1;
-  renderPosts();
+if (postsStatusFilter) {
+  postsStatusFilter.addEventListener('change', (event) => {
+    postsView.status = event.target.value;
+    postsView.page = 1;
+    renderPosts();
+  });
+}
+
+postsFilterButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    const status = button.dataset.postFilter || 'all';
+    setPostFilter(status);
+  });
 });
 
 postsPrevBtn.addEventListener('click', () => {
@@ -1775,7 +2235,7 @@ postsNextBtn.addEventListener('click', () => {
   }
 });
 
-newPostBtn.addEventListener('click', async () => {
+async function createNewPost() {
   if (!currentSession) {
     renderPostsState({
       message: '세션 만료 또는 오류가 발생했습니다. 다시 로그인해 주세요.',
@@ -1788,7 +2248,7 @@ newPostBtn.addEventListener('click', async () => {
     renderPostsState({ message: '새 글 생성 중...', isLoading: true });
     const created = await apiFetch('/cms/posts', {
       method: 'POST',
-      body: { title: '제목 없음', body_md: '' },
+      body: { title: '제목 없음', body_md: '', category_slug: categorySelect?.value || undefined },
     });
     const newPost = normalizePost(created?.post || created);
     if (!newPost?.id) throw new Error('게시글 ID를 받을 수 없습니다.');
@@ -1803,6 +2263,14 @@ newPostBtn.addEventListener('click', async () => {
       isError: true,
     });
   }
+}
+
+newPostBtn.addEventListener('click', async () => {
+  if (isDashboard) {
+    window.location.href = 'editor.html?new=1';
+    return;
+  }
+  await createNewPost();
 });
 
 function setViewMode(mode) {
@@ -1820,6 +2288,64 @@ viewModeButtons.forEach((button) => {
     setViewMode(button.dataset.viewMode);
   });
 });
+
+if (previewToggleBtn) {
+  previewToggleBtn.addEventListener('click', () => {
+    renderPreview();
+    if (previewModalContent) {
+      previewModalContent.innerHTML = previewPane.innerHTML;
+    }
+    previewModal?.classList.remove('hidden');
+  });
+}
+
+if (previewCloseBtn) {
+  previewCloseBtn.addEventListener('click', () => {
+    setViewMode('edit');
+  });
+}
+
+if (previewModalCloseBtn) {
+  previewModalCloseBtn.addEventListener('click', () => {
+    previewModal?.classList.add('hidden');
+  });
+}
+
+if (scheduleBtn) {
+  scheduleBtn.addEventListener('click', () => {
+    openScheduleModal();
+  });
+}
+
+if (cancelScheduleBtn) {
+  cancelScheduleBtn.addEventListener('click', () => {
+    cancelSchedule();
+  });
+}
+
+if (scheduleCloseBtn) {
+  scheduleCloseBtn.addEventListener('click', () => {
+    closeScheduleModal();
+  });
+}
+
+if (scheduleBackBtn) {
+  scheduleBackBtn.addEventListener('click', () => {
+    setScheduleStep('date');
+  });
+}
+
+if (scheduleNextBtn) {
+  scheduleNextBtn.addEventListener('click', () => {
+    setScheduleStep('time');
+  });
+}
+
+if (scheduleConfirmBtn) {
+  scheduleConfirmBtn.addEventListener('click', () => {
+    schedulePublish();
+  });
+}
 
 function normalizeJob(rawJob, overrides = {}) {
   return {
@@ -1875,7 +2401,8 @@ function renderJobs() {
 }
 
 function updateJobs(list) {
-  currentJobs = list
+  const normalized = list.slice().map((job) => normalizeJob(job));
+  currentJobs = normalized
     .slice()
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 10);
@@ -1887,7 +2414,7 @@ async function fetchDeployJobs() {
   try {
     const data = await apiFetch('/cms/deploy-jobs');
     const jobs = data?.jobs || data?.data || [];
-    updateJobs(jobs.map((job) => normalizeJob(job)));
+    updateJobs(jobs);
   } catch (error) {
     deployJobsScope.textContent = '배포 이력 로드 실패';
     deployJobsEl.innerHTML = `<div class="muted error">${formatError(error)}</div>`;
@@ -2027,6 +2554,10 @@ if (viewOnBlogBtn) {
 }
 
 publishBtn.addEventListener('click', async () => {
+  if (currentDraft?.status === 'scheduled') {
+    openScheduleModal();
+    return;
+  }
   if (!currentSession) {
     setStatus(publishMessage, '로그인 세션이 없습니다. 먼저 로그인하세요.', true);
     return;
@@ -2034,29 +2565,35 @@ publishBtn.addEventListener('click', async () => {
 
   const title = titleInput.value.trim() || '제목 없음';
   const body = getBodyValue();
+  const categorySlug = categorySelect?.value || undefined;
 
   try {
     setStatus(publishMessage, '발행 요청 중…');
     const postId = await ensurePostId(title, body);
     await apiFetch(`/cms/posts/${postId}/autosave`, {
       method: 'POST',
-      body: { title, body_md: body },
+      body: { title, body_md: body, category_slug: categorySlug },
     });
     const response = await apiFetch(`/cms/posts/${postId}/publish`, {
       method: 'POST',
-      body: { title, body_md: body },
+      body: { title, body_md: body, category_slug: categorySlug },
     });
     const deployJob = response?.deploy_job;
     const jobId = deployJob?.id;
-    if (!jobId) throw new Error('배포 Job ID를 받을 수 없습니다.');
-
-    upsertJob(normalizeJob(deployJob, { id: jobId, title }));
-    pollDeployJob(jobId);
+    if (jobId) {
+      upsertJob(normalizeJob(deployJob, { id: jobId, title }));
+      pollDeployJob(jobId);
+    } else {
+      setStatus(publishMessage, '발행 완료. 배포 작업은 확인 중입니다.');
+    }
 
     const postPayload = response?.post || { id: postId };
     const url = buildBlogUrl(postPayload);
     if (url) {
       publishLink.innerHTML = `<a href="${url}" target="_blank" rel="noopener">블로그에서 보기 →</a>`;
+    }
+    if (isEditorPage) {
+      window.location.href = 'index.html';
     }
   } catch (error) {
     setStatus(publishMessage, formatError(error), true);
@@ -2328,6 +2865,10 @@ if (categoryForm) {
     const name = categoryNameInput.value.trim();
     const slug = categorySlugInput.value.trim();
     if (!name) return;
+    if (isReservedSlug(slug)) {
+      setStatus(categoriesStatus, '예약어 slug는 사용할 수 없습니다.', true);
+      return;
+    }
     try {
       setStatus(categoriesStatus, '추가 중...');
       await apiFetch('/cms/categories', {
@@ -2450,13 +2991,18 @@ if (prReportForm) {
   });
 }
 
-printBtn.addEventListener('click', () => {
-  window.print();
-});
+if (printBtn) {
+  printBtn.addEventListener('click', () => {
+    window.print();
+  });
+}
 
 function hydrateFromStorage() {
   titleInput.value = currentDraft.title || '';
   setBodyValue(currentDraft.body || '');
+  if (categorySelect) {
+    categorySelect.value = currentDraft.categorySlug || '';
+  }
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPreview();
   renderSelectedPostMeta();
@@ -2464,6 +3010,8 @@ function hydrateFromStorage() {
   setViewMode(currentViewMode);
   updateViewOnBlogButton();
   clearShareLink();
+  updateScheduleButtons();
+  closeScheduleModal();
 }
 
 hydrateFromStorage();

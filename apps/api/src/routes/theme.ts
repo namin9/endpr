@@ -129,8 +129,8 @@ router.put('/cms/theme', async (c) => {
         status = 'failed';
         message = `Deploy hook failed with status ${resp.status}`;
       } else {
-        status = 'success';
-        message = 'Deploy hook accepted';
+        status = 'building';
+        message = 'Deploy hook accepted; awaiting webhook';
       }
     } catch (error) {
       status = 'failed';

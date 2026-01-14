@@ -13,10 +13,8 @@ export type EnvBindings = {
 
 export type Ctx = Context<{ Bindings: EnvBindings; Variables: { session: SessionData; tenant: TenantRow; buildTenant: TenantRow } }>;
 
-function ensureSessionSecret(env: EnvBindings) {
-  if (!env.SESSION_SECRET) {
-    throw new Error('SESSION_SECRET binding is required');
-  }
+function getSessionSecret(env: EnvBindings): string | null {
+  return env.SESSION_SECRET || null;
 }
 
 export const sessionMiddleware = async (c: Ctx, next: Next) => {
@@ -24,11 +22,14 @@ export const sessionMiddleware = async (c: Ctx, next: Next) => {
     await next();
     return;
   }
-  ensureSessionSecret(c.env);
+  const sessionSecret = getSessionSecret(c.env);
+  if (!sessionSecret) {
+    return c.json({ error: 'Server misconfigured: SESSION_SECRET missing' }, 500);
+  }
   const token = getCookie(c, SESSION_COOKIE);
   if (!token) return c.json({ error: 'Unauthorized' }, 401);
 
-  const payload = await verifySessionToken(token, c.env.SESSION_SECRET);
+  const payload = await verifySessionToken(token, sessionSecret);
   if (!payload) return c.json({ error: 'Invalid session' }, 401);
 
   const tenant = await getTenantById(c.env.DB, payload.tenantId);
@@ -57,11 +58,20 @@ export function requireRole(session: SessionData | undefined, roles: Role[]): bo
   return roles.includes(session.role);
 }
 
-export async function refreshSessionCookie(c: Ctx, session: SessionData) {
-  ensureSessionSecret(c.env);
-  const token = await createSessionToken(session, c.env.SESSION_SECRET);
+export async function refreshSessionCookie(c: Ctx, session: SessionData): Promise<boolean> {
+  const sessionSecret = getSessionSecret(c.env);
+  if (!sessionSecret) {
+    console.error('SESSION_SECRET binding is required to issue session cookies.');
+    return false;
+  }
+  const token = await createSessionToken(session, sessionSecret);
   c.header(
     'Set-Cookie',
     `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=None; Secure; Max-Age=${SESSION_MAX_AGE}`
   );
+  return true;
+}
+
+export function clearSessionCookie(c: Ctx) {
+  c.header('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=None; Secure; Max-Age=0`);
 }

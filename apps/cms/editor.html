@@ -4,11 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow" />
-    <title>CMS Dashboard</title>
+    <title>CMS Editor</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" />
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body class="page-dashboard" data-page="dashboard">
+  <body class="page-editor" data-page="editor">
     <header class="topbar">
       <div class="topbar-left">
         <h1 class="topbar-title">CMS</h1>
@@ -283,9 +283,11 @@
                 <button type="button" class="ghost" data-view-mode="edit">Edit Only</button>
                 <button type="button" class="ghost" data-view-mode="preview">Preview Only</button>
               </div>
+              <button type="button" id="previewToggleBtn" class="ghost">미리보기</button>
+              <button type="button" id="scheduleBtn" class="ghost">예약 발행</button>
+              <button type="button" id="cancelScheduleBtn" class="ghost">예약 취소</button>
               <button type="button" id="manualSaveBtn" class="ghost">임시저장</button>
               <button type="button" id="publishBtn" class="primary">발행</button>
-              <button type="button" id="viewOnBlogBtn" class="ghost" disabled>View on blog</button>
             </div>
           </div>
           <p id="viewOnBlogHint" class="muted"></p>
@@ -344,7 +346,10 @@
             <div class="preview-pane">
               <div class="preview-header">
                 <span>미리보기</span>
-                <span id="previewStatus" class="muted">실시간</span>
+                <div class="row gap">
+                  <span id="previewStatus" class="muted">실시간</span>
+                  <button type="button" id="previewCloseBtn" class="ghost">닫기</button>
+                </div>
               </div>
               <div class="preview" id="previewPane"></div>
             </div>
@@ -355,6 +360,54 @@
               <button type="button" id="retrySaveBtn" class="ghost hidden">다시 저장</button>
             </div>
             <button type="button" id="clearDraftBtn" class="ghost">초안 비우기</button>
+          </div>
+        </div>
+
+        <div class="modal hidden" id="scheduleModal" role="dialog" aria-modal="true" aria-labelledby="scheduleTitle">
+          <div class="modal-card">
+            <div class="modal-header">
+              <h3 id="scheduleTitle">예약 발행</h3>
+              <button type="button" id="scheduleCloseBtn" class="ghost">닫기</button>
+            </div>
+            <div class="modal-body">
+              <div class="schedule-step" data-schedule-step="date">
+                <label class="field">
+                  <span>날짜 선택</span>
+                  <input type="date" id="scheduleDateInput" />
+                </label>
+              </div>
+              <div class="schedule-step hidden" data-schedule-step="time">
+                <span class="muted">시간 선택 (10분 단위)</span>
+                <div class="schedule-wheel">
+                  <div class="schedule-wheel-column">
+                    <span class="muted">시</span>
+                    <div class="wheel-list" id="scheduleHourList"></div>
+                  </div>
+                  <div class="schedule-wheel-column">
+                    <span class="muted">분</span>
+                    <div class="wheel-list" id="scheduleMinuteList"></div>
+                  </div>
+                </div>
+              </div>
+              <div id="scheduleStatus" class="muted"></div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" id="scheduleBackBtn" class="ghost hidden">뒤로</button>
+              <button type="button" id="scheduleNextBtn" class="primary">다음</button>
+              <button type="button" id="scheduleConfirmBtn" class="primary hidden">예약 발행</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal hidden" id="previewModal" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
+          <div class="modal-card modal-card--wide">
+            <div class="modal-header">
+              <h3 id="previewTitle">미리보기</h3>
+              <button type="button" id="previewModalCloseBtn" class="ghost">닫기</button>
+            </div>
+            <div class="modal-body">
+              <div class="preview modal-preview" id="previewModalContent"></div>
+            </div>
           </div>
         </div>
 

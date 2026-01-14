@@ -48,7 +48,8 @@ export type DeployJobRow = {
   id: string;
   tenant_id: string;
   triggered_by_user_id: string | null;
-  status: 'queued' | 'building' | 'success' | 'failed';
+  post_id: string | null;
+  status: 'queued' | 'building' | 'success' | 'failed' | 'canceled';
   message: string | null;
   created_at: number;
   updated_at: number;
@@ -115,6 +116,14 @@ export async function getTenantByBuildToken(db: D1Database, token: string): Prom
   const result = await db
     .prepare('SELECT id, slug, name, pages_deploy_hook_url, build_token FROM tenants WHERE build_token = ?')
     .bind(token)
+    .first<TenantRow>();
+  return result ?? null;
+}
+
+export async function getTenantByPagesProjectName(db: D1Database, projectName: string): Promise<TenantRow | null> {
+  const result = await db
+    .prepare('SELECT id, slug, name, pages_deploy_hook_url, build_token FROM tenants WHERE pages_project_name = ?')
+    .bind(projectName)
     .first<TenantRow>();
   return result ?? null;
 }
@@ -290,7 +299,17 @@ export async function createPost(db: D1Database, tenantId: string, input: Partia
 
 export async function listPosts(db: D1Database, tenantId: string): Promise<PostRow[]> {
   const { results } = await db
-    .prepare('SELECT * FROM posts WHERE tenant_id = ? ORDER BY created_at DESC')
+    .prepare(
+      `SELECT posts.*,
+        COALESCE(SUM(page_views_daily.views), 0) AS view_count
+       FROM posts
+       LEFT JOIN page_views_daily
+         ON page_views_daily.tenant_id = posts.tenant_id
+        AND page_views_daily.page_key = posts.slug
+       WHERE posts.tenant_id = ?
+       GROUP BY posts.id
+       ORDER BY posts.created_at DESC`
+    )
     .bind(tenantId)
     .all<PostRow>();
   return (results ?? []) as PostRow[];
@@ -340,6 +359,75 @@ export async function updatePost(db: D1Database, tenantId: string, id: string, u
   return updated;
 }
 
+export async function deletePost(db: D1Database, tenantId: string, id: string): Promise<void> {
+  await db.prepare('DELETE FROM posts WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+}
+
+export async function ensurePostStatusSchema(db: D1Database): Promise<boolean> {
+  const schemaRow = await db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'posts'")
+    .first<{ sql?: string }>();
+  const sql = schemaRow?.sql ?? '';
+  if (sql.includes("'trashed'") && sql.includes("'paused'")) {
+    return true;
+  }
+  const legacyTable = await db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'posts_old'")
+    .first();
+  if (legacyTable) {
+    return false;
+  }
+  await db.prepare('DROP TRIGGER IF EXISTS posts_set_updated_at').run();
+  await db.prepare('ALTER TABLE posts RENAME TO posts_old').run();
+  await db
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS posts (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        excerpt TEXT,
+        body_md TEXT,
+        category_slug TEXT,
+        status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'scheduled', 'published', 'paused', 'trashed')),
+        publish_at INTEGER,
+        published_at INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        UNIQUE (tenant_id, slug),
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+      )`
+    )
+    .run();
+  await db
+    .prepare(
+      `INSERT INTO posts (id, tenant_id, title, slug, excerpt, body_md, category_slug, status, publish_at, published_at, created_at, updated_at)
+       SELECT id, tenant_id, title, slug, excerpt, body_md, category_slug, status, publish_at, published_at, created_at, updated_at
+       FROM posts_old`
+    )
+    .run();
+  await db.prepare('DROP TABLE posts_old').run();
+  await db
+    .prepare(
+      `CREATE TRIGGER IF NOT EXISTS posts_set_updated_at
+       AFTER UPDATE ON posts
+       FOR EACH ROW
+       BEGIN
+         UPDATE posts SET updated_at = (strftime('%s','now')) WHERE id = OLD.id;
+       END`
+    )
+    .run();
+  return true;
+}
+
+export async function purgeTrashedPosts(db: D1Database, cutoffEpoch: number): Promise<number> {
+  const result = await db
+    .prepare("DELETE FROM posts WHERE status = 'trashed' AND updated_at <= ?")
+    .bind(cutoffEpoch)
+    .run();
+  return result?.changes ?? 0;
+}
+
 export async function publishPost(db: D1Database, tenantId: string, id: string, publishTime: number): Promise<PostRow> {
   await db
     .prepare(
@@ -361,13 +449,28 @@ export async function createDeployJob(
   tenantId: string,
   triggeredBy: string | null,
   status: DeployJobRow['status'],
-  message: string | null
+  message: string | null,
+  postId: string | null = null
 ): Promise<DeployJobRow> {
   const id = uuidv4();
-  await db
-    .prepare('INSERT INTO deploy_jobs (id, tenant_id, triggered_by_user_id, status, message) VALUES (?, ?, ?, ?, ?)')
-    .bind(id, tenantId, triggeredBy, status, message)
-    .run();
+  try {
+    await db
+      .prepare(
+        'INSERT INTO deploy_jobs (id, tenant_id, triggered_by_user_id, post_id, status, message) VALUES (?, ?, ?, ?, ?, ?)'
+      )
+      .bind(id, tenantId, triggeredBy, postId, status, message)
+      .run();
+  } catch (error) {
+    const messageText = error instanceof Error ? error.message : String(error);
+    if (messageText.includes('post_id')) {
+      await db
+        .prepare('INSERT INTO deploy_jobs (id, tenant_id, triggered_by_user_id, status, message) VALUES (?, ?, ?, ?, ?)')
+        .bind(id, tenantId, triggeredBy, status, message)
+        .run();
+    } else {
+      throw error;
+    }
+  }
   const job = await db.prepare('SELECT * FROM deploy_jobs WHERE id = ?').bind(id).first<DeployJobRow>();
   if (!job) throw new Error('Failed to create deploy job');
   return job;
@@ -397,6 +500,19 @@ export async function getDeployJob(db: D1Database, tenantId: string, id: string)
   const job = await db
     .prepare('SELECT * FROM deploy_jobs WHERE id = ? AND tenant_id = ?')
     .bind(id, tenantId)
+    .first<DeployJobRow>();
+  return job ?? null;
+}
+
+export async function getLatestActiveDeployJob(db: D1Database, tenantId: string): Promise<DeployJobRow | null> {
+  const job = await db
+    .prepare(
+      `SELECT * FROM deploy_jobs
+       WHERE tenant_id = ? AND status IN ('queued', 'building')
+       ORDER BY created_at DESC
+       LIMIT 1`
+    )
+    .bind(tenantId)
     .first<DeployJobRow>();
   return job ?? null;
 }
@@ -691,6 +807,7 @@ export function mapPost(row: PostRow) {
   const publishedAt = toNumber((row as any).published_at ?? row.published_at);
   const createdAt = toNumber((row as any).created_at ?? row.created_at);
   const updatedAt = toNumber((row as any).updated_at ?? row.updated_at);
+  const viewCount = toNumber((row as any).view_count ?? 0) ?? 0;
   return {
     id: row.id,
     title: row.title,
@@ -699,6 +816,7 @@ export function mapPost(row: PostRow) {
     body_md: row.body_md,
     category_slug: row.category_slug,
     status: row.status,
+    view_count: viewCount,
     publish_at: publishAt,
     published_at: publishedAt,
     created_at: createdAt ?? undefined,
@@ -713,6 +831,7 @@ export function mapDeployJob(row: DeployJobRow) {
   const createdAt = toNumber((row as any).created_at ?? row.created_at);
   return {
     id: row.id,
+    post_id: row.post_id,
     status: row.status,
     message: row.message,
     triggered_by_user_id: row.triggered_by_user_id,
@@ -767,6 +886,22 @@ export function mapPrReport(row: PrReportRow) {
 }
 
 const SLUG_REGEX = /^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u;
+const RESERVED_SLUGS = new Set([
+  'posts',
+  'category',
+  'tag',
+  'search',
+  'assets',
+  'api',
+  'cms',
+  'sitemap.xml',
+  'robots.txt',
+]);
+
+export function isReservedSlug(input: string | undefined | null): boolean {
+  if (!input) return false;
+  return RESERVED_SLUGS.has(input.toLowerCase());
+}
 
 export function generateSlug(input: string | undefined | null): string {
   const safe = (input ?? '')

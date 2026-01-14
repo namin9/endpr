@@ -104,6 +104,7 @@ DoD:
 - [ ] GET /cms/posts (목록)
 - [ ] GET /cms/posts/:id (상세)
 - [ ] POST /cms/posts/:id/autosave (draft 저장)
+- [ ] 예약어 slug 사전 차단(CMS/API)
 
 DoD:
 - autosave 시 updated_at 갱신, saved_at 반환
@@ -115,6 +116,10 @@ DoD:
   - tenants.pages_deploy_hook_url 호출
 - [ ] GET /cms/deploy-jobs (리스트)
 - [ ] GET /cms/deploy-jobs/:id (상세)
+- [ ] Pages 빌드 완료 Webhook에서 deploy_jobs 상태 업데이트
+  - [ ] `PAGES_WEBHOOK_SECRET` 바인딩 설정
+  - [ ] project_name 기반 테넌트 매칭 및 최신 active job 갱신
+  - [ ] webhook payload status 필드 매핑 확인(queued/building/success/failed)
 
 DoD:
 - publish 후 CMS에서 deploy 상태 확인 가능

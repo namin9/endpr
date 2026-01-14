@@ -181,6 +181,24 @@ $publishResp.deploy_job.id
 
 Expected: **200** with `post.status: published`, `deploy_job` containing `id`, `status` (`building` or `success`/`failed`), and `message`.
 
+### 4.1) Scheduled publish (10-minute cron)
+
+Schedule a post (status=scheduled + publish_at epoch seconds):
+
+```powershell
+$publishAt = [int]([DateTimeOffset]::UtcNow.AddMinutes(10).ToUnixTimeSeconds())
+$scheduleBody = @{
+  status = "scheduled"
+  publish_at = $publishAt
+} | ConvertTo-Json
+$scheduleResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$postId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $scheduleBody
+$scheduleResp.post.status
+```
+
+Expected: **200** with `post.status: scheduled`.
+
+Note: Configure the Worker cron to invoke `/cron/publish` every **10 minutes** (using `x-cron-secret`), so scheduled posts are published and the deploy hook is triggered.
+
 ## 5) Deploy jobs: list and detail
 
 ```powershell
@@ -190,6 +208,23 @@ $jobDetail = Invoke-RestMethod -Uri "$BaseUrl/cms/deploy-jobs/$jobId" -Headers @
 ```
 
 Expected: **200** for both. List returns `jobs` array including the publish-triggered job. Detail returns `job` with `status`, `message`, `updated_at_iso`.
+
+### 5.1) Pages deploy webhook (optional, if configured)
+If you have configured `PAGES_WEBHOOK_SECRET`, you can simulate a deploy completion webhook to move an active job to `success` or `failed`.
+
+```powershell
+$WebhookSecret = "<PAGES_WEBHOOK_SECRET>"
+$ProjectName = "<pages_project_name>"
+$payload = @{
+  project_name = $ProjectName
+  status = "success"
+  message = "Pages build completed"
+  deployment_id = "example-deployment-id"
+}
+Invoke-RestMethod -Uri "$BaseUrl/public/deploy-jobs/webhook" -Method Post -Headers @{ "x-pages-webhook-secret" = $WebhookSecret } -Body ($payload | ConvertTo-Json) -ContentType "application/json"
+```
+
+Expected: **200** with `{ ok: true, deploy_job: { status: "success" } }`.
 
 ## 6) Build endpoints (`x-build-token` required)
 
@@ -225,6 +260,7 @@ Expected: **200** each with `posts` (published only), `post`, and `categories`. 
 ## Troubleshooting
 
 - **Missing `SESSION_SECRET`**: Any authenticated route may throw; set the binding in Worker environment and redeploy.
+- **Missing auth tables**: login now creates `auth_login_attempts`/`auth_audit_logs` if absent; if creation fails, apply `0001_init.sql` migrations and redeploy.
 - **D1 binding mismatch**: 500s or `Tenant not found` despite valid credentials/build token; confirm the Worker uses the correct D1 binding name and database.
 - **CORS headers missing**: Preflight may fail or `Access-Control-Allow-Origin` absent; verify `Origin` is exactly `https://cms.ourcompany.com` and that the Worker deployed with the current CORS middleware.
 - **Deploy hook missing (`expected deploy_job failed`)**: Publish may return `deploy_job.status: failed` with message about `pages_deploy_hook_url`; set the deploy hook URL in the tenant record and retry publish.

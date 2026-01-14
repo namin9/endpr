@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS posts (
   excerpt TEXT,
   body_md TEXT,
   category_slug TEXT,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'scheduled', 'published')),
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'scheduled', 'published', 'paused', 'trashed')),
   publish_at INTEGER,
   published_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
@@ -63,11 +63,13 @@ CREATE TABLE IF NOT EXISTS deploy_jobs (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL,
   triggered_by_user_id TEXT,
-  status TEXT NOT NULL CHECK (status IN ('queued', 'building', 'success', 'failed')),
+  post_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('queued', 'building', 'success', 'failed', 'canceled')),
   message TEXT,
   created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
   updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+  FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE SET NULL,
   FOREIGN KEY (triggered_by_user_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
@@ -143,23 +145,40 @@ CREATE TABLE IF NOT EXISTS pr_reports (
   FOREIGN KEY (campaign_id) REFERENCES pr_campaigns(id) ON DELETE CASCADE
 );
 
--- Minimal seed data: one tenant and admin user
-INSERT INTO tenants (id, slug, name, primary_domain, pages_project_name, pages_deploy_hook_url, build_token)
-VALUES (
-  '11111111-1111-1111-1111-111111111111',
-  'demo',
-  'Demo Tenant',
-  'blog.demo.com',
-  'demo-pages-project',
-  'https://pages.dev/deploy/demo',
-  'demo-build-token-please-rotate'
+-- Security: seed data is intentionally omitted for production safety.
+
+CREATE TABLE IF NOT EXISTS auth_login_attempts (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT,
+  email TEXT NOT NULL,
+  ip TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  first_attempt_at INTEGER NOT NULL,
+  last_attempt_at INTEGER NOT NULL,
+  locked_until INTEGER
 );
 
-INSERT INTO users (id, tenant_id, email, password_hash, role)
-VALUES (
-  '22222222-2222-2222-2222-222222222222',
-  '11111111-1111-1111-1111-111111111111',
-  'admin@demo.com',
-  'replace-with-real-hash',
-  'super'
+CREATE UNIQUE INDEX IF NOT EXISTS auth_login_attempts_unique
+ON auth_login_attempts (tenant_id, email, ip);
+
+CREATE TABLE IF NOT EXISTS auth_audit_logs (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT,
+  email TEXT,
+  ip TEXT,
+  action TEXT NOT NULL,
+  success INTEGER NOT NULL DEFAULT 0,
+  message TEXT,
+  created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+
+CREATE TABLE IF NOT EXISTS auth_password_resets (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  token TEXT NOT NULL UNIQUE,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

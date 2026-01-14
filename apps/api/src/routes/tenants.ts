@@ -58,4 +58,15 @@ router.patch('/cms/tenants/:id', async (c) => {
   return c.json({ tenant });
 });
 
+router.post('/cms/tenants/:id/rotate-build-token', async (c) => {
+  const session = c.get('session') as SessionData;
+  if (!isSuperAdmin(session, c.env)) {
+    return c.json({ ok: false, error: 'forbidden' }, 403);
+  }
+  const id = c.req.param('id');
+  const newToken = crypto.randomUUID();
+  const tenant = await updateTenant(c.env.DB, id, { build_token: newToken });
+  return c.json({ tenant, build_token: newToken });
+});
+
 export default router;

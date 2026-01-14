@@ -3,6 +3,9 @@ import { sessionMiddleware } from '../middleware/rbac';
 
 const router = new Hono();
 
+const TARGET_WIDTH = 800;
+const MAX_GIF_BYTES = 2 * 1024 * 1024;
+
 function getBucket(c: any) {
   const bucket = c.env?.MEDIA_BUCKET;
   if (!bucket) {
@@ -37,14 +40,45 @@ router.post('/cms/uploads', sessionMiddleware, async (c) => {
   if (!file.type || !file.type.startsWith('image/')) {
     return c.json({ error: 'unsupported file type' }, 415);
   }
+  if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+    return c.json({ error: 'unsupported file type' }, 415);
+  }
+  if (file.type === 'image/gif' && file.size > MAX_GIF_BYTES) {
+    return c.json({ error: 'gif too large' }, 413);
+  }
 
-  const filename = file.name || 'upload';
-  const extMatch = filename.match(/\.([a-z0-9]+)$/i);
-  const extension = extMatch ? `.${extMatch[1].toLowerCase()}` : '';
-  const key = `uploads/${c.get('tenant').id}/${crypto.randomUUID()}${extension}`;
+  const tenantId = c.get('tenant').id;
+  let payload: ArrayBuffer;
+  let contentType = file.type;
+  let extension = '.webp';
 
-  const payload = await file.arrayBuffer();
-  await bucket.put(key, payload, { httpMetadata: { contentType: file.type } });
+  if (file.type === 'image/gif') {
+    payload = await file.arrayBuffer();
+    contentType = file.type;
+    extension = '.gif';
+  } else {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const scale = TARGET_WIDTH / bitmap.width;
+      const width = TARGET_WIDTH;
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = new OffscreenCanvas(width, height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        return c.json({ error: 'image processing failed' }, 500);
+      }
+      ctx.drawImage(bitmap, 0, 0, width, height);
+      const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.82 });
+      payload = await blob.arrayBuffer();
+      contentType = 'image/webp';
+      extension = '.webp';
+    } catch (error) {
+      return c.json({ error: 'image processing failed' }, 400);
+    }
+  }
+
+  const key = `uploads/${tenantId}/${crypto.randomUUID()}${extension}`;
+  await bucket.put(key, payload, { httpMetadata: { contentType } });
 
   return c.json({ ok: true, key, url: buildPublicUrl(c, key) });
 });
