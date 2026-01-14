@@ -41,10 +41,17 @@ const refreshPostsBtn = document.getElementById('refreshPostsBtn');
 const newPostBtn = document.getElementById('newPostBtn');
 const postsSearchInput = document.getElementById('postsSearchInput');
 const postsStatusFilter = document.getElementById('postsStatusFilter');
+const postsCategoryFilter = document.getElementById('postsCategoryFilter');
 const postsFilterButtons = Array.from(document.querySelectorAll('[data-post-filter]'));
 const postsPrevBtn = document.getElementById('postsPrevBtn');
 const postsNextBtn = document.getElementById('postsNextBtn');
 const postsPageInfo = document.getElementById('postsPageInfo');
+const postsSelectAll = document.getElementById('postsSelectAll');
+const postsSelectionCount = document.getElementById('postsSelectionCount');
+const bulkTrashBtn = document.getElementById('bulkTrashBtn');
+const bulkUnpublishBtn = document.getElementById('bulkUnpublishBtn');
+const bulkRepublishBtn = document.getElementById('bulkRepublishBtn');
+const bulkPublishBtn = document.getElementById('bulkPublishBtn');
 const refreshJobsBtn = document.getElementById('refreshJobsBtn');
 const jobDetailEl = document.getElementById('jobDetail');
 const selectedPostMeta = document.getElementById('selectedPostMeta');
@@ -176,12 +183,15 @@ let initialPostRequestHandled = false;
 let postsView = {
   search: '',
   status: 'all',
+  category: 'all',
   page: 1,
   pageSize: 20,
   total: 0,
   totalPages: 1,
   serverMode: false,
 };
+let selectedPostIds = new Set();
+let visiblePostIds = [];
 let autosaveState = {
   dirty: false,
   saving: false,
@@ -1043,6 +1053,9 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
     setStatus(statusEl, '예약 완료');
     if (closeModal) closeScheduleModal();
     fetchPosts();
+    if (isEditorPage) {
+      window.location.href = 'index.html';
+    }
   } catch (error) {
     setStatus(statusEl, formatError(error), true);
   }
@@ -1303,6 +1316,7 @@ function renderCategories() {
     }
   });
   renderCategorySelect();
+  renderPostsCategoryFilter();
 }
 
 function renderCategorySelect() {
@@ -1317,6 +1331,32 @@ function renderCategorySelect() {
       categorySelect.appendChild(option);
     });
   categorySelect.value = currentDraft?.categorySlug || '';
+}
+
+function renderPostsCategoryFilter() {
+  if (!postsCategoryFilter) return;
+  const selected = postsView.category;
+  const sorted = currentCategories.slice().sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+  postsCategoryFilter.innerHTML = '';
+
+  const allOption = document.createElement('option');
+  allOption.value = 'all';
+  allOption.textContent = '전체 카테고리';
+  postsCategoryFilter.appendChild(allOption);
+
+  const uncategorizedOption = document.createElement('option');
+  uncategorizedOption.value = 'uncategorized';
+  uncategorizedOption.textContent = '미분류';
+  postsCategoryFilter.appendChild(uncategorizedOption);
+
+  sorted.forEach((category) => {
+    const option = document.createElement('option');
+    option.value = category.slug || '';
+    option.textContent = category.name;
+    postsCategoryFilter.appendChild(option);
+  });
+
+  postsCategoryFilter.value = selected;
 }
 
 async function fetchCategories() {
@@ -1841,6 +1881,13 @@ function getFilteredPosts() {
   if (query) {
     list = list.filter((post) => (post.title || '').toLowerCase().includes(query));
   }
+  if (postsView.category && postsView.category !== 'all') {
+    if (postsView.category === 'uncategorized') {
+      list = list.filter((post) => !post.categorySlug);
+    } else {
+      list = list.filter((post) => post.categorySlug === postsView.category);
+    }
+  }
   if (postsView.status === 'all') {
     list = list.filter((post) => post.status !== 'trashed');
   } else {
@@ -1862,6 +1909,8 @@ function renderPostsState({ message, isError = false, isLoading = false } = {}) 
     state.textContent = message || '';
   }
   postsListEl.appendChild(state);
+  visiblePostIds = [];
+  updateBulkSelectionUI();
 }
 
 function renderPostsPagination(totalPages) {
@@ -1869,6 +1918,50 @@ function renderPostsPagination(totalPages) {
   postsPrevBtn.disabled = postsView.page <= 1;
   postsNextBtn.disabled = postsView.page >= totalPages;
   postsPageInfo.textContent = `페이지 ${postsView.page} / ${totalPages}`;
+}
+
+function syncSelectedPosts() {
+  const validIds = new Set(allPosts.map((post) => post.id));
+  selectedPostIds = new Set([...selectedPostIds].filter((id) => validIds.has(id)));
+}
+
+function updateBulkSelectionUI() {
+  const selectedCount = selectedPostIds.size;
+  const hasSelection = selectedCount > 0;
+  if (postsSelectionCount) {
+    postsSelectionCount.textContent = hasSelection ? `${selectedCount}개 선택됨` : '선택된 게시물 없음';
+  }
+  [bulkTrashBtn, bulkUnpublishBtn, bulkRepublishBtn, bulkPublishBtn].forEach((button) => {
+    if (button) button.disabled = !hasSelection;
+  });
+
+  if (postsSelectAll) {
+    if (!visiblePostIds.length) {
+      postsSelectAll.checked = false;
+      postsSelectAll.indeterminate = false;
+      postsSelectAll.disabled = true;
+    } else {
+      const selectedVisible = visiblePostIds.filter((id) => selectedPostIds.has(id));
+      postsSelectAll.disabled = false;
+      postsSelectAll.checked = selectedVisible.length === visiblePostIds.length;
+      postsSelectAll.indeterminate = selectedVisible.length > 0 && selectedVisible.length < visiblePostIds.length;
+    }
+  }
+}
+
+function setPostSelection(postId, isSelected) {
+  if (!postId) return;
+  if (isSelected) {
+    selectedPostIds.add(postId);
+  } else {
+    selectedPostIds.delete(postId);
+  }
+  updateBulkSelectionUI();
+}
+
+function clearPostSelection() {
+  selectedPostIds = new Set();
+  updateBulkSelectionUI();
 }
 
 function updatePostFilterButtons() {
@@ -1880,6 +1973,7 @@ function updatePostFilterButtons() {
 function setPostFilter(status) {
   postsView.status = status;
   postsView.page = 1;
+  clearPostSelection();
   updatePostFilterButtons();
   renderPosts();
 }
@@ -1912,6 +2006,44 @@ async function restorePost(postId) {
   await apiFetch(`/cms/posts/${postId}/autosave`, { method: 'POST', body: { status: 'paused' } });
 }
 
+function getSelectedPosts() {
+  return allPosts.filter((post) => selectedPostIds.has(post.id));
+}
+
+function setSelectionForVisible(selectAll) {
+  visiblePostIds.forEach((postId) => {
+    if (selectAll) {
+      selectedPostIds.add(postId);
+    } else {
+      selectedPostIds.delete(postId);
+    }
+  });
+  updateBulkSelectionUI();
+}
+
+async function runBulkAction({ key, label, filter, handler }) {
+  const selectedPosts = getSelectedPosts();
+  const eligible = selectedPosts.filter(filter);
+  if (!eligible.length) {
+    setStatus(postsStatusEl, `선택한 게시글 중 ${label}할 수 있는 항목이 없습니다.`, true);
+    return;
+  }
+  if (!window.confirm(`${eligible.length}개 게시글을 ${label}할까요?`)) return;
+  try {
+    setStatus(postsStatusEl, `${label} 처리 중...`);
+    for (const post of eligible) {
+      await handler(post);
+    }
+    selectedPostIds = new Set();
+    await fetchPosts();
+    setStatus(postsStatusEl, `${label} 완료`);
+  } catch (error) {
+    setStatus(postsStatusEl, formatError(error), true);
+  } finally {
+    updateBulkSelectionUI();
+  }
+}
+
 function renderPosts() {
   postsListEl.innerHTML = '';
   const filtered = getFilteredPosts();
@@ -1935,6 +2067,8 @@ function renderPosts() {
       message: '게시물이 없습니다. 새 글을 작성하세요.',
     });
     renderPostsPagination(totalPages);
+    visiblePostIds = [];
+    updateBulkSelectionUI();
     return;
   }
 
@@ -1942,6 +2076,7 @@ function renderPosts() {
     ? `${totalCount}건의 게시글`
     : `${pageItems.length}건 표시 중`;
 
+  visiblePostIds = pageItems.map((post) => post.id);
   pageItems.forEach((post) => {
     const item = document.createElement('div');
     item.className = 'posts-row';
@@ -1967,6 +2102,11 @@ function renderPosts() {
       actions.push({ key: 'purge', label: '영구 삭제', danger: true });
     }
     item.innerHTML = `
+      <div class="posts-cell posts-cell--select">
+        <input type="checkbox" class="post-select" data-post-id="${post.id}" aria-label="${post.title || '제목 없음'} 선택" ${
+          selectedPostIds.has(post.id) ? 'checked' : ''
+        } />
+      </div>
       <div class="posts-cell posts-title">
         <strong>${post.title || '제목 없음'}</strong>
         <span class="posts-id muted">#${post.id || '-'}</span>
@@ -1987,6 +2127,17 @@ function renderPosts() {
     `;
     if (!isDashboard) {
       item.addEventListener('click', () => selectPost(post));
+    }
+    const checkbox = item.querySelector('.post-select');
+    if (checkbox) {
+      checkbox.addEventListener('click', (event) => {
+        event.stopPropagation();
+      });
+      checkbox.addEventListener('change', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        setPostSelection(post.id, target.checked);
+      });
     }
     const actionsEl = item.querySelector('.posts-actions');
     if (actionsEl) {
@@ -2064,6 +2215,7 @@ function renderPosts() {
   });
 
   renderPostsPagination(totalPages);
+  updateBulkSelectionUI();
 }
 
 async function maybeOpenInitialPost() {
@@ -2129,6 +2281,7 @@ async function fetchPosts() {
       postsView.page = Math.min(postsView.page, postsView.totalPages);
     }
 
+    syncSelectedPosts();
     currentPosts = allPosts.slice();
     renderPosts();
     updatePostFilterButtons();
@@ -2183,6 +2336,16 @@ if (postsSearchInput) {
   postsSearchInput.addEventListener('input', (event) => {
     postsView.search = event.target.value;
     postsView.page = 1;
+    clearPostSelection();
+    renderPosts();
+  });
+}
+
+if (postsCategoryFilter) {
+  postsCategoryFilter.addEventListener('change', (event) => {
+    postsView.category = event.target.value;
+    postsView.page = 1;
+    clearPostSelection();
     renderPosts();
   });
 }
@@ -2191,6 +2354,7 @@ if (postsStatusFilter) {
   postsStatusFilter.addEventListener('change', (event) => {
     postsView.status = event.target.value;
     postsView.page = 1;
+    clearPostSelection();
     renderPosts();
   });
 }
@@ -2201,6 +2365,58 @@ postsFilterButtons.forEach((button) => {
     setPostFilter(status);
   });
 });
+
+if (postsSelectAll) {
+  postsSelectAll.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    setSelectionForVisible(target.checked);
+  });
+}
+
+if (bulkTrashBtn) {
+  bulkTrashBtn.addEventListener('click', () => {
+    runBulkAction({
+      key: 'trash',
+      label: '휴지통으로 이동',
+      filter: (post) => post.status !== 'trashed',
+      handler: (post) => trashPost(post.id),
+    });
+  });
+}
+
+if (bulkUnpublishBtn) {
+  bulkUnpublishBtn.addEventListener('click', () => {
+    runBulkAction({
+      key: 'unpublish',
+      label: '게시 중단',
+      filter: (post) => post.status === 'published',
+      handler: (post) => unpublishPost(post.id),
+    });
+  });
+}
+
+if (bulkRepublishBtn) {
+  bulkRepublishBtn.addEventListener('click', () => {
+    runBulkAction({
+      key: 'republish',
+      label: '발행 재개',
+      filter: (post) => post.status === 'paused',
+      handler: (post) => apiFetch(`/cms/posts/${post.id}/publish`, { method: 'POST' }),
+    });
+  });
+}
+
+if (bulkPublishBtn) {
+  bulkPublishBtn.addEventListener('click', () => {
+    runBulkAction({
+      key: 'publish',
+      label: '발행',
+      filter: (post) => ['draft', 'scheduled', 'paused'].includes(post.status),
+      handler: (post) => apiFetch(`/cms/posts/${post.id}/publish`, { method: 'POST' }),
+    });
+  });
+}
 
 postsPrevBtn.addEventListener('click', () => {
   if (postsView.page <= 1) return;
