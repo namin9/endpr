@@ -152,20 +152,24 @@ router.delete('/cms/posts/:id', async (c) => {
     updated = await updatePost(c.env.DB, tenant.id, id, { status: 'trashed' });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('CHECK constraint failed: posts')) {
+    if (message.includes('CHECK constraint failed')) {
       updated = await updatePost(c.env.DB, tenant.id, id, { status: 'draft' });
     } else {
       throw error;
     }
   }
-  const finalJob = await triggerDeployHook({
+  const finalJob = await triggerDeployHookSafe({
     db: c.env.DB,
     tenant,
     triggeredBy: session.userId,
     postId: id,
     triggerReason: 'Trashed post',
   });
-  return c.json({ ok: true, post: mapPost(updated), deploy_job: mapDeployJob(finalJob) });
+  return c.json({
+    ok: true,
+    post: mapPost(updated),
+    deploy_job: finalJob ? mapDeployJob(finalJob) : null,
+  });
 });
 
 router.post('/cms/posts/:id/unpublish', async (c) => {
@@ -183,20 +187,24 @@ router.post('/cms/posts/:id/unpublish', async (c) => {
     updated = await updatePost(c.env.DB, tenant.id, id, { status: 'paused' });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('CHECK constraint failed: posts')) {
+    if (message.includes('CHECK constraint failed')) {
       updated = await updatePost(c.env.DB, tenant.id, id, { status: 'draft' });
     } else {
       throw error;
     }
   }
-  const finalJob = await triggerDeployHook({
+  const finalJob = await triggerDeployHookSafe({
     db: c.env.DB,
     tenant,
     triggeredBy: session.userId,
     postId: id,
     triggerReason: 'Unpublish triggered',
   });
-  return c.json({ ok: true, post: mapPost(updated), deploy_job: mapDeployJob(finalJob) });
+  return c.json({
+    ok: true,
+    post: mapPost(updated),
+    deploy_job: finalJob ? mapDeployJob(finalJob) : null,
+  });
 });
 
 router.delete('/cms/posts/:id/purge', async (c) => {
@@ -252,6 +260,15 @@ async function triggerDeployHook({ db, tenant, triggeredBy, postId, triggerReaso
   }
 
   return updateDeployJobStatus(db, buildingJob.id, status, message);
+}
+
+async function triggerDeployHookSafe(input: DeployHookInput) {
+  try {
+    return await triggerDeployHook(input);
+  } catch (error) {
+    console.error('Deploy hook skipped', error);
+    return null;
+  }
 }
 
 export default router;
