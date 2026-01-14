@@ -363,6 +363,63 @@ export async function deletePost(db: D1Database, tenantId: string, id: string): 
   await db.prepare('DELETE FROM posts WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
 }
 
+export async function ensurePostStatusSchema(db: D1Database): Promise<boolean> {
+  const schemaRow = await db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'posts'")
+    .first<{ sql?: string }>();
+  const sql = schemaRow?.sql ?? '';
+  if (sql.includes("'trashed'") && sql.includes("'paused'")) {
+    return true;
+  }
+  const legacyTable = await db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'posts_old'")
+    .first();
+  if (legacyTable) {
+    return false;
+  }
+  await db.prepare('DROP TRIGGER IF EXISTS posts_set_updated_at').run();
+  await db.prepare('ALTER TABLE posts RENAME TO posts_old').run();
+  await db
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS posts (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        excerpt TEXT,
+        body_md TEXT,
+        category_slug TEXT,
+        status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'scheduled', 'published', 'paused', 'trashed')),
+        publish_at INTEGER,
+        published_at INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        UNIQUE (tenant_id, slug),
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+      )`
+    )
+    .run();
+  await db
+    .prepare(
+      `INSERT INTO posts (id, tenant_id, title, slug, excerpt, body_md, category_slug, status, publish_at, published_at, created_at, updated_at)
+       SELECT id, tenant_id, title, slug, excerpt, body_md, category_slug, status, publish_at, published_at, created_at, updated_at
+       FROM posts_old`
+    )
+    .run();
+  await db.prepare('DROP TABLE posts_old').run();
+  await db
+    .prepare(
+      `CREATE TRIGGER IF NOT EXISTS posts_set_updated_at
+       AFTER UPDATE ON posts
+       FOR EACH ROW
+       BEGIN
+         UPDATE posts SET updated_at = (strftime('%s','now')) WHERE id = OLD.id;
+       END`
+    )
+    .run();
+  return true;
+}
+
 export async function purgeTrashedPosts(db: D1Database, cutoffEpoch: number): Promise<number> {
   const result = await db
     .prepare("DELETE FROM posts WHERE status = 'trashed' AND updated_at <= ?")

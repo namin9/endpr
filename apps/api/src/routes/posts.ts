@@ -13,6 +13,7 @@ import {
   createDeployJob,
   updateDeployJobStatus,
   mapDeployJob,
+  ensurePostStatusSchema,
   type TenantRow,
 } from '../db';
 import { SessionData } from '../session';
@@ -153,7 +154,12 @@ router.delete('/cms/posts/:id', async (c) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('CHECK constraint failed')) {
-      updated = await updatePost(c.env.DB, tenant.id, id, { status: 'draft' });
+      const schemaReady = await ensurePostStatusSchema(c.env.DB);
+      if (schemaReady) {
+        updated = await updatePost(c.env.DB, tenant.id, id, { status: 'trashed' });
+      } else {
+        updated = await updatePost(c.env.DB, tenant.id, id, { status: 'draft' });
+      }
     } else {
       throw error;
     }
@@ -188,7 +194,12 @@ router.post('/cms/posts/:id/unpublish', async (c) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('CHECK constraint failed')) {
-      updated = await updatePost(c.env.DB, tenant.id, id, { status: 'draft' });
+      const schemaReady = await ensurePostStatusSchema(c.env.DB);
+      if (schemaReady) {
+        updated = await updatePost(c.env.DB, tenant.id, id, { status: 'paused' });
+      } else {
+        updated = await updatePost(c.env.DB, tenant.id, id, { status: 'draft' });
+      }
     } else {
       throw error;
     }
