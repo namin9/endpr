@@ -822,9 +822,9 @@ async function build() {
   const analyticsBase = process.env.ANALYTICS_API_BASE || apiBase;
   const siteBase = process.env.SITE_BASE_URL;
 
-  if (!useMock) {
-    if (!buildToken) throw new Error("BUILD_TOKEN is required for live builds.");
-    if (!apiBase) throw new Error("PUBLIC_API_BASE is required for live builds.");
+  const shouldUseMock = useMock || !buildToken || !apiBase;
+  if (!useMock && shouldUseMock) {
+    console.warn("BUILD_TOKEN or PUBLIC_API_BASE missing. Falling back to mock build.");
   }
   if (!siteBase) throw new Error("SITE_BASE_URL is required for sitemap generation.");
   siteBaseUrl = resolveSiteBaseUrl();
@@ -832,7 +832,7 @@ async function build() {
   const { posts: rawPosts, categories, site, home, theme, meta } = await loadBuildData({
     apiBase,
     buildToken,
-    useMock,
+    useMock: shouldUseMock,
   });
   analyticsConfig = {
     apiBase: analyticsBase || "",
