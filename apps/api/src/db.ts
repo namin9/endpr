@@ -396,12 +396,24 @@ export async function createDeployJob(
   postId: string | null = null
 ): Promise<DeployJobRow> {
   const id = uuidv4();
-  await db
-    .prepare(
-      'INSERT INTO deploy_jobs (id, tenant_id, triggered_by_user_id, post_id, status, message) VALUES (?, ?, ?, ?, ?, ?)'
-    )
-    .bind(id, tenantId, triggeredBy, postId, status, message)
-    .run();
+  try {
+    await db
+      .prepare(
+        'INSERT INTO deploy_jobs (id, tenant_id, triggered_by_user_id, post_id, status, message) VALUES (?, ?, ?, ?, ?, ?)'
+      )
+      .bind(id, tenantId, triggeredBy, postId, status, message)
+      .run();
+  } catch (error) {
+    const messageText = error instanceof Error ? error.message : String(error);
+    if (messageText.includes('post_id')) {
+      await db
+        .prepare('INSERT INTO deploy_jobs (id, tenant_id, triggered_by_user_id, status, message) VALUES (?, ?, ?, ?, ?)')
+        .bind(id, tenantId, triggeredBy, status, message)
+        .run();
+    } else {
+      throw error;
+    }
+  }
   const job = await db.prepare('SELECT * FROM deploy_jobs WHERE id = ?').bind(id).first<DeployJobRow>();
   if (!job) throw new Error('Failed to create deploy job');
   return job;
