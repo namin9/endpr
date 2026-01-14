@@ -28,6 +28,7 @@ function resolveSiteBaseUrl() {
 
 let siteBaseUrl = "";
 let themeStyle = "";
+let analyticsConfig = { apiBase: "", tenantSlug: "" };
 
 function assertSlugAllowed(slug, entityType) {
   const normalized = `${slug}`.toLowerCase();
@@ -62,6 +63,7 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
       posts: parsed.posts || [],
       categories: parsed.categories || [],
       theme: parsed.theme || null,
+      meta: { tenantSlug: process.env.TENANT_SLUG || null },
     };
   }
 
@@ -83,7 +85,10 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
 
   const themeResp = await fetchJson(`${apiBase}/build/theme`, buildToken);
   const themePayload = themeResp?.tokens ? themeResp : null;
-  return { posts: postsIndex, categories: categoriesIndex, theme: themePayload };
+  const metaResp = await fetchJson(`${apiBase}/build/meta`, buildToken);
+  const metaTenant = metaResp?.tenant || {};
+  const meta = { tenantSlug: metaTenant.slug || null };
+  return { posts: postsIndex, categories: categoriesIndex, theme: themePayload, meta };
 }
 
 async function resetDist() {
@@ -339,7 +344,7 @@ function summarizeBodyFormat(post) {
   return "empty";
 }
 
-function layoutHtml({ title, content, description = "" }) {
+function layoutHtml({ title, content, description = "", scripts = "" }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -359,8 +364,34 @@ function layoutHtml({ title, content, description = "" }) {
   <main>
     ${content}
   </main>
+  ${scripts}
 </body>
 </html>`;
+}
+
+function buildViewTrackingScript({ apiBase, tenantSlug, pageKey }) {
+  if (!apiBase || !tenantSlug || !pageKey) return "";
+  const endpoint = `${apiBase.replace(/\/$/, "")}/public/view`;
+  const payload = { tenantSlug, pageKey };
+  return `<script>
+(function() {
+  var url = ${JSON.stringify(endpoint)};
+  var payload = ${JSON.stringify(payload)};
+  try {
+    if (navigator.sendBeacon) {
+      var blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+      navigator.sendBeacon(url, blob);
+      return;
+    }
+  } catch (e) {}
+  fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+    keepalive: true
+  }).catch(function() {});
+})();
+</script>`;
 }
 
 function buildThemeStyle(tokens) {
@@ -498,6 +529,11 @@ async function generatePostPages(posts) {
   <p>${escapeHtml(post.excerpt || "")}</p>
   ${renderPostBody(post)}
 </article>`,
+      scripts: buildViewTrackingScript({
+        apiBase: analyticsConfig.apiBase,
+        tenantSlug: analyticsConfig.tenantSlug,
+        pageKey: post.slug,
+      }),
     });
 
     const filePath = path.join(DIST_DIR, post.slug, "index.html");
@@ -710,11 +746,15 @@ async function build() {
   if (!siteBase) throw new Error("SITE_BASE_URL is required for sitemap generation.");
   siteBaseUrl = resolveSiteBaseUrl();
 
-  const { posts: rawPosts, categories, theme } = await loadBuildData({
+  const { posts: rawPosts, categories, theme, meta } = await loadBuildData({
     apiBase,
     buildToken,
     useMock,
   });
+  analyticsConfig = {
+    apiBase: apiBase || "",
+    tenantSlug: meta?.tenantSlug || "",
+  };
 
   if (theme?.tokens) {
     themeStyle = buildThemeStyle(theme.tokens);
