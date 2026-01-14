@@ -1,5 +1,13 @@
 import { Hono } from 'hono';
-import { createDeployJob, getTenantById, listDueScheduledPosts, mapDeployJob, publishPost, updateDeployJobStatus } from '../db';
+import {
+  createDeployJob,
+  getTenantById,
+  listDueScheduledPosts,
+  mapDeployJob,
+  publishPost,
+  purgeTrashedPosts,
+  updateDeployJobStatus,
+} from '../db';
 
 const router = new Hono();
 
@@ -76,6 +84,20 @@ router.post('/cron/publish', async (c) => {
   }
 
   return c.json({ ok: true, published: publishedCount, tenants: postsByTenant.size, deploy_jobs: deployJobs });
+});
+
+router.post('/cron/cleanup-trash', async (c) => {
+  try {
+    requireCronSecret(c.env as Record<string, any>, c.req.header('x-cron-secret'));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unauthorized';
+    const status = message === 'Unauthorized' ? 401 : 500;
+    return c.json({ error: message }, status);
+  }
+
+  const cutoff = Math.floor(Date.now() / 1000) - 14 * 24 * 60 * 60;
+  const deleted = await purgeTrashedPosts(c.env.DB, cutoff);
+  return c.json({ ok: true, deleted, cutoff });
 });
 
 export default router;

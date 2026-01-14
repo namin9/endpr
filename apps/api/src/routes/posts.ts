@@ -6,12 +6,15 @@ import {
   listPosts,
   mapPost,
   publishPost,
+  deletePost,
   updatePost,
   generateSlug,
   isReservedSlug,
   createDeployJob,
   updateDeployJobStatus,
   mapDeployJob,
+  ensurePostStatusSchema,
+  type TenantRow,
 } from '../db';
 import { SessionData } from '../session';
 
@@ -124,8 +127,125 @@ router.post('/cms/posts/:id/publish', async (c) => {
   const now = Math.floor(Date.now() / 1000);
   const published = await publishPost(c.env.DB, tenant.id, id, now);
 
-  const job = await createDeployJob(c.env.DB, tenant.id, session.userId, 'queued', 'Publish triggered');
-  const buildingJob = await updateDeployJobStatus(c.env.DB, job.id, 'building', 'Deploy hook triggered');
+  const finalJob = await triggerDeployHookSafe({
+    db: c.env.DB,
+    tenant,
+    triggeredBy: session.userId,
+    postId: id,
+    triggerReason: 'Publish triggered',
+  });
+
+  return c.json({ post: mapPost(published), deploy_job: finalJob ? mapDeployJob(finalJob) : null });
+});
+
+router.delete('/cms/posts/:id', async (c) => {
+  const session = c.get('session') as SessionData;
+  const tenant = c.get('tenant');
+  const id = c.req.param('id');
+
+  if (!requireRole(session, ['admin', 'super'])) return c.json({ error: 'Forbidden' }, 403);
+
+  const existing = await getPost(c.env.DB, tenant.id, id);
+  if (!existing) return c.json({ error: 'Post not found' }, 404);
+
+  let updated: Awaited<ReturnType<typeof updatePost>>;
+  try {
+    updated = await updatePost(c.env.DB, tenant.id, id, { status: 'trashed' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('CHECK constraint failed')) {
+      const schemaReady = await ensurePostStatusSchema(c.env.DB);
+      if (schemaReady) {
+        updated = await updatePost(c.env.DB, tenant.id, id, { status: 'trashed' });
+      } else {
+        updated = await updatePost(c.env.DB, tenant.id, id, { status: 'draft' });
+      }
+    } else {
+      throw error;
+    }
+  }
+  const finalJob = await triggerDeployHookSafe({
+    db: c.env.DB,
+    tenant,
+    triggeredBy: session.userId,
+    postId: id,
+    triggerReason: 'Trashed post',
+  });
+  return c.json({
+    ok: true,
+    post: mapPost(updated),
+    deploy_job: finalJob ? mapDeployJob(finalJob) : null,
+  });
+});
+
+router.post('/cms/posts/:id/unpublish', async (c) => {
+  const session = c.get('session') as SessionData;
+  const tenant = c.get('tenant');
+  const id = c.req.param('id');
+
+  if (!requireRole(session, ['admin', 'super'])) return c.json({ error: 'Forbidden' }, 403);
+
+  const existing = await getPost(c.env.DB, tenant.id, id);
+  if (!existing) return c.json({ error: 'Post not found' }, 404);
+
+  let updated: Awaited<ReturnType<typeof updatePost>>;
+  try {
+    updated = await updatePost(c.env.DB, tenant.id, id, { status: 'paused' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('CHECK constraint failed')) {
+      const schemaReady = await ensurePostStatusSchema(c.env.DB);
+      if (schemaReady) {
+        updated = await updatePost(c.env.DB, tenant.id, id, { status: 'paused' });
+      } else {
+        updated = await updatePost(c.env.DB, tenant.id, id, { status: 'draft' });
+      }
+    } else {
+      throw error;
+    }
+  }
+  const finalJob = await triggerDeployHookSafe({
+    db: c.env.DB,
+    tenant,
+    triggeredBy: session.userId,
+    postId: id,
+    triggerReason: 'Unpublish triggered',
+  });
+  return c.json({
+    ok: true,
+    post: mapPost(updated),
+    deploy_job: finalJob ? mapDeployJob(finalJob) : null,
+  });
+});
+
+router.delete('/cms/posts/:id/purge', async (c) => {
+  const session = c.get('session') as SessionData;
+  const tenant = c.get('tenant');
+  const id = c.req.param('id');
+
+  if (!requireRole(session, ['admin', 'super'])) return c.json({ error: 'Forbidden' }, 403);
+
+  const existing = await getPost(c.env.DB, tenant.id, id);
+  if (!existing) return c.json({ error: 'Post not found' }, 404);
+  if (existing.status !== 'trashed') {
+    return c.json({ error: 'Post is not in trash' }, 409);
+  }
+
+  await deletePost(c.env.DB, tenant.id, id);
+  return c.json({ ok: true });
+});
+
+type DeployHookInput = {
+  db: D1Database;
+  tenant: TenantRow;
+  triggeredBy: string | null;
+  postId: string | null;
+  triggerReason: string;
+};
+
+async function triggerDeployHook({ db, tenant, triggeredBy, postId, triggerReason }: DeployHookInput) {
+  const job = await createDeployJob(db, tenant.id, triggeredBy, 'queued', triggerReason, postId);
+  const buildingJob = await updateDeployJobStatus(db, job.id, 'building', 'Deploy hook triggered');
 
   let status: 'building' | 'success' | 'failed' = 'building';
   let message: string | null = 'Deploy hook triggered';
@@ -150,9 +270,16 @@ router.post('/cms/posts/:id/publish', async (c) => {
     }
   }
 
-  const finalJob = await updateDeployJobStatus(c.env.DB, buildingJob.id, status, message);
+  return updateDeployJobStatus(db, buildingJob.id, status, message);
+}
 
-  return c.json({ post: mapPost(published), deploy_job: mapDeployJob(finalJob) });
-});
+async function triggerDeployHookSafe(input: DeployHookInput) {
+  try {
+    return await triggerDeployHook(input);
+  } catch (error) {
+    console.error('Deploy hook skipped', error);
+    return null;
+  }
+}
 
 export default router;
