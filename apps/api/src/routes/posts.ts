@@ -127,7 +127,7 @@ router.post('/cms/posts/:id/publish', async (c) => {
   const now = Math.floor(Date.now() / 1000);
   const published = await publishPost(c.env.DB, tenant.id, id, now);
 
-  const finalJob = await triggerDeployHook({
+  const finalJob = await triggerDeployHookSafe({
     db: c.env.DB,
     tenant,
     triggeredBy: session.userId,
@@ -135,7 +135,7 @@ router.post('/cms/posts/:id/publish', async (c) => {
     triggerReason: 'Publish triggered',
   });
 
-  return c.json({ post: mapPost(published), deploy_job: mapDeployJob(finalJob) });
+  return c.json({ post: mapPost(published), deploy_job: finalJob ? mapDeployJob(finalJob) : null });
 });
 
 router.delete('/cms/posts/:id', async (c) => {

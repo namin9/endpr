@@ -1737,7 +1737,7 @@ async function unpublishPost(postId) {
 
 async function restorePost(postId) {
   if (!postId) return;
-  await apiFetch(`/cms/posts/${postId}/autosave`, { method: 'POST', body: { status: 'draft' } });
+  await apiFetch(`/cms/posts/${postId}/autosave`, { method: 'POST', body: { status: 'paused' } });
 }
 
 function renderPosts() {
@@ -2344,10 +2344,12 @@ publishBtn.addEventListener('click', async () => {
     });
     const deployJob = response?.deploy_job;
     const jobId = deployJob?.id;
-    if (!jobId) throw new Error('배포 Job ID를 받을 수 없습니다.');
-
-    upsertJob(normalizeJob(deployJob, { id: jobId, title }));
-    pollDeployJob(jobId);
+    if (jobId) {
+      upsertJob(normalizeJob(deployJob, { id: jobId, title }));
+      pollDeployJob(jobId);
+    } else {
+      setStatus(publishMessage, '발행 완료. 배포 작업은 확인 중입니다.');
+    }
 
     const postPayload = response?.post || { id: postId };
     const url = buildBlogUrl(postPayload);
