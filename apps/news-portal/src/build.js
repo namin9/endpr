@@ -54,6 +54,15 @@ async function fetchJson(url, buildToken) {
   return response.json();
 }
 
+async function fetchOptionalJson(url, buildToken, fallback) {
+  try {
+    return await fetchJson(url, buildToken);
+  } catch (error) {
+    console.warn(`Optional request failed for ${url}. Using fallback.`, error);
+    return fallback;
+  }
+}
+
 async function loadBuildData({ apiBase, buildToken, useMock }) {
   if (useMock) {
     const mockPath = path.resolve(
@@ -90,8 +99,8 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
 
   const themeResp = await fetchJson(`${apiBase}/build/theme`, buildToken);
   const themePayload = themeResp?.tokens ? themeResp : null;
-  const siteResp = await fetchJson(`${apiBase}/build/site`, buildToken);
-  const homeResp = await fetchJson(`${apiBase}/build/home`, buildToken);
+  const siteResp = await fetchOptionalJson(`${apiBase}/build/site`, buildToken, siteConfig);
+  const homeResp = await fetchOptionalJson(`${apiBase}/build/home`, buildToken, { sections: [] });
   const metaResp = await fetchJson(`${apiBase}/build/meta`, buildToken);
   const metaTenant = metaResp?.tenant || {};
   const meta = { tenantSlug: metaTenant.slug || null };
