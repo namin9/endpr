@@ -64,6 +64,25 @@ export type CategoryRow = {
   order_index: number;
 };
 
+export type SiteConfigRow = {
+  tenant_id: string;
+  logo_url: string | null;
+  footer_text: string | null;
+  home_layout: string | null;
+  updated_at: number;
+};
+
+export type SiteNavigationRow = {
+  id: string;
+  tenant_id: string;
+  location: 'header' | 'footer';
+  label: string;
+  url: string;
+  order_index: number;
+  created_at: number;
+  updated_at: number;
+};
+
 export type PrCampaignRow = {
   id: string;
   tenant_id: string;
@@ -564,6 +583,81 @@ export async function listPublishedPosts(db: D1Database, tenantId: string): Prom
   return (results ?? []) as PostRow[];
 }
 
+export async function listPublishedPostsWithViews(
+  db: D1Database,
+  tenantId: string,
+  { orderByViews = false }: { orderByViews?: boolean } = {}
+): Promise<PostRow[]> {
+  const orderClause = orderByViews
+    ? 'ORDER BY view_count DESC, posts.published_at DESC, posts.created_at DESC'
+    : 'ORDER BY posts.published_at DESC, posts.created_at DESC';
+  const { results } = await db
+    .prepare(
+      `SELECT posts.*,
+        COALESCE(SUM(page_views_daily.views), 0) AS view_count
+       FROM posts
+       LEFT JOIN page_views_daily
+         ON page_views_daily.tenant_id = posts.tenant_id
+        AND page_views_daily.page_key = posts.slug
+       WHERE posts.tenant_id = ? AND posts.status = 'published'
+       GROUP BY posts.id
+       ${orderClause}`
+    )
+    .bind(tenantId)
+    .all<PostRow>();
+  return (results ?? []) as PostRow[];
+}
+
+export async function listPublishedPostsByIds(
+  db: D1Database,
+  tenantId: string,
+  ids: string[]
+): Promise<PostRow[]> {
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => '?').join(', ');
+  const { results } = await db
+    .prepare(
+      `SELECT posts.*,
+        COALESCE(SUM(page_views_daily.views), 0) AS view_count
+       FROM posts
+       LEFT JOIN page_views_daily
+         ON page_views_daily.tenant_id = posts.tenant_id
+        AND page_views_daily.page_key = posts.slug
+       WHERE posts.tenant_id = ? AND posts.status = 'published' AND posts.id IN (${placeholders})
+       GROUP BY posts.id`
+    )
+    .bind(tenantId, ...ids)
+    .all<PostRow>();
+  const rows = (results ?? []) as PostRow[];
+  const map = new Map(rows.map((row) => [row.id, row]));
+  return ids.map((id) => map.get(id)).filter(Boolean) as PostRow[];
+}
+
+export async function listPublishedPostsBySlugs(
+  db: D1Database,
+  tenantId: string,
+  slugs: string[]
+): Promise<PostRow[]> {
+  if (!slugs.length) return [];
+  const placeholders = slugs.map(() => '?').join(', ');
+  const { results } = await db
+    .prepare(
+      `SELECT posts.*,
+        COALESCE(SUM(page_views_daily.views), 0) AS view_count
+       FROM posts
+       LEFT JOIN page_views_daily
+         ON page_views_daily.tenant_id = posts.tenant_id
+        AND page_views_daily.page_key = posts.slug
+       WHERE posts.tenant_id = ? AND posts.status = 'published' AND posts.slug IN (${placeholders})
+       GROUP BY posts.id`
+    )
+    .bind(tenantId, ...slugs)
+    .all<PostRow>();
+  const rows = (results ?? []) as PostRow[];
+  const map = new Map(rows.map((row) => [row.slug, row]));
+  return slugs.map((slug) => map.get(slug)).filter(Boolean) as PostRow[];
+}
+
 export async function listDueScheduledPosts(db: D1Database, nowSeconds: number): Promise<PostRow[]> {
   const { results } = await db
     .prepare(`SELECT * FROM posts WHERE status = 'scheduled' AND publish_at IS NOT NULL AND publish_at <= ? ORDER BY publish_at ASC`)
@@ -586,6 +680,114 @@ export async function listCategories(db: D1Database, tenantId: string): Promise<
     .bind(tenantId)
     .all<CategoryRow>();
   return (results ?? []) as CategoryRow[];
+}
+
+export async function getSiteConfig(db: D1Database, tenantId: string): Promise<SiteConfigRow | null> {
+  const config = await db
+    .prepare('SELECT tenant_id, logo_url, footer_text, home_layout, updated_at FROM site_configs WHERE tenant_id = ?')
+    .bind(tenantId)
+    .first<SiteConfigRow>();
+  return config ?? null;
+}
+
+export async function upsertSiteConfig(
+  db: D1Database,
+  tenantId: string,
+  updates: Partial<Pick<SiteConfigRow, 'logo_url' | 'footer_text' | 'home_layout'>>
+): Promise<SiteConfigRow> {
+  await db
+    .prepare(
+      `INSERT INTO site_configs (tenant_id, logo_url, footer_text, home_layout)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(tenant_id) DO UPDATE SET
+         logo_url = excluded.logo_url,
+         footer_text = excluded.footer_text,
+         home_layout = excluded.home_layout`
+    )
+    .bind(tenantId, updates.logo_url ?? null, updates.footer_text ?? null, updates.home_layout ?? null)
+    .run();
+  const config = await getSiteConfig(db, tenantId);
+  if (!config) throw new Error('Failed to update site config');
+  return config;
+}
+
+export async function listSiteNavigations(db: D1Database, tenantId: string): Promise<SiteNavigationRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, tenant_id, location, label, url, order_index, created_at, updated_at
+       FROM site_navigations
+       WHERE tenant_id = ?
+       ORDER BY location ASC, order_index ASC, created_at ASC`
+    )
+    .bind(tenantId)
+    .all<SiteNavigationRow>();
+  return (results ?? []) as SiteNavigationRow[];
+}
+
+export async function createSiteNavigation(
+  db: D1Database,
+  tenantId: string,
+  input: Pick<SiteNavigationRow, 'location' | 'label' | 'url'> & { order_index?: number | null }
+): Promise<SiteNavigationRow> {
+  const id = uuidv4();
+  let orderIndex = input.order_index;
+  if (orderIndex === null || orderIndex === undefined) {
+    const row = await db
+      .prepare(
+        `SELECT COALESCE(MAX(order_index), -1) AS max_order
+         FROM site_navigations
+         WHERE tenant_id = ? AND location = ?`
+      )
+      .bind(tenantId, input.location)
+      .first<{ max_order: number }>();
+    orderIndex = (row?.max_order ?? -1) + 1;
+  }
+  await db
+    .prepare(
+      `INSERT INTO site_navigations (id, tenant_id, location, label, url, order_index)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .bind(id, tenantId, input.location, input.label, input.url, orderIndex)
+    .run();
+  const created = await db
+    .prepare(
+      'SELECT id, tenant_id, location, label, url, order_index, created_at, updated_at FROM site_navigations WHERE id = ?'
+    )
+    .bind(id)
+    .first<SiteNavigationRow>();
+  if (!created) throw new Error('Failed to create site navigation');
+  return created;
+}
+
+export async function updateSiteNavigation(
+  db: D1Database,
+  tenantId: string,
+  id: string,
+  updates: Partial<Pick<SiteNavigationRow, 'location' | 'label' | 'url' | 'order_index'>>
+): Promise<SiteNavigationRow> {
+  await db
+    .prepare(
+      `UPDATE site_navigations SET
+        location = COALESCE(?, location),
+        label = COALESCE(?, label),
+        url = COALESCE(?, url),
+        order_index = COALESCE(?, order_index)
+       WHERE id = ? AND tenant_id = ?`
+    )
+    .bind(updates.location ?? null, updates.label ?? null, updates.url ?? null, updates.order_index ?? null, id, tenantId)
+    .run();
+  const updated = await db
+    .prepare(
+      'SELECT id, tenant_id, location, label, url, order_index, created_at, updated_at FROM site_navigations WHERE id = ? AND tenant_id = ?'
+    )
+    .bind(id, tenantId)
+    .first<SiteNavigationRow>();
+  if (!updated) throw new Error('Failed to update site navigation');
+  return updated;
+}
+
+export async function deleteSiteNavigation(db: D1Database, tenantId: string, id: string): Promise<void> {
+  await db.prepare('DELETE FROM site_navigations WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
 }
 
 export async function createCategory(

@@ -14,6 +14,7 @@ import prReportRoutes from './routes/pr_reports';
 import themeRoutes from './routes/theme';
 import tenantRoutes from './routes/tenants';
 import userRoutes from './routes/users';
+import siteSettingsRoutes from './routes/site_settings';
 import { corsMiddleware } from './middleware/cors';
 
 const app = new Hono();
@@ -35,6 +36,7 @@ app.route('/', prReportRoutes);
 app.route('/', themeRoutes);
 app.route('/', tenantRoutes);
 app.route('/', userRoutes);
+app.route('/', siteSettingsRoutes);
 
 app.notFound((c) => c.json({ error: 'Not Found' }, 404));
 

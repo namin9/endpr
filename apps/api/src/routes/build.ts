@@ -1,10 +1,33 @@
 import { Hono } from 'hono';
 import { buildTokenMiddleware } from '../middleware/rbac';
-import { listEnabledCategories, listPublishedPosts, mapPost } from '../db';
+import {
+  getSiteConfig,
+  listEnabledCategories,
+  listPublishedPosts,
+  listPublishedPostsByIds,
+  listPublishedPostsBySlugs,
+  listPublishedPostsWithViews,
+  listSiteNavigations,
+  mapPost,
+} from '../db';
 import { THEME_PRESETS } from '../theme/presets';
 
 const router = new Hono();
 const DEFAULT_PRESET_ID = 'minimal-clean';
+const DEFAULT_HOME_LAYOUT = [
+  { type: 'hero', title: '주요 뉴스', limit: 1 },
+  { type: 'latest', title: '최신글', limit: 6 },
+  { type: 'popular', title: '인기글', limit: 6 },
+];
+
+type HomeSection = {
+  id?: string;
+  type: 'hero' | 'latest' | 'popular' | 'pick';
+  title?: string | null;
+  limit?: number | null;
+  post_ids?: string[] | null;
+  post_slugs?: string[] | null;
+};
 
 function getBucket(c: any) {
   const bucket = c.env?.MEDIA_BUCKET;
@@ -37,6 +60,22 @@ function resolvePreset(presetId: string | null | undefined) {
   return THEME_PRESETS.find((preset) => preset.id === presetId) || THEME_PRESETS[0];
 }
 
+function normalizeHomeLayout(input: unknown): HomeSection[] {
+  if (!input) return [...DEFAULT_HOME_LAYOUT];
+  if (Array.isArray(input)) {
+    return input.filter(Boolean) as HomeSection[];
+  }
+  if (typeof input === 'string') {
+    try {
+      const parsed = JSON.parse(input);
+      if (Array.isArray(parsed)) return parsed as HomeSection[];
+    } catch {
+      return [...DEFAULT_HOME_LAYOUT];
+    }
+  }
+  return [...DEFAULT_HOME_LAYOUT];
+}
+
 router.use('/build/*', buildTokenMiddleware);
 
 router.get('/build/posts', async (c) => {
@@ -62,6 +101,53 @@ router.get('/build/categories', async (c) => {
   const tenant = c.get('buildTenant');
   const categories = await listEnabledCategories(c.env.DB, tenant.id);
   return c.json({ categories });
+});
+
+router.get('/build/site', async (c) => {
+  const tenant = c.get('buildTenant');
+  const config = await getSiteConfig(c.env.DB, tenant.id);
+  const items = await listSiteNavigations(c.env.DB, tenant.id);
+  const header = items.filter((item) => item.location === 'header');
+  const footer = items.filter((item) => item.location === 'footer');
+  return c.json({
+    logo_url: config?.logo_url ?? null,
+    footer_text: config?.footer_text ?? null,
+    navigations: { header, footer },
+  });
+});
+
+router.get('/build/home', async (c) => {
+  const tenant = c.get('buildTenant');
+  const config = await getSiteConfig(c.env.DB, tenant.id);
+  const layout = normalizeHomeLayout(config?.home_layout || null);
+  const latestPosts = await listPublishedPostsWithViews(c.env.DB, tenant.id, { orderByViews: false });
+  const popularPosts = await listPublishedPostsWithViews(c.env.DB, tenant.id, { orderByViews: true });
+
+  const sections = [];
+  for (const section of layout) {
+    if (!section || !section.type) continue;
+    const limit = section.limit && section.limit > 0 ? section.limit : section.type === 'hero' ? 1 : 6;
+    let posts = [];
+    if (section.type === 'hero' || section.type === 'latest') {
+      posts = latestPosts.slice(0, limit);
+    } else if (section.type === 'popular') {
+      posts = popularPosts.slice(0, limit);
+    } else if (section.type === 'pick') {
+      const ids = Array.isArray(section.post_ids) ? section.post_ids.filter(Boolean) : [];
+      const slugs = Array.isArray(section.post_slugs) ? section.post_slugs.filter(Boolean) : [];
+      if (ids.length) {
+        posts = await listPublishedPostsByIds(c.env.DB, tenant.id, ids);
+      } else if (slugs.length) {
+        posts = await listPublishedPostsBySlugs(c.env.DB, tenant.id, slugs);
+      }
+    }
+    sections.push({
+      ...section,
+      posts: posts.map(mapPost),
+    });
+  }
+
+  return c.json({ sections });
 });
 
 router.get('/build/theme', async (c) => {

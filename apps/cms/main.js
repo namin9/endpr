@@ -101,6 +101,30 @@ const themePresetList = document.getElementById('themePresetList');
 const themeSaveBtn = document.getElementById('themeSaveBtn');
 const themeSaveStatus = document.getElementById('themeSaveStatus');
 const refreshThemeBtn = document.getElementById('refreshThemeBtn');
+const siteConfigStatus = document.getElementById('siteConfigStatus');
+const siteConfigForm = document.getElementById('siteConfigForm');
+const siteLogoInput = document.getElementById('siteLogoInput');
+const siteFooterInput = document.getElementById('siteFooterInput');
+const siteConfigSaveBtn = document.getElementById('siteConfigSaveBtn');
+const siteConfigSaveStatus = document.getElementById('siteConfigSaveStatus');
+const refreshSiteConfigBtn = document.getElementById('refreshSiteConfigBtn');
+const navForm = document.getElementById('navForm');
+const navLocationInput = document.getElementById('navLocationInput');
+const navCategorySelect = document.getElementById('navCategorySelect');
+const navLabelInput = document.getElementById('navLabelInput');
+const navUrlInput = document.getElementById('navUrlInput');
+const navStatus = document.getElementById('navStatus');
+const navList = document.getElementById('navList');
+const refreshNavBtn = document.getElementById('refreshNavBtn');
+const homeLayoutList = document.getElementById('homeLayoutList');
+const homeLayoutStatus = document.getElementById('homeLayoutStatus');
+const homeLayoutSaveBtn = document.getElementById('homeLayoutSaveBtn');
+const homeLayoutSaveStatus = document.getElementById('homeLayoutSaveStatus');
+const refreshHomeLayoutBtn = document.getElementById('refreshHomeLayoutBtn');
+const addHeroSectionBtn = document.getElementById('addHeroSectionBtn');
+const addLatestSectionBtn = document.getElementById('addLatestSectionBtn');
+const addPopularSectionBtn = document.getElementById('addPopularSectionBtn');
+const addPickSectionBtn = document.getElementById('addPickSectionBtn');
 const tenantsStatus = document.getElementById('tenantsStatus');
 const tenantsList = document.getElementById('tenantsList');
 const refreshTenantsBtn = document.getElementById('refreshTenantsBtn');
@@ -182,6 +206,9 @@ let currentThemeConfig = { presetId: 'minimal-clean', updatedAt: null };
 let selectedThemePresetId = null;
 let currentThemeTokens = null;
 let themeIsSuperAdmin = false;
+let siteConfig = { logo_url: '', footer_text: '', home_layout: [] };
+let siteNavigations = [];
+let editingNavId = null;
 let currentTenants = [];
 let currentUsers = [];
 let selectedTenantId = null;
@@ -647,7 +674,13 @@ async function fetchSession() {
     const data = await apiFetch('/cms/auth/me');
     const loggedInAt = currentSession?.loggedInAt || new Date().toISOString();
     persistSession({ ...data, loggedInAt });
-    await Promise.all([fetchThemeConfig(), fetchThemePresets(), fetchThemeTokens()]);
+    await Promise.all([
+      fetchThemeConfig(),
+      fetchThemePresets(),
+      fetchThemeTokens(),
+      fetchSiteConfig(),
+      fetchSiteNavigations(),
+    ]);
     if (themeIsSuperAdmin) {
       await fetchTenants();
       await fetchUsers();
@@ -1396,6 +1429,8 @@ async function fetchCategories() {
     const categories = data?.categories || [];
     currentCategories = categories.map(normalizeCategory);
     renderCategories();
+    renderPostsCategoryFilter();
+    renderNavCategoryOptions();
   } catch (error) {
     setStatus(categoriesStatus, formatError(error), true);
   }
@@ -1645,6 +1680,325 @@ async function fetchThemeTokens() {
     }
   } catch (error) {
     if (themeStatus) setStatus(themeStatus, formatError(error), true);
+  }
+}
+
+function getHomeSectionDefaults(type) {
+  switch (type) {
+    case 'hero':
+      return { title: '주요 뉴스', limit: 1 };
+    case 'latest':
+      return { title: '최신글', limit: 6 };
+    case 'popular':
+      return { title: '인기글', limit: 6 };
+    case 'pick':
+      return { title: 'Pick', limit: 6 };
+    default:
+      return { title: '', limit: 6 };
+  }
+}
+
+function createHomeSection(type) {
+  const defaults = getHomeSectionDefaults(type);
+  const id = (crypto && crypto.randomUUID && crypto.randomUUID()) || `section-${Date.now()}-${Math.random()}`;
+  return {
+    id,
+    type,
+    title: defaults.title,
+    limit: defaults.limit,
+    post_ids: type === 'pick' ? [] : undefined,
+  };
+}
+
+function ensureHomeLayoutIds(layout) {
+  return (Array.isArray(layout) ? layout : []).map((section) => {
+    if (!section?.id) {
+      return { ...section, id: createHomeSection(section.type || 'latest').id };
+    }
+    return section;
+  });
+}
+
+function renderSiteConfigForm() {
+  if (!siteLogoInput || !siteFooterInput) return;
+  siteLogoInput.value = siteConfig.logo_url || '';
+  siteFooterInput.value = siteConfig.footer_text || '';
+}
+
+function renderNavCategoryOptions() {
+  if (!navCategorySelect) return;
+  navCategorySelect.innerHTML = '<option value="">직접 입력</option>';
+  currentCategories.forEach((category) => {
+    const option = document.createElement('option');
+    option.value = category.slug;
+    option.textContent = category.name || category.slug;
+    navCategorySelect.appendChild(option);
+  });
+}
+
+function renderSiteNavigations() {
+  if (!navList) return;
+  navList.innerHTML = '';
+  if (!siteNavigations.length) {
+    const empty = document.createElement('p');
+    empty.className = 'muted';
+    empty.textContent = '등록된 메뉴가 없습니다.';
+    navList.appendChild(empty);
+    return;
+  }
+  const sorted = [...siteNavigations].sort((a, b) => {
+    if (a.location !== b.location) return a.location.localeCompare(b.location);
+    if (a.order_index !== b.order_index) return a.order_index - b.order_index;
+    return (a.created_at || 0) - (b.created_at || 0);
+  });
+  sorted.forEach((item) => {
+    const container = document.createElement('div');
+    container.className = 'site-nav-item';
+    const meta = document.createElement('div');
+    meta.className = 'site-nav-meta';
+    meta.innerHTML = `
+      <strong>${item.label}</strong>
+      <span class="muted">${item.location === 'header' ? '헤더' : '푸터'} · 순서 ${item.order_index}</span>
+    `;
+    const urlEl = document.createElement('div');
+    urlEl.className = 'muted';
+    urlEl.textContent = item.url;
+    const actions = document.createElement('div');
+    actions.className = 'site-nav-actions';
+    actions.innerHTML = `
+      <button type="button" class="ghost" data-nav-edit="${item.id}">편집</button>
+      <button type="button" class="ghost" data-nav-up="${item.id}">위로</button>
+      <button type="button" class="ghost" data-nav-down="${item.id}">아래로</button>
+      <button type="button" class="ghost danger" data-nav-delete="${item.id}">삭제</button>
+    `;
+    container.appendChild(meta);
+    container.appendChild(urlEl);
+    container.appendChild(actions);
+    navList.appendChild(container);
+
+    const editBtn = actions.querySelector('[data-nav-edit]');
+    const deleteBtn = actions.querySelector('[data-nav-delete]');
+    const upBtn = actions.querySelector('[data-nav-up]');
+    const downBtn = actions.querySelector('[data-nav-down]');
+
+    editBtn.addEventListener('click', () => {
+      editingNavId = item.id;
+      if (navLocationInput) navLocationInput.value = item.location;
+      if (navLabelInput) navLabelInput.value = item.label;
+      if (navUrlInput) navUrlInput.value = item.url;
+      if (navStatus) setStatus(navStatus, '편집 모드입니다. 저장하면 기존 메뉴가 수정됩니다.');
+    });
+
+    deleteBtn.addEventListener('click', async () => {
+      try {
+        await apiFetch(`/cms/site-navigations/${item.id}`, { method: 'DELETE' });
+        siteNavigations = siteNavigations.filter((entry) => entry.id !== item.id);
+        renderSiteNavigations();
+      } catch (error) {
+        if (navStatus) setStatus(navStatus, formatError(error), true);
+      }
+    });
+
+    const moveItem = async (direction) => {
+      const siblings = sorted.filter((nav) => nav.location === item.location);
+      const index = siblings.findIndex((nav) => nav.id === item.id);
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= siblings.length) return;
+      const target = siblings[targetIndex];
+      const payloads = [
+        apiFetch(`/cms/site-navigations/${item.id}`, { method: 'PATCH', body: { order_index: target.order_index } }),
+        apiFetch(`/cms/site-navigations/${target.id}`, { method: 'PATCH', body: { order_index: item.order_index } }),
+      ];
+      try {
+        const [updatedItem, updatedTarget] = await Promise.all(payloads);
+        siteNavigations = siteNavigations.map((nav) => {
+          if (nav.id === item.id) return updatedItem.item;
+          if (nav.id === target.id) return updatedTarget.item;
+          return nav;
+        });
+        renderSiteNavigations();
+      } catch (error) {
+        if (navStatus) setStatus(navStatus, formatError(error), true);
+      }
+    };
+
+    upBtn.addEventListener('click', () => moveItem('up'));
+    downBtn.addEventListener('click', () => moveItem('down'));
+  });
+}
+
+function renderHomeLayoutEditor() {
+  if (!homeLayoutList) return;
+  homeLayoutList.innerHTML = '';
+  if (!Array.isArray(siteConfig.home_layout) || !siteConfig.home_layout.length) {
+    const empty = document.createElement('p');
+    empty.className = 'muted';
+    empty.textContent = '섹션이 없습니다. 버튼으로 추가하세요.';
+    homeLayoutList.appendChild(empty);
+    return;
+  }
+  siteConfig.home_layout.forEach((section, index) => {
+    const container = document.createElement('div');
+    container.className = 'site-layout-item';
+    const header = document.createElement('div');
+    header.className = 'site-layout-header';
+    header.innerHTML = `
+      <strong>${section.type.toUpperCase()}</strong>
+      <div class="site-nav-actions">
+        <button type="button" class="ghost" data-layout-up="${section.id}">위로</button>
+        <button type="button" class="ghost" data-layout-down="${section.id}">아래로</button>
+        <button type="button" class="ghost danger" data-layout-delete="${section.id}">삭제</button>
+      </div>
+    `;
+    const fields = document.createElement('div');
+    fields.className = 'site-layout-fields';
+    const titleField = document.createElement('label');
+    titleField.className = 'field';
+    titleField.innerHTML = `<span>섹션 타이틀</span><input value="${section.title || ''}" />`;
+    const limitField = document.createElement('label');
+    limitField.className = 'field';
+    limitField.innerHTML = `<span>표시 수</span><input type="number" min="1" value="${section.limit || 1}" />`;
+    fields.appendChild(titleField);
+    fields.appendChild(limitField);
+
+    const picksWrapper = document.createElement('div');
+    picksWrapper.className = 'site-layout-picks';
+
+    if (section.type === 'pick') {
+      const pickLabel = document.createElement('span');
+      pickLabel.className = 'muted';
+      pickLabel.textContent = 'Pick 게시글 선택';
+      const select = document.createElement('select');
+      select.multiple = true;
+      allPosts.forEach((post) => {
+        const option = document.createElement('option');
+        option.value = post.id;
+        option.textContent = post.title || post.slug;
+        if (Array.isArray(section.post_ids) && section.post_ids.includes(post.id)) {
+          option.selected = true;
+        }
+        select.appendChild(option);
+      });
+      select.addEventListener('change', () => {
+        section.post_ids = Array.from(select.selectedOptions).map((option) => option.value);
+      });
+      picksWrapper.appendChild(pickLabel);
+      picksWrapper.appendChild(select);
+    }
+
+    const [titleInput, limitInput] = fields.querySelectorAll('input');
+    titleInput.addEventListener('input', (event) => {
+      section.title = event.target.value;
+    });
+    limitInput.addEventListener('input', (event) => {
+      const value = Number(event.target.value);
+      section.limit = Number.isFinite(value) && value > 0 ? value : null;
+    });
+
+    container.appendChild(header);
+    container.appendChild(fields);
+    if (section.type === 'pick') {
+      container.appendChild(picksWrapper);
+    }
+    homeLayoutList.appendChild(container);
+
+    const upBtn = header.querySelector('[data-layout-up]');
+    const downBtn = header.querySelector('[data-layout-down]');
+    const deleteBtn = header.querySelector('[data-layout-delete]');
+
+    upBtn.addEventListener('click', () => {
+      if (index === 0) return;
+      const next = [...siteConfig.home_layout];
+      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      siteConfig.home_layout = next;
+      renderHomeLayoutEditor();
+    });
+
+    downBtn.addEventListener('click', () => {
+      if (index === siteConfig.home_layout.length - 1) return;
+      const next = [...siteConfig.home_layout];
+      [next[index], next[index + 1]] = [next[index + 1], next[index]];
+      siteConfig.home_layout = next;
+      renderHomeLayoutEditor();
+    });
+
+    deleteBtn.addEventListener('click', () => {
+      siteConfig.home_layout = siteConfig.home_layout.filter((_, idx) => idx !== index);
+      renderHomeLayoutEditor();
+    });
+  });
+}
+
+async function fetchSiteConfig() {
+  if (!siteConfigStatus) return;
+  try {
+    setStatus(siteConfigStatus, '불러오는 중...');
+    const data = await apiFetch('/cms/site-config');
+    siteConfig = {
+      logo_url: data?.config?.logo_url || '',
+      footer_text: data?.config?.footer_text || '',
+      home_layout: ensureHomeLayoutIds(Array.isArray(data?.config?.home_layout) ? data.config.home_layout : []),
+    };
+    renderSiteConfigForm();
+    renderHomeLayoutEditor();
+    setStatus(siteConfigStatus, '불러오기 완료');
+  } catch (error) {
+    setStatus(siteConfigStatus, formatError(error), true);
+  }
+}
+
+async function saveSiteConfig(payloadOverrides = {}, statusEl = siteConfigSaveStatus) {
+  try {
+    if (statusEl) setStatus(statusEl, '저장 중...');
+    const payload = {
+      logo_url: siteLogoInput ? siteLogoInput.value.trim() : siteConfig.logo_url,
+      footer_text: siteFooterInput ? siteFooterInput.value.trim() : siteConfig.footer_text,
+      home_layout: ensureHomeLayoutIds(siteConfig.home_layout),
+      ...payloadOverrides,
+    };
+    const data = await apiFetch('/cms/site-config', { method: 'PUT', body: payload });
+    siteConfig = {
+      logo_url: data?.config?.logo_url || '',
+      footer_text: data?.config?.footer_text || '',
+      home_layout: ensureHomeLayoutIds(Array.isArray(data?.config?.home_layout) ? data.config.home_layout : []),
+    };
+    renderSiteConfigForm();
+    renderHomeLayoutEditor();
+    if (statusEl) setStatus(statusEl, '저장 완료');
+  } catch (error) {
+    if (statusEl) setStatus(statusEl, formatError(error), true);
+  }
+}
+
+async function fetchSiteNavigations() {
+  if (!navStatus) return;
+  try {
+    setStatus(navStatus, '불러오는 중...');
+    const data = await apiFetch('/cms/site-navigations');
+    siteNavigations = data?.items || [];
+    renderSiteNavigations();
+    setStatus(navStatus, '');
+  } catch (error) {
+    setStatus(navStatus, formatError(error), true);
+  }
+}
+
+async function saveNavigationItem(payload) {
+  try {
+    if (navStatus) setStatus(navStatus, '저장 중...');
+    if (editingNavId) {
+      const data = await apiFetch(`/cms/site-navigations/${editingNavId}`, { method: 'PATCH', body: payload });
+      siteNavigations = siteNavigations.map((item) => (item.id === editingNavId ? data.item : item));
+      editingNavId = null;
+      if (navStatus) setStatus(navStatus, '수정 완료');
+    } else {
+      const data = await apiFetch('/cms/site-navigations', { method: 'POST', body: payload });
+      siteNavigations = [...siteNavigations, data.item];
+      if (navStatus) setStatus(navStatus, '추가 완료');
+    }
+    renderSiteNavigations();
+  } catch (error) {
+    if (navStatus) setStatus(navStatus, formatError(error), true);
   }
 }
 
@@ -2384,6 +2738,7 @@ async function fetchPosts() {
     currentPosts = allPosts.slice();
     renderPosts();
     updatePostFilterButtons();
+    renderHomeLayoutEditor();
     await maybeOpenInitialPost();
   } catch (error) {
     renderPostsState({
@@ -3065,6 +3420,96 @@ if (themeSaveBtn) {
   });
 }
 
+if (refreshSiteConfigBtn) {
+  refreshSiteConfigBtn.addEventListener('click', () => {
+    fetchSiteConfig();
+  });
+}
+
+if (siteConfigForm) {
+  siteConfigForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await saveSiteConfig({}, siteConfigSaveStatus);
+  });
+}
+
+if (refreshNavBtn) {
+  refreshNavBtn.addEventListener('click', () => {
+    fetchSiteNavigations();
+  });
+}
+
+if (navCategorySelect) {
+  navCategorySelect.addEventListener('change', () => {
+    const slug = navCategorySelect.value;
+    if (!slug) return;
+    if (navUrlInput) navUrlInput.value = `/category/${slug}/`;
+    const category = currentCategories.find((item) => item.slug === slug);
+    if (category && navLabelInput && !navLabelInput.value.trim()) {
+      navLabelInput.value = category.name || category.slug;
+    }
+  });
+}
+
+if (navForm) {
+  navForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const location = navLocationInput?.value || 'header';
+    const label = navLabelInput?.value.trim();
+    const url = navUrlInput?.value.trim();
+    if (!label || !url) {
+      if (navStatus) setStatus(navStatus, '라벨과 URL을 입력하세요.', true);
+      return;
+    }
+    await saveNavigationItem({ location, label, url });
+    if (!editingNavId) {
+      navLabelInput.value = '';
+      navUrlInput.value = '';
+      if (navCategorySelect) navCategorySelect.value = '';
+    }
+  });
+}
+
+if (refreshHomeLayoutBtn) {
+  refreshHomeLayoutBtn.addEventListener('click', () => {
+    fetchSiteConfig();
+  });
+}
+
+if (addHeroSectionBtn) {
+  addHeroSectionBtn.addEventListener('click', () => {
+    siteConfig.home_layout = [...(siteConfig.home_layout || []), createHomeSection('hero')];
+    renderHomeLayoutEditor();
+  });
+}
+
+if (addLatestSectionBtn) {
+  addLatestSectionBtn.addEventListener('click', () => {
+    siteConfig.home_layout = [...(siteConfig.home_layout || []), createHomeSection('latest')];
+    renderHomeLayoutEditor();
+  });
+}
+
+if (addPopularSectionBtn) {
+  addPopularSectionBtn.addEventListener('click', () => {
+    siteConfig.home_layout = [...(siteConfig.home_layout || []), createHomeSection('popular')];
+    renderHomeLayoutEditor();
+  });
+}
+
+if (addPickSectionBtn) {
+  addPickSectionBtn.addEventListener('click', () => {
+    siteConfig.home_layout = [...(siteConfig.home_layout || []), createHomeSection('pick')];
+    renderHomeLayoutEditor();
+  });
+}
+
+if (homeLayoutSaveBtn) {
+  homeLayoutSaveBtn.addEventListener('click', async () => {
+    await saveSiteConfig({ home_layout: siteConfig.home_layout }, homeLayoutSaveStatus);
+  });
+}
+
 if (refreshTenantsBtn) {
   refreshTenantsBtn.addEventListener('click', () => {
     if (!themeIsSuperAdmin) return;
@@ -3393,6 +3838,8 @@ fetchPosts();
 fetchDeployJobs();
 fetchCategories();
 fetchPrCampaigns();
+fetchSiteConfig();
+fetchSiteNavigations();
 
 window.addEventListener('beforeunload', (event) => {
   if (!autosaveState.dirty) return;

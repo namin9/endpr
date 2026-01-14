@@ -15,6 +15,7 @@
         <div class="tab-bar" role="tablist" aria-label="CMS Navigation">
           <button type="button" class="tab-button is-active" data-tab-target="content" role="tab">콘텐츠</button>
           <button type="button" class="tab-button" data-tab-target="theme" role="tab">테마</button>
+          <button type="button" class="tab-button" data-tab-target="site" role="tab">사이트 설정</button>
           <button type="button" class="tab-button" data-tab-target="admin" role="tab" data-admin-tab>관리</button>
           <button type="button" class="tab-button" data-tab-target="pr" role="tab">PR</button>
         </div>
@@ -120,6 +121,86 @@
             <div class="row gap">
               <button type="button" id="themeSaveBtn" class="primary">테마 저장</button>
               <span id="themeSaveStatus" class="muted"></span>
+            </div>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="site" role="tabpanel">
+          <section class="card" aria-labelledby="site-config-heading">
+            <div class="card-header">
+              <h2 id="site-config-heading">기본 정보</h2>
+              <button type="button" id="refreshSiteConfigBtn" class="ghost">새로고침</button>
+            </div>
+            <p id="siteConfigStatus" class="muted">로딩 전</p>
+            <form id="siteConfigForm" class="stack">
+              <label class="field">
+                <span>로고 URL</span>
+                <input id="siteLogoInput" placeholder="https://..." />
+              </label>
+              <label class="field">
+                <span>카피라이트 텍스트</span>
+                <textarea id="siteFooterInput" rows="2" placeholder="© 2025 Company"></textarea>
+              </label>
+              <div class="row gap">
+                <button type="submit" id="siteConfigSaveBtn" class="primary">저장</button>
+                <span id="siteConfigSaveStatus" class="muted"></span>
+              </div>
+            </form>
+          </section>
+
+          <section class="card" aria-labelledby="site-nav-heading">
+            <div class="card-header">
+              <h2 id="site-nav-heading">메뉴 관리</h2>
+              <button type="button" id="refreshNavBtn" class="ghost">새로고침</button>
+            </div>
+            <form id="navForm" class="stack">
+              <div class="site-nav-grid">
+                <label class="field">
+                  <span>위치</span>
+                  <select id="navLocationInput">
+                    <option value="header">헤더</option>
+                    <option value="footer">푸터</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>카테고리</span>
+                  <select id="navCategorySelect">
+                    <option value="">직접 입력</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>라벨</span>
+                  <input id="navLabelInput" placeholder="예: 뉴스" />
+                </label>
+                <label class="field">
+                  <span>URL</span>
+                  <input id="navUrlInput" placeholder="/category/news/" />
+                </label>
+              </div>
+              <div class="row gap">
+                <button type="submit" class="primary">메뉴 추가</button>
+                <span id="navStatus" class="muted"></span>
+              </div>
+            </form>
+            <div id="navList" class="site-nav-list"></div>
+          </section>
+
+          <section class="card" aria-labelledby="home-layout-heading">
+            <div class="card-header">
+              <h2 id="home-layout-heading">메인 페이지 에디터</h2>
+              <button type="button" id="refreshHomeLayoutBtn" class="ghost">새로고침</button>
+            </div>
+            <div class="row gap wrap">
+              <button type="button" id="addHeroSectionBtn" class="ghost">Hero 섹션 추가</button>
+              <button type="button" id="addLatestSectionBtn" class="ghost">최신글 섹션 추가</button>
+              <button type="button" id="addPopularSectionBtn" class="ghost">인기글 섹션 추가</button>
+              <button type="button" id="addPickSectionBtn" class="ghost">Pick 섹션 추가</button>
+            </div>
+            <p id="homeLayoutStatus" class="muted">로딩 전</p>
+            <div id="homeLayoutList" class="site-layout-list"></div>
+            <div class="row gap">
+              <button type="button" id="homeLayoutSaveBtn" class="primary">홈 레이아웃 저장</button>
+              <span id="homeLayoutSaveStatus" class="muted"></span>
             </div>
           </section>
         </div>
