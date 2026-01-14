@@ -34,42 +34,6 @@ function getClientIp(c: any) {
   );
 }
 
-async function ensureAuthTables(c: any): Promise<boolean> {
-  try {
-    await c.env.DB.prepare(
-      `CREATE TABLE IF NOT EXISTS auth_login_attempts (
-        id TEXT PRIMARY KEY,
-        tenant_id TEXT,
-        email TEXT NOT NULL,
-        ip TEXT NOT NULL,
-        attempts INTEGER NOT NULL DEFAULT 0,
-        first_attempt_at INTEGER NOT NULL,
-        last_attempt_at INTEGER NOT NULL,
-        locked_until INTEGER
-      )`
-    ).run();
-    await c.env.DB.prepare(
-      'CREATE UNIQUE INDEX IF NOT EXISTS auth_login_attempts_unique ON auth_login_attempts (tenant_id, email, ip)'
-    ).run();
-    await c.env.DB.prepare(
-      `CREATE TABLE IF NOT EXISTS auth_audit_logs (
-        id TEXT PRIMARY KEY,
-        tenant_id TEXT,
-        email TEXT,
-        ip TEXT,
-        action TEXT NOT NULL,
-        success INTEGER NOT NULL DEFAULT 0,
-        message TEXT,
-        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
-      )`
-    ).run();
-    return true;
-  } catch (error) {
-    console.error('Auth tables missing or unavailable.', error);
-    return false;
-  }
-}
-
 async function logAuthEvent(c: any, payload: { tenantId?: string | null; email?: string | null; ip?: string; action: string; success: boolean; message?: string | null }) {
   const now = Math.floor(Date.now() / 1000);
   await c.env.DB.prepare(
@@ -160,11 +124,6 @@ router.post('/cms/auth/login', async (c) => {
   const { tenantSlug, email, password } = body;
   if (!tenantSlug || !email || !password) return c.json({ error: 'tenantSlug, email, and password are required' }, 400);
 
-  const authTablesReady = await ensureAuthTables(c);
-  if (!authTablesReady) {
-    return c.json({ error: 'Server misconfigured: auth tables missing' }, 500);
-  }
-
   const tenant = await getTenantBySlug(c.env.DB, tenantSlug);
   const ip = getClientIp(c);
 
@@ -212,11 +171,7 @@ router.post('/cms/auth/login', async (c) => {
     email: user.email,
   };
 
-  const sessionIssued = await refreshSessionCookie(c as any, session);
-  if (!sessionIssued) {
-    await logAuthEvent(c, { tenantId: tenant.id, email, ip, action: 'login', success: false, message: 'session_secret_missing' });
-    return c.json({ error: 'Server misconfigured: SESSION_SECRET missing' }, 500);
-  }
+  await refreshSessionCookie(c as any, session);
   await recordLoginAttempt(c, { tenantId: tenant.id, email, ip, success: true });
   await logAuthEvent(c, { tenantId: tenant.id, email, ip, action: 'login', success: true, message: 'ok' });
 

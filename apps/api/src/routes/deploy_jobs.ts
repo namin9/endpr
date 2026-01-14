@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
-import { requireRole, sessionMiddleware } from '../middleware/rbac';
-import { SessionData } from '../session';
+import { sessionMiddleware } from '../middleware/rbac';
 import {
   getDeployJob,
   getLatestActiveDeployJob,
@@ -36,7 +35,7 @@ function normalizeDeployStatus(rawStatus: string | undefined) {
     normalized === 'canceled' ||
     normalized === 'cancelled'
   )
-    return normalized === 'canceled' || normalized === 'cancelled' ? 'canceled' : 'failed';
+    return 'failed';
   if (
     normalized === 'building' ||
     normalized === 'in_progress' ||
@@ -60,23 +59,6 @@ router.get('/cms/deploy-jobs/:id', async (c) => {
   const job = await getDeployJob(c.env.DB, tenant.id, id);
   if (!job) return c.json({ error: 'Deploy job not found' }, 404);
   return c.json({ job: mapDeployJob(job) });
-});
-
-router.post('/cms/deploy-jobs/:id/cancel', async (c) => {
-  const session = c.get('session') as SessionData;
-  const tenant = c.get('tenant');
-  const id = c.req.param('id');
-
-  if (!requireRole(session, ['admin', 'super'])) return c.json({ error: 'Forbidden' }, 403);
-
-  const job = await getDeployJob(c.env.DB, tenant.id, id);
-  if (!job) return c.json({ error: 'Deploy job not found' }, 404);
-  if (!['queued', 'building'].includes(job.status)) {
-    return c.json({ error: 'Deploy job is not cancellable' }, 409);
-  }
-
-  const updated = await updateDeployJobStatus(c.env.DB, job.id, 'canceled', 'Canceled by user');
-  return c.json({ ok: true, deploy_job: mapDeployJob(updated) });
 });
 
 router.post('/public/deploy-jobs/webhook', async (c) => {
