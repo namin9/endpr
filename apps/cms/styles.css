@@ -863,10 +863,6 @@ button:active {
   text-decoration: underline;
 }
 
-.hidden {
-  display: none;
-}
-
 .modal {
   position: fixed;
   inset: 0;
@@ -915,6 +911,14 @@ button:active {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.hidden {
+  display: none;
+}
+
+.modal.hidden {
+  display: none;
 }
 
 @keyframes spin {
