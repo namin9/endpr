@@ -1816,9 +1816,9 @@ function renderPosts() {
     if (!isDashboard) {
       item.addEventListener('click', () => selectPost(post));
     }
-    const actions = item.querySelector('.posts-actions');
-    if (actions) {
-      actions.addEventListener('click', async (event) => {
+    const actionsEl = item.querySelector('.posts-actions');
+    if (actionsEl) {
+      actionsEl.addEventListener('click', async (event) => {
         event.stopPropagation();
         const target = event.target;
         if (!(target instanceof HTMLElement)) return;
