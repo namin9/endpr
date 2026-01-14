@@ -377,10 +377,17 @@
                 </label>
               </div>
               <div class="schedule-step hidden" data-schedule-step="time">
-                <label class="field">
-                  <span>시간 선택 (10분 단위)</span>
-                  <select id="scheduleTimeSelect"></select>
-                </label>
+                <span class="muted">시간 선택 (10분 단위)</span>
+                <div class="schedule-wheel">
+                  <div class="schedule-wheel-column">
+                    <span class="muted">시</span>
+                    <div class="wheel-list" id="scheduleHourList"></div>
+                  </div>
+                  <div class="schedule-wheel-column">
+                    <span class="muted">분</span>
+                    <div class="wheel-list" id="scheduleMinuteList"></div>
+                  </div>
+                </div>
               </div>
               <div id="scheduleStatus" class="muted"></div>
             </div>
@@ -388,6 +395,18 @@
               <button type="button" id="scheduleBackBtn" class="ghost hidden">뒤로</button>
               <button type="button" id="scheduleNextBtn" class="primary">다음</button>
               <button type="button" id="scheduleConfirmBtn" class="primary hidden">예약 발행</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal hidden" id="previewModal" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
+          <div class="modal-card modal-card--wide">
+            <div class="modal-header">
+              <h3 id="previewTitle">미리보기</h3>
+              <button type="button" id="previewModalCloseBtn" class="ghost">닫기</button>
+            </div>
+            <div class="modal-body">
+              <div class="preview modal-preview" id="previewModalContent"></div>
             </div>
           </div>
         </div>
