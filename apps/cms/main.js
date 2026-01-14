@@ -42,6 +42,8 @@ const newPostBtn = document.getElementById('newPostBtn');
 const postsSearchInput = document.getElementById('postsSearchInput');
 const postsStatusFilter = document.getElementById('postsStatusFilter');
 const postsCategoryFilter = document.getElementById('postsCategoryFilter');
+const postsViewPeriod = document.getElementById('postsViewPeriod');
+const postsViewSort = document.getElementById('postsViewSort');
 const postsFilterButtons = Array.from(document.querySelectorAll('[data-post-filter]'));
 const postsPrevBtn = document.getElementById('postsPrevBtn');
 const postsNextBtn = document.getElementById('postsNextBtn');
@@ -191,6 +193,8 @@ let postsView = {
   search: '',
   status: 'all',
   category: 'all',
+  viewPeriod: 'all',
+  viewSort: 'recent',
   page: 1,
   pageSize: 20,
   total: 0,
@@ -2027,7 +2031,11 @@ function setPostFilter(status) {
   clearPostSelection();
   updatePostFilterButtons();
   updateBulkActionsVisibility();
-  renderPosts();
+  if (postsView.viewPeriod !== 'all' || postsView.viewSort !== 'recent') {
+    fetchPosts();
+  } else {
+    renderPosts();
+  }
 }
 
 const postStatusLabels = {
@@ -2335,10 +2343,15 @@ async function maybeOpenInitialPost() {
 }
 
 function buildPostsQuery() {
-  if (!postsView.serverMode) return '';
   const query = new URLSearchParams();
   query.set('page', postsView.page);
   query.set('pageSize', postsView.pageSize);
+  if (postsView.viewPeriod && postsView.viewPeriod !== 'all') {
+    query.set('viewPeriod', postsView.viewPeriod);
+  }
+  if (postsView.viewSort && postsView.viewSort !== 'recent') {
+    query.set('viewSort', postsView.viewSort);
+  }
   return `?${query.toString()}`;
 }
 
@@ -2434,6 +2447,26 @@ if (postsCategoryFilter) {
     clearPostSelection();
     renderPosts();
   });
+}
+
+if (postsViewPeriod) {
+  postsViewPeriod.addEventListener('change', (event) => {
+    postsView.viewPeriod = event.target.value || 'all';
+    postsView.page = 1;
+    clearPostSelection();
+    fetchPosts();
+  });
+  postsViewPeriod.value = postsView.viewPeriod;
+}
+
+if (postsViewSort) {
+  postsViewSort.addEventListener('change', (event) => {
+    postsView.viewSort = event.target.value || 'recent';
+    postsView.page = 1;
+    clearPostSelection();
+    fetchPosts();
+  });
+  postsViewSort.value = postsView.viewSort;
 }
 
 if (postsStatusFilter) {

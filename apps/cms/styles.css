@@ -520,7 +520,7 @@ button:active {
 
 .posts-toolbar-inputs {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(120px, 160px);
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 8px;
 }
 

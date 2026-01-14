@@ -14,6 +14,7 @@ import {
   updateDeployJobStatus,
   mapDeployJob,
   ensurePostStatusSchema,
+  listPostsWithViews,
   type TenantRow,
 } from '../db';
 import { SessionData } from '../session';
@@ -53,7 +54,33 @@ router.post('/cms/posts', async (c) => {
 
 router.get('/cms/posts', async (c) => {
   const tenant = c.get('tenant');
-  const posts = await listPosts(c.env.DB, tenant.id);
+  const viewPeriod = c.req.query('viewPeriod') || 'all';
+  const viewSort = c.req.query('viewSort') || 'recent';
+  const now = new Date();
+  const toDay = (date: Date) => date.toISOString().slice(0, 10);
+  let startDay: string | null = null;
+  let endDay: string | null = null;
+
+  if (viewPeriod === 'week') {
+    endDay = toDay(now);
+    const start = new Date(now);
+    start.setDate(start.getDate() - 6);
+    startDay = toDay(start);
+  } else if (viewPeriod === 'month') {
+    endDay = toDay(now);
+    const start = new Date(now);
+    start.setDate(start.getDate() - 29);
+    startDay = toDay(start);
+  }
+
+  const posts =
+    viewPeriod === 'all' && viewSort === 'recent'
+      ? await listPosts(c.env.DB, tenant.id)
+      : await listPostsWithViews(c.env.DB, tenant.id, {
+          startDay,
+          endDay,
+          orderByViews: viewSort === 'views',
+        });
   return c.json({ posts: posts.map(mapPost) });
 });
 

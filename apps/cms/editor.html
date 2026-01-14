@@ -55,6 +55,21 @@
                   <span>카테고리</span>
                   <select id="postsCategoryFilter"></select>
                 </label>
+                <label class="field">
+                  <span>조회 기간</span>
+                  <select id="postsViewPeriod">
+                    <option value="all">전체 기간</option>
+                    <option value="week">최근 7일</option>
+                    <option value="month">최근 30일</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>정렬</span>
+                  <select id="postsViewSort">
+                    <option value="recent">최신순</option>
+                    <option value="views">조회수순</option>
+                  </select>
+                </label>
               </div>
               <div class="posts-bulk">
                 <span id="postsSelectionCount" class="muted">선택된 게시물 없음</span>

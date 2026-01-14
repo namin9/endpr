@@ -315,6 +315,45 @@ export async function listPosts(db: D1Database, tenantId: string): Promise<PostR
   return (results ?? []) as PostRow[];
 }
 
+type ViewRangeOptions = {
+  startDay?: string | null;
+  endDay?: string | null;
+  orderByViews?: boolean;
+};
+
+export async function listPostsWithViews(
+  db: D1Database,
+  tenantId: string,
+  { startDay = null, endDay = null, orderByViews = false }: ViewRangeOptions = {}
+): Promise<PostRow[]> {
+  const hasRange = Boolean(startDay && endDay);
+  const joinClause = hasRange
+    ? `LEFT JOIN page_views_daily
+         ON page_views_daily.tenant_id = posts.tenant_id
+        AND page_views_daily.page_key = posts.slug
+        AND page_views_daily.day BETWEEN ? AND ?`
+    : `LEFT JOIN page_views_daily
+         ON page_views_daily.tenant_id = posts.tenant_id
+        AND page_views_daily.page_key = posts.slug`;
+  const orderClause = orderByViews
+    ? 'ORDER BY view_count DESC, posts.created_at DESC'
+    : 'ORDER BY posts.created_at DESC';
+  const sql = `SELECT posts.*,
+        COALESCE(SUM(page_views_daily.views), 0) AS view_count
+      FROM posts
+      ${joinClause}
+      WHERE posts.tenant_id = ?
+      GROUP BY posts.id
+      ${orderClause}`;
+
+  const statement = db.prepare(sql);
+  const bound = hasRange
+    ? statement.bind(startDay, endDay, tenantId)
+    : statement.bind(tenantId);
+  const { results } = await bound.all<PostRow>();
+  return (results ?? []) as PostRow[];
+}
+
 export async function getPost(db: D1Database, tenantId: string, id: string): Promise<PostRow | null> {
   const post = await db.prepare('SELECT * FROM posts WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first<PostRow>();
   return post ?? null;
