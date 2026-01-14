@@ -288,6 +288,13 @@ function setActiveTab(tabId) {
   });
 }
 
+function resolveTabFromHash() {
+  const raw = window.location.hash?.replace('#', '') || '';
+  if (!raw) return null;
+  const match = tabButtons.find((button) => button.dataset.tabTarget === raw);
+  return match ? raw : null;
+}
+
 function toggleFormDisabled(form, disabled) {
   if (!form) return;
   const elements = Array.from(form.elements || []);
@@ -1186,7 +1193,7 @@ function handleAutosave() {
   schedulePreviewUpdate();
   autosaveTimer = setTimeout(() => {
     saveDraftToApi(title, body);
-  }, 1500);
+  }, 15000);
 }
 
 titleInput.addEventListener('input', handleAutosave);
@@ -2977,9 +2984,20 @@ if (tabButtons.length) {
     button.addEventListener('click', () => {
       const target = button.dataset.tabTarget;
       if (!target) return;
+      if (isEditorPage) {
+        window.location.href = `index.html#${target}`;
+        return;
+      }
       setActiveTab(target);
+      if (window.location.hash !== `#${target}`) {
+        window.history.replaceState(null, '', `#${target}`);
+      }
     });
   });
+  const hashTarget = resolveTabFromHash();
+  if (hashTarget) {
+    activeTabId = hashTarget;
+  }
   setActiveTab(activeTabId);
 }
 
