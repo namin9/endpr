@@ -596,7 +596,8 @@ button:active {
 .posts-cell--select {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  padding-left: 4px;
 }
 
 .posts-cell--select input {

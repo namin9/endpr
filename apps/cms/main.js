@@ -52,6 +52,11 @@ const bulkTrashBtn = document.getElementById('bulkTrashBtn');
 const bulkUnpublishBtn = document.getElementById('bulkUnpublishBtn');
 const bulkRepublishBtn = document.getElementById('bulkRepublishBtn');
 const bulkPublishBtn = document.getElementById('bulkPublishBtn');
+const bulkRestoreBtn = document.getElementById('bulkRestoreBtn');
+const bulkDraftBtn = document.getElementById('bulkDraftBtn');
+const bulkPurgeBtn = document.getElementById('bulkPurgeBtn');
+const bulkDefaultActions = Array.from(document.querySelectorAll('[data-bulk-actions="default"]'));
+const bulkTrashedActions = Array.from(document.querySelectorAll('[data-bulk-actions="trashed"]'));
 const globalLoading = document.getElementById('globalLoading');
 const globalLoadingMessage = document.getElementById('globalLoadingMessage');
 const refreshJobsBtn = document.getElementById('refreshJobsBtn');
@@ -1944,7 +1949,15 @@ function updateBulkSelectionUI() {
   if (postsSelectionCount) {
     postsSelectionCount.textContent = hasSelection ? `${selectedCount}개 선택됨` : '선택된 게시물 없음';
   }
-  [bulkTrashBtn, bulkUnpublishBtn, bulkRepublishBtn, bulkPublishBtn].forEach((button) => {
+  [
+    bulkTrashBtn,
+    bulkUnpublishBtn,
+    bulkRepublishBtn,
+    bulkPublishBtn,
+    bulkRestoreBtn,
+    bulkDraftBtn,
+    bulkPurgeBtn,
+  ].forEach((button) => {
     if (button) button.disabled = !hasSelection;
   });
 
@@ -1960,6 +1973,7 @@ function updateBulkSelectionUI() {
       postsSelectAll.indeterminate = selectedVisible.length > 0 && selectedVisible.length < visiblePostIds.length;
     }
   }
+  updateVisibleSelectionCheckboxes();
 }
 
 function setPostSelection(postId, isSelected) {
@@ -1969,12 +1983,29 @@ function setPostSelection(postId, isSelected) {
   } else {
     selectedPostIds.delete(postId);
   }
+  updateVisibleSelectionCheckboxes();
   updateBulkSelectionUI();
 }
 
 function clearPostSelection() {
   selectedPostIds = new Set();
+  updateVisibleSelectionCheckboxes();
   updateBulkSelectionUI();
+}
+
+function updateVisibleSelectionCheckboxes() {
+  const checkboxes = Array.from(postsListEl?.querySelectorAll('.post-select') || []);
+  checkboxes.forEach((checkbox) => {
+    if (!(checkbox instanceof HTMLInputElement)) return;
+    const postId = checkbox.dataset.postId;
+    checkbox.checked = Boolean(postId && selectedPostIds.has(postId));
+  });
+}
+
+function updateBulkActionsVisibility() {
+  const showTrashed = postsView.status === 'trashed';
+  bulkDefaultActions.forEach((section) => section.classList.toggle('hidden', showTrashed));
+  bulkTrashedActions.forEach((section) => section.classList.toggle('hidden', !showTrashed));
 }
 
 function updatePostFilterButtons() {
@@ -1988,6 +2019,7 @@ function setPostFilter(status) {
   postsView.page = 1;
   clearPostSelection();
   updatePostFilterButtons();
+  updateBulkActionsVisibility();
   renderPosts();
 }
 
@@ -2019,6 +2051,11 @@ async function restorePost(postId) {
   await apiFetch(`/cms/posts/${postId}/autosave`, { method: 'POST', body: { status: 'paused' } });
 }
 
+async function draftPost(postId) {
+  if (!postId) return;
+  await apiFetch(`/cms/posts/${postId}/autosave`, { method: 'POST', body: { status: 'draft', publish_at: null } });
+}
+
 function getSelectedPosts() {
   return allPosts.filter((post) => selectedPostIds.has(post.id));
 }
@@ -2031,6 +2068,7 @@ function setSelectionForVisible(selectAll) {
       selectedPostIds.delete(postId);
     }
   });
+  updateVisibleSelectionCheckboxes();
   updateBulkSelectionUI();
 }
 
@@ -2084,6 +2122,7 @@ function renderPosts() {
     renderPostsPagination(totalPages);
     visiblePostIds = [];
     updateBulkSelectionUI();
+    updateBulkActionsVisibility();
     return;
   }
 
@@ -2114,6 +2153,7 @@ function renderPosts() {
       }
     } else {
       actions.push({ key: 'restore', label: '복원' });
+      actions.push({ key: 'draft', label: '임시 저장' });
       actions.push({ key: 'purge', label: '영구 삭제', danger: true });
     }
     item.innerHTML = `
@@ -2206,6 +2246,19 @@ function renderPosts() {
             target.removeAttribute('disabled');
           }
         }
+        if (action === 'draft') {
+          try {
+            target.setAttribute('disabled', 'true');
+            setGlobalLoading(true, '임시 저장 처리 중...');
+            await draftPost(post.id);
+            await fetchPosts();
+          } catch (error) {
+            setStatus(postsStatusEl, formatError(error), true);
+          } finally {
+            setGlobalLoading(false);
+            target.removeAttribute('disabled');
+          }
+        }
         if (action === 'unpublish') {
           if (!window.confirm('게시글을 게시 중단할까요?')) return;
           try {
@@ -2241,6 +2294,7 @@ function renderPosts() {
 
   renderPostsPagination(totalPages);
   updateBulkSelectionUI();
+  updateBulkActionsVisibility();
 }
 
 async function maybeOpenInitialPost() {
@@ -2439,6 +2493,39 @@ if (bulkPublishBtn) {
       label: '발행',
       filter: (post) => ['draft', 'scheduled', 'paused'].includes(post.status),
       handler: (post) => apiFetch(`/cms/posts/${post.id}/publish`, { method: 'POST' }),
+    });
+  });
+}
+
+if (bulkRestoreBtn) {
+  bulkRestoreBtn.addEventListener('click', () => {
+    runBulkAction({
+      key: 'restore',
+      label: '복원',
+      filter: (post) => post.status === 'trashed',
+      handler: (post) => restorePost(post.id),
+    });
+  });
+}
+
+if (bulkDraftBtn) {
+  bulkDraftBtn.addEventListener('click', () => {
+    runBulkAction({
+      key: 'draft',
+      label: '임시 저장',
+      filter: (post) => post.status === 'trashed',
+      handler: (post) => draftPost(post.id),
+    });
+  });
+}
+
+if (bulkPurgeBtn) {
+  bulkPurgeBtn.addEventListener('click', () => {
+    runBulkAction({
+      key: 'purge',
+      label: '영구 삭제',
+      filter: (post) => post.status === 'trashed',
+      handler: (post) => purgePost(post.id),
     });
   });
 }

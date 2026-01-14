@@ -58,11 +58,16 @@
               </div>
               <div class="posts-bulk">
                 <span id="postsSelectionCount" class="muted">선택된 게시물 없음</span>
-                <div class="posts-bulk-actions">
+                <div class="posts-bulk-actions" data-bulk-actions="default">
                   <button type="button" id="bulkPublishBtn" class="ghost">발행</button>
                   <button type="button" id="bulkRepublishBtn" class="ghost">발행 재개</button>
                   <button type="button" id="bulkUnpublishBtn" class="ghost danger">게시 중단</button>
                   <button type="button" id="bulkTrashBtn" class="ghost danger">휴지통</button>
+                </div>
+                <div class="posts-bulk-actions hidden" data-bulk-actions="trashed">
+                  <button type="button" id="bulkRestoreBtn" class="ghost">복원</button>
+                  <button type="button" id="bulkDraftBtn" class="ghost">임시 저장</button>
+                  <button type="button" id="bulkPurgeBtn" class="ghost danger">영구 삭제</button>
                 </div>
               </div>
             </div>
