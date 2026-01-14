@@ -181,6 +181,24 @@ $publishResp.deploy_job.id
 
 Expected: **200** with `post.status: published`, `deploy_job` containing `id`, `status` (`building` or `success`/`failed`), and `message`.
 
+### 4.1) Scheduled publish (10-minute cron)
+
+Schedule a post (status=scheduled + publish_at epoch seconds):
+
+```powershell
+$publishAt = [int]([DateTimeOffset]::UtcNow.AddMinutes(10).ToUnixTimeSeconds())
+$scheduleBody = @{
+  status = "scheduled"
+  publish_at = $publishAt
+} | ConvertTo-Json
+$scheduleResp = Invoke-RestMethod -Uri "$BaseUrl/cms/posts/$postId/autosave" -Headers @{ "Origin" = $Origin } -WebSession $Session -Method Post -ContentType "application/json" -Body $scheduleBody
+$scheduleResp.post.status
+```
+
+Expected: **200** with `post.status: scheduled`.
+
+Note: Configure the Worker cron to invoke `/cron/publish` every **10 minutes** (using `x-cron-secret`), so scheduled posts are published and the deploy hook is triggered.
+
 ## 5) Deploy jobs: list and detail
 
 ```powershell

@@ -52,6 +52,16 @@ const printBtn = document.getElementById('printBtn');
 const editorCard = document.querySelector('.editor-card');
 const previewToggleBtn = document.getElementById('previewToggleBtn');
 const previewCloseBtn = document.getElementById('previewCloseBtn');
+const scheduleBtn = document.getElementById('scheduleBtn');
+const cancelScheduleBtn = document.getElementById('cancelScheduleBtn');
+const scheduleModal = document.getElementById('scheduleModal');
+const scheduleCloseBtn = document.getElementById('scheduleCloseBtn');
+const scheduleDateInput = document.getElementById('scheduleDateInput');
+const scheduleTimeSelect = document.getElementById('scheduleTimeSelect');
+const scheduleStatus = document.getElementById('scheduleStatus');
+const scheduleBackBtn = document.getElementById('scheduleBackBtn');
+const scheduleNextBtn = document.getElementById('scheduleNextBtn');
+const scheduleConfirmBtn = document.getElementById('scheduleConfirmBtn');
 const viewModeButtons = Array.from(document.querySelectorAll('[data-view-mode]'));
 const viewOnBlogBtn = document.getElementById('viewOnBlogBtn');
 const viewOnBlogHint = document.getElementById('viewOnBlogHint');
@@ -174,6 +184,7 @@ let autosaveState = {
   error: null,
 };
 let currentViewMode = isEditorPage ? 'edit' : 'split';
+let scheduleStep = 'date';
 
 function load(key, fallback) {
   const raw = localStorage.getItem(key);
@@ -904,6 +915,121 @@ function renderAutosaveSavedAt(savedAt) {
     error: null,
   };
   updateAutosaveStatus();
+}
+
+function buildScheduleTimes() {
+  const options = [];
+  for (let hour = 0; hour < 24; hour += 1) {
+    for (let minute = 0; minute < 60; minute += 10) {
+      const hh = String(hour).padStart(2, '0');
+      const mm = String(minute).padStart(2, '0');
+      options.push(`${hh}:${mm}`);
+    }
+  }
+  return options;
+}
+
+function setScheduleStep(step) {
+  scheduleStep = step;
+  if (!scheduleModal) return;
+  const dateStep = scheduleModal.querySelector('[data-schedule-step="date"]');
+  const timeStep = scheduleModal.querySelector('[data-schedule-step="time"]');
+  if (dateStep) dateStep.classList.toggle('hidden', step !== 'date');
+  if (timeStep) timeStep.classList.toggle('hidden', step !== 'time');
+  if (scheduleBackBtn) scheduleBackBtn.classList.toggle('hidden', step === 'date');
+  if (scheduleNextBtn) scheduleNextBtn.classList.toggle('hidden', step !== 'date');
+  if (scheduleConfirmBtn) scheduleConfirmBtn.classList.toggle('hidden', step !== 'time');
+}
+
+function openScheduleModal() {
+  if (!scheduleModal || !scheduleDateInput || !scheduleTimeSelect) return;
+  scheduleModal.classList.remove('hidden');
+  scheduleStatus.textContent = '';
+  const today = new Date();
+  const todayValue = today.toISOString().slice(0, 10);
+  scheduleDateInput.value = scheduleDateInput.value || todayValue;
+  scheduleDateInput.min = todayValue;
+  scheduleTimeSelect.innerHTML = '';
+  buildScheduleTimes().forEach((time) => {
+    const option = document.createElement('option');
+    option.value = time;
+    option.textContent = time;
+    scheduleTimeSelect.appendChild(option);
+  });
+  scheduleTimeSelect.value = scheduleTimeSelect.value || buildScheduleTimes()[0];
+  setScheduleStep('date');
+}
+
+function closeScheduleModal() {
+  if (!scheduleModal) return;
+  scheduleModal.classList.add('hidden');
+}
+
+function parseScheduleDateTime(dateValue, timeValue) {
+  if (!dateValue || !timeValue) return null;
+  const iso = `${dateValue}T${timeValue}:00`;
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
+async function schedulePublish() {
+  if (!currentSession) {
+    scheduleStatus.textContent = '로그인 세션이 없습니다.';
+    return;
+  }
+  const dateValue = scheduleDateInput?.value;
+  const timeValue = scheduleTimeSelect?.value;
+  const scheduleDate = parseScheduleDateTime(dateValue, timeValue);
+  if (!scheduleDate) {
+    scheduleStatus.textContent = '날짜와 시간을 확인해 주세요.';
+    return;
+  }
+  const publishAt = Math.floor(scheduleDate.getTime() / 1000);
+  try {
+    scheduleStatus.textContent = '예약 저장 중...';
+    const postId = await ensurePostId(titleInput.value.trim() || '제목 없음', getBodyValue());
+    const response = await apiFetch(`/cms/posts/${postId}/autosave`, {
+      method: 'POST',
+      body: {
+        title: titleInput.value.trim() || '제목 없음',
+        body_md: getBodyValue(),
+        category_slug: categorySelect?.value || undefined,
+        status: 'scheduled',
+        publish_at: publishAt,
+      },
+    });
+    const updated = normalizePost(response?.post || response);
+    persistDraft({
+      id: postId,
+      title: updated.title,
+      body: updated.body || '',
+      savedAt: updated.updatedAt || currentDraft.savedAt,
+      status: updated.status,
+      slug: updated.slug,
+      publicUrl: updated.publicUrl,
+      categorySlug: updated.categorySlug || '',
+    });
+    scheduleStatus.textContent = '예약 완료';
+    closeScheduleModal();
+    fetchPosts();
+  } catch (error) {
+    scheduleStatus.textContent = formatError(error);
+  }
+}
+
+async function cancelSchedule() {
+  if (!currentDraft?.id) return;
+  try {
+    await apiFetch(`/cms/posts/${currentDraft.id}/autosave`, {
+      method: 'POST',
+      body: { status: 'draft', publish_at: null },
+    });
+    persistDraft({ status: 'draft' });
+    fetchPosts();
+  } catch (error) {
+    setStatus(autosaveStatus, formatError(error), true);
+  }
 }
 
 async function ensurePostId(title, body) {
@@ -2112,6 +2238,42 @@ if (previewToggleBtn) {
 if (previewCloseBtn) {
   previewCloseBtn.addEventListener('click', () => {
     setViewMode('edit');
+  });
+}
+
+if (scheduleBtn) {
+  scheduleBtn.addEventListener('click', () => {
+    openScheduleModal();
+  });
+}
+
+if (cancelScheduleBtn) {
+  cancelScheduleBtn.addEventListener('click', () => {
+    cancelSchedule();
+  });
+}
+
+if (scheduleCloseBtn) {
+  scheduleCloseBtn.addEventListener('click', () => {
+    closeScheduleModal();
+  });
+}
+
+if (scheduleBackBtn) {
+  scheduleBackBtn.addEventListener('click', () => {
+    setScheduleStep('date');
+  });
+}
+
+if (scheduleNextBtn) {
+  scheduleNextBtn.addEventListener('click', () => {
+    setScheduleStep('time');
+  });
+}
+
+if (scheduleConfirmBtn) {
+  scheduleConfirmBtn.addEventListener('click', () => {
+    schedulePublish();
   });
 }
 
