@@ -35,19 +35,63 @@
               <button type="button" id="refreshPostsBtn" class="ghost">새로고침</button>
             </div>
             <div class="posts-toolbar">
-              <button type="button" id="newPostBtn" class="primary">새 글</button>
-              <div class="posts-filters" role="tablist" aria-label="게시글 상태">
-                <button type="button" class="filter-button is-active" data-post-filter="all" role="tab">전체</button>
-                <button type="button" class="filter-button" data-post-filter="published" role="tab">발행</button>
-                <button type="button" class="filter-button" data-post-filter="scheduled" role="tab">발행 예약</button>
-                <button type="button" class="filter-button" data-post-filter="draft" role="tab">임시 저장</button>
-                <button type="button" class="filter-button" data-post-filter="paused" role="tab">게시 중단</button>
-                <button type="button" class="filter-button" data-post-filter="trashed" role="tab">휴지통</button>
+              <div class="posts-toolbar-row">
+                <button type="button" id="newPostBtn" class="primary">새 글</button>
+                <div class="posts-filters" role="tablist" aria-label="게시글 상태">
+                  <button type="button" class="filter-button is-active" data-post-filter="all" role="tab">전체</button>
+                  <button type="button" class="filter-button" data-post-filter="published" role="tab">발행</button>
+                  <button type="button" class="filter-button" data-post-filter="scheduled" role="tab">발행 예약</button>
+                  <button type="button" class="filter-button" data-post-filter="draft" role="tab">임시 저장</button>
+                  <button type="button" class="filter-button" data-post-filter="paused" role="tab">게시 중단</button>
+                  <button type="button" class="filter-button" data-post-filter="trashed" role="tab">휴지통</button>
+                </div>
+              </div>
+              <div class="posts-toolbar-inputs">
+                <label class="field">
+                  <span>검색</span>
+                  <input id="postsSearchInput" type="search" placeholder="게시글 제목 검색" />
+                </label>
+                <label class="field">
+                  <span>카테고리</span>
+                  <select id="postsCategoryFilter"></select>
+                </label>
+                <label class="field">
+                  <span>조회 기간</span>
+                  <select id="postsViewPeriod">
+                    <option value="all">전체 기간</option>
+                    <option value="week">최근 7일</option>
+                    <option value="month">최근 30일</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>정렬</span>
+                  <select id="postsViewSort">
+                    <option value="recent">최신순</option>
+                    <option value="views">조회수순</option>
+                  </select>
+                </label>
+              </div>
+              <div class="posts-bulk">
+                <span id="postsSelectionCount" class="muted">선택된 게시물 없음</span>
+                <div class="posts-bulk-actions" data-bulk-actions="default">
+                  <button type="button" id="bulkPublishBtn" class="ghost">발행</button>
+                  <button type="button" id="bulkRepublishBtn" class="ghost">발행 재개</button>
+                  <button type="button" id="bulkUnpublishBtn" class="ghost danger">게시 중단</button>
+                  <button type="button" id="bulkTrashBtn" class="ghost danger">휴지통</button>
+                </div>
+                <div class="posts-bulk-actions hidden" data-bulk-actions="trashed">
+                  <button type="button" id="bulkRestoreBtn" class="ghost">복원</button>
+                  <button type="button" id="bulkDraftBtn" class="ghost">임시 저장</button>
+                  <button type="button" id="bulkPurgeBtn" class="ghost danger">영구 삭제</button>
+                </div>
               </div>
             </div>
             <p id="postsStatus" class="muted">로딩 전</p>
             <div class="posts-table" role="table" aria-label="Posts">
               <div class="posts-row posts-row--head" role="row">
+                <div class="posts-cell posts-cell--select">
+                  <input type="checkbox" id="postsSelectAll" aria-label="현재 목록 전체 선택" />
+                </div>
                 <div class="posts-cell">제목</div>
                 <div class="posts-cell">발행일</div>
                 <div class="posts-cell">조회수</div>
@@ -405,6 +449,12 @@
         </section>
       </aside>
     </main>
+    <div id="globalLoading" class="global-loading hidden" role="alert" aria-live="assertive">
+      <div class="global-loading-card">
+        <span class="spinner" aria-hidden="true"></span>
+        <span id="globalLoadingMessage">처리 중...</span>
+      </div>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.min.js"></script>
     <script src="main.js"></script>

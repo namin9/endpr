@@ -41,10 +41,26 @@ const refreshPostsBtn = document.getElementById('refreshPostsBtn');
 const newPostBtn = document.getElementById('newPostBtn');
 const postsSearchInput = document.getElementById('postsSearchInput');
 const postsStatusFilter = document.getElementById('postsStatusFilter');
+const postsCategoryFilter = document.getElementById('postsCategoryFilter');
+const postsViewPeriod = document.getElementById('postsViewPeriod');
+const postsViewSort = document.getElementById('postsViewSort');
 const postsFilterButtons = Array.from(document.querySelectorAll('[data-post-filter]'));
 const postsPrevBtn = document.getElementById('postsPrevBtn');
 const postsNextBtn = document.getElementById('postsNextBtn');
 const postsPageInfo = document.getElementById('postsPageInfo');
+const postsSelectAll = document.getElementById('postsSelectAll');
+const postsSelectionCount = document.getElementById('postsSelectionCount');
+const bulkTrashBtn = document.getElementById('bulkTrashBtn');
+const bulkUnpublishBtn = document.getElementById('bulkUnpublishBtn');
+const bulkRepublishBtn = document.getElementById('bulkRepublishBtn');
+const bulkPublishBtn = document.getElementById('bulkPublishBtn');
+const bulkRestoreBtn = document.getElementById('bulkRestoreBtn');
+const bulkDraftBtn = document.getElementById('bulkDraftBtn');
+const bulkPurgeBtn = document.getElementById('bulkPurgeBtn');
+const bulkDefaultActions = Array.from(document.querySelectorAll('[data-bulk-actions="default"]'));
+const bulkTrashedActions = Array.from(document.querySelectorAll('[data-bulk-actions="trashed"]'));
+const globalLoading = document.getElementById('globalLoading');
+const globalLoadingMessage = document.getElementById('globalLoadingMessage');
 const refreshJobsBtn = document.getElementById('refreshJobsBtn');
 const jobDetailEl = document.getElementById('jobDetail');
 const selectedPostMeta = document.getElementById('selectedPostMeta');
@@ -176,12 +192,17 @@ let initialPostRequestHandled = false;
 let postsView = {
   search: '',
   status: 'all',
+  category: 'all',
+  viewPeriod: 'all',
+  viewSort: 'recent',
   page: 1,
   pageSize: 20,
   total: 0,
   totalPages: 1,
   serverMode: false,
 };
+let selectedPostIds = new Set();
+let visiblePostIds = [];
 let autosaveState = {
   dirty: false,
   saving: false,
@@ -240,6 +261,14 @@ function formatDatetimeLocal(value) {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
+function setGlobalLoading(isLoading, message = '처리 중...') {
+  if (!globalLoading) return;
+  if (globalLoadingMessage) {
+    globalLoadingMessage.textContent = message;
+  }
+  globalLoading.classList.toggle('hidden', !isLoading);
+}
+
 function resolveIsSuperAdmin(session) {
   const user = session?.user || {};
   if (typeof user.is_super_admin === 'boolean') return user.is_super_admin;
@@ -261,6 +290,13 @@ function setActiveTab(tabId) {
     const panelId = panel.dataset.tabPanel;
     panel.classList.toggle('is-active', panelId === tabId);
   });
+}
+
+function resolveTabFromHash() {
+  const raw = window.location.hash?.replace('#', '') || '';
+  if (!raw) return null;
+  const match = tabButtons.find((button) => button.dataset.tabTarget === raw);
+  return match ? raw : null;
 }
 
 function toggleFormDisabled(form, disabled) {
@@ -1017,6 +1053,7 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
   }
   try {
     setStatus(statusEl, '예약 저장 중...');
+    setGlobalLoading(true, '예약 발행 저장 중...');
     const postId = await ensurePostId(titleInput.value.trim() || '제목 없음', getBodyValue());
     const response = await apiFetch(`/cms/posts/${postId}/autosave`, {
       method: 'POST',
@@ -1043,8 +1080,13 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
     setStatus(statusEl, '예약 완료');
     if (closeModal) closeScheduleModal();
     fetchPosts();
+    if (isEditorPage) {
+      window.location.href = 'index.html';
+    }
   } catch (error) {
     setStatus(statusEl, formatError(error), true);
+  } finally {
+    setGlobalLoading(false);
   }
 }
 
@@ -1155,7 +1197,7 @@ function handleAutosave() {
   schedulePreviewUpdate();
   autosaveTimer = setTimeout(() => {
     saveDraftToApi(title, body);
-  }, 1500);
+  }, 15000);
 }
 
 titleInput.addEventListener('input', handleAutosave);
@@ -1303,6 +1345,7 @@ function renderCategories() {
     }
   });
   renderCategorySelect();
+  renderPostsCategoryFilter();
 }
 
 function renderCategorySelect() {
@@ -1317,6 +1360,32 @@ function renderCategorySelect() {
       categorySelect.appendChild(option);
     });
   categorySelect.value = currentDraft?.categorySlug || '';
+}
+
+function renderPostsCategoryFilter() {
+  if (!postsCategoryFilter) return;
+  const selected = postsView.category;
+  const sorted = currentCategories.slice().sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+  postsCategoryFilter.innerHTML = '';
+
+  const allOption = document.createElement('option');
+  allOption.value = 'all';
+  allOption.textContent = '전체 카테고리';
+  postsCategoryFilter.appendChild(allOption);
+
+  const uncategorizedOption = document.createElement('option');
+  uncategorizedOption.value = 'uncategorized';
+  uncategorizedOption.textContent = '미분류';
+  postsCategoryFilter.appendChild(uncategorizedOption);
+
+  sorted.forEach((category) => {
+    const option = document.createElement('option');
+    option.value = category.slug || '';
+    option.textContent = category.name;
+    postsCategoryFilter.appendChild(option);
+  });
+
+  postsCategoryFilter.value = selected;
 }
 
 async function fetchCategories() {
@@ -1841,6 +1910,13 @@ function getFilteredPosts() {
   if (query) {
     list = list.filter((post) => (post.title || '').toLowerCase().includes(query));
   }
+  if (postsView.category && postsView.category !== 'all') {
+    if (postsView.category === 'uncategorized') {
+      list = list.filter((post) => !post.categorySlug);
+    } else {
+      list = list.filter((post) => post.categorySlug === postsView.category);
+    }
+  }
   if (postsView.status === 'all') {
     list = list.filter((post) => post.status !== 'trashed');
   } else {
@@ -1862,6 +1938,8 @@ function renderPostsState({ message, isError = false, isLoading = false } = {}) 
     state.textContent = message || '';
   }
   postsListEl.appendChild(state);
+  visiblePostIds = [];
+  updateBulkSelectionUI();
 }
 
 function renderPostsPagination(totalPages) {
@@ -1869,6 +1947,76 @@ function renderPostsPagination(totalPages) {
   postsPrevBtn.disabled = postsView.page <= 1;
   postsNextBtn.disabled = postsView.page >= totalPages;
   postsPageInfo.textContent = `페이지 ${postsView.page} / ${totalPages}`;
+}
+
+function syncSelectedPosts() {
+  const validIds = new Set(allPosts.map((post) => post.id));
+  selectedPostIds = new Set([...selectedPostIds].filter((id) => validIds.has(id)));
+}
+
+function updateBulkSelectionUI() {
+  const selectedCount = selectedPostIds.size;
+  const hasSelection = selectedCount > 0;
+  if (postsSelectionCount) {
+    postsSelectionCount.textContent = hasSelection ? `${selectedCount}개 선택됨` : '선택된 게시물 없음';
+  }
+  [
+    bulkTrashBtn,
+    bulkUnpublishBtn,
+    bulkRepublishBtn,
+    bulkPublishBtn,
+    bulkRestoreBtn,
+    bulkDraftBtn,
+    bulkPurgeBtn,
+  ].forEach((button) => {
+    if (button) button.disabled = !hasSelection;
+  });
+
+  if (postsSelectAll) {
+    if (!visiblePostIds.length) {
+      postsSelectAll.checked = false;
+      postsSelectAll.indeterminate = false;
+      postsSelectAll.disabled = true;
+    } else {
+      const selectedVisible = visiblePostIds.filter((id) => selectedPostIds.has(id));
+      postsSelectAll.disabled = false;
+      postsSelectAll.checked = selectedVisible.length === visiblePostIds.length;
+      postsSelectAll.indeterminate = selectedVisible.length > 0 && selectedVisible.length < visiblePostIds.length;
+    }
+  }
+  updateVisibleSelectionCheckboxes();
+}
+
+function setPostSelection(postId, isSelected) {
+  if (!postId) return;
+  if (isSelected) {
+    selectedPostIds.add(postId);
+  } else {
+    selectedPostIds.delete(postId);
+  }
+  updateVisibleSelectionCheckboxes();
+  updateBulkSelectionUI();
+}
+
+function clearPostSelection() {
+  selectedPostIds = new Set();
+  updateVisibleSelectionCheckboxes();
+  updateBulkSelectionUI();
+}
+
+function updateVisibleSelectionCheckboxes() {
+  const checkboxes = Array.from(postsListEl?.querySelectorAll('.post-select') || []);
+  checkboxes.forEach((checkbox) => {
+    if (!(checkbox instanceof HTMLInputElement)) return;
+    const postId = checkbox.dataset.postId;
+    checkbox.checked = Boolean(postId && selectedPostIds.has(postId));
+  });
+}
+
+function updateBulkActionsVisibility() {
+  const showTrashed = postsView.status === 'trashed';
+  bulkDefaultActions.forEach((section) => section.classList.toggle('hidden', showTrashed));
+  bulkTrashedActions.forEach((section) => section.classList.toggle('hidden', !showTrashed));
 }
 
 function updatePostFilterButtons() {
@@ -1880,8 +2028,14 @@ function updatePostFilterButtons() {
 function setPostFilter(status) {
   postsView.status = status;
   postsView.page = 1;
+  clearPostSelection();
   updatePostFilterButtons();
-  renderPosts();
+  updateBulkActionsVisibility();
+  if (postsView.viewPeriod !== 'all' || postsView.viewSort !== 'recent') {
+    fetchPosts();
+  } else {
+    renderPosts();
+  }
 }
 
 const postStatusLabels = {
@@ -1912,6 +2066,52 @@ async function restorePost(postId) {
   await apiFetch(`/cms/posts/${postId}/autosave`, { method: 'POST', body: { status: 'paused' } });
 }
 
+async function draftPost(postId) {
+  if (!postId) return;
+  await apiFetch(`/cms/posts/${postId}/autosave`, { method: 'POST', body: { status: 'draft', publish_at: null } });
+}
+
+function getSelectedPosts() {
+  return allPosts.filter((post) => selectedPostIds.has(post.id));
+}
+
+function setSelectionForVisible(selectAll) {
+  visiblePostIds.forEach((postId) => {
+    if (selectAll) {
+      selectedPostIds.add(postId);
+    } else {
+      selectedPostIds.delete(postId);
+    }
+  });
+  updateVisibleSelectionCheckboxes();
+  updateBulkSelectionUI();
+}
+
+async function runBulkAction({ key, label, filter, handler }) {
+  const selectedPosts = getSelectedPosts();
+  const eligible = selectedPosts.filter(filter);
+  if (!eligible.length) {
+    setStatus(postsStatusEl, `선택한 게시글 중 ${label}할 수 있는 항목이 없습니다.`, true);
+    return;
+  }
+  if (!window.confirm(`${eligible.length}개 게시글을 ${label}할까요?`)) return;
+  try {
+    setStatus(postsStatusEl, `${label} 처리 중...`);
+    setGlobalLoading(true, `${label} 처리 중...`);
+    for (const post of eligible) {
+      await handler(post);
+    }
+    selectedPostIds = new Set();
+    await fetchPosts();
+    setStatus(postsStatusEl, `${label} 완료`);
+  } catch (error) {
+    setStatus(postsStatusEl, formatError(error), true);
+  } finally {
+    setGlobalLoading(false);
+    updateBulkSelectionUI();
+  }
+}
+
 function renderPosts() {
   postsListEl.innerHTML = '';
   const filtered = getFilteredPosts();
@@ -1935,6 +2135,9 @@ function renderPosts() {
       message: '게시물이 없습니다. 새 글을 작성하세요.',
     });
     renderPostsPagination(totalPages);
+    visiblePostIds = [];
+    updateBulkSelectionUI();
+    updateBulkActionsVisibility();
     return;
   }
 
@@ -1942,6 +2145,7 @@ function renderPosts() {
     ? `${totalCount}건의 게시글`
     : `${pageItems.length}건 표시 중`;
 
+  visiblePostIds = pageItems.map((post) => post.id);
   pageItems.forEach((post) => {
     const item = document.createElement('div');
     item.className = 'posts-row';
@@ -1964,9 +2168,15 @@ function renderPosts() {
       }
     } else {
       actions.push({ key: 'restore', label: '복원' });
+      actions.push({ key: 'draft', label: '임시 저장' });
       actions.push({ key: 'purge', label: '영구 삭제', danger: true });
     }
     item.innerHTML = `
+      <div class="posts-cell posts-cell--select">
+        <input type="checkbox" class="post-select" data-post-id="${post.id}" aria-label="${post.title || '제목 없음'} 선택" ${
+          selectedPostIds.has(post.id) ? 'checked' : ''
+        } />
+      </div>
       <div class="posts-cell posts-title">
         <strong>${post.title || '제목 없음'}</strong>
         <span class="posts-id muted">#${post.id || '-'}</span>
@@ -1988,6 +2198,17 @@ function renderPosts() {
     if (!isDashboard) {
       item.addEventListener('click', () => selectPost(post));
     }
+    const checkbox = item.querySelector('.post-select');
+    if (checkbox) {
+      checkbox.addEventListener('click', (event) => {
+        event.stopPropagation();
+      });
+      checkbox.addEventListener('change', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        setPostSelection(post.id, target.checked);
+      });
+    }
     const actionsEl = item.querySelector('.posts-actions');
     if (actionsEl) {
       actionsEl.addEventListener('click', async (event) => {
@@ -2003,11 +2224,13 @@ function renderPosts() {
           if (!window.confirm('이 게시글을 휴지통으로 보낼까요?')) return;
           try {
             target.setAttribute('disabled', 'true');
+            setGlobalLoading(true, '휴지통으로 이동 중...');
             await trashPost(post.id);
             await fetchPosts();
           } catch (error) {
             setStatus(postsStatusEl, formatError(error), true);
           } finally {
+            setGlobalLoading(false);
             target.removeAttribute('disabled');
           }
         }
@@ -2015,22 +2238,39 @@ function renderPosts() {
           if (!window.confirm('이 게시글을 영구 삭제할까요?')) return;
           try {
             target.setAttribute('disabled', 'true');
+            setGlobalLoading(true, '삭제 중...');
             await purgePost(post.id);
             await fetchPosts();
           } catch (error) {
             setStatus(postsStatusEl, formatError(error), true);
           } finally {
+            setGlobalLoading(false);
             target.removeAttribute('disabled');
           }
         }
         if (action === 'restore') {
           try {
             target.setAttribute('disabled', 'true');
+            setGlobalLoading(true, '복원 중...');
             await restorePost(post.id);
             await fetchPosts();
           } catch (error) {
             setStatus(postsStatusEl, formatError(error), true);
           } finally {
+            setGlobalLoading(false);
+            target.removeAttribute('disabled');
+          }
+        }
+        if (action === 'draft') {
+          try {
+            target.setAttribute('disabled', 'true');
+            setGlobalLoading(true, '임시 저장 처리 중...');
+            await draftPost(post.id);
+            await fetchPosts();
+          } catch (error) {
+            setStatus(postsStatusEl, formatError(error), true);
+          } finally {
+            setGlobalLoading(false);
             target.removeAttribute('disabled');
           }
         }
@@ -2038,11 +2278,13 @@ function renderPosts() {
           if (!window.confirm('게시글을 게시 중단할까요?')) return;
           try {
             target.setAttribute('disabled', 'true');
+            setGlobalLoading(true, '게시 중단 중...');
             await unpublishPost(post.id);
             await fetchPosts();
           } catch (error) {
             setStatus(postsStatusEl, formatError(error), true);
           } finally {
+            setGlobalLoading(false);
             target.removeAttribute('disabled');
           }
         }
@@ -2050,11 +2292,13 @@ function renderPosts() {
           if (!window.confirm('게시글을 다시 발행할까요?')) return;
           try {
             target.setAttribute('disabled', 'true');
+            setGlobalLoading(true, '발행 재개 중...');
             await apiFetch(`/cms/posts/${post.id}/publish`, { method: 'POST' });
             await fetchPosts();
           } catch (error) {
             setStatus(postsStatusEl, formatError(error), true);
           } finally {
+            setGlobalLoading(false);
             target.removeAttribute('disabled');
           }
         }
@@ -2064,6 +2308,8 @@ function renderPosts() {
   });
 
   renderPostsPagination(totalPages);
+  updateBulkSelectionUI();
+  updateBulkActionsVisibility();
 }
 
 async function maybeOpenInitialPost() {
@@ -2097,10 +2343,15 @@ async function maybeOpenInitialPost() {
 }
 
 function buildPostsQuery() {
-  if (!postsView.serverMode) return '';
   const query = new URLSearchParams();
   query.set('page', postsView.page);
   query.set('pageSize', postsView.pageSize);
+  if (postsView.viewPeriod && postsView.viewPeriod !== 'all') {
+    query.set('viewPeriod', postsView.viewPeriod);
+  }
+  if (postsView.viewSort && postsView.viewSort !== 'recent') {
+    query.set('viewSort', postsView.viewSort);
+  }
   return `?${query.toString()}`;
 }
 
@@ -2129,6 +2380,7 @@ async function fetchPosts() {
       postsView.page = Math.min(postsView.page, postsView.totalPages);
     }
 
+    syncSelectedPosts();
     currentPosts = allPosts.slice();
     renderPosts();
     updatePostFilterButtons();
@@ -2183,14 +2435,45 @@ if (postsSearchInput) {
   postsSearchInput.addEventListener('input', (event) => {
     postsView.search = event.target.value;
     postsView.page = 1;
+    clearPostSelection();
     renderPosts();
   });
+}
+
+if (postsCategoryFilter) {
+  postsCategoryFilter.addEventListener('change', (event) => {
+    postsView.category = event.target.value;
+    postsView.page = 1;
+    clearPostSelection();
+    renderPosts();
+  });
+}
+
+if (postsViewPeriod) {
+  postsViewPeriod.addEventListener('change', (event) => {
+    postsView.viewPeriod = event.target.value || 'all';
+    postsView.page = 1;
+    clearPostSelection();
+    fetchPosts();
+  });
+  postsViewPeriod.value = postsView.viewPeriod;
+}
+
+if (postsViewSort) {
+  postsViewSort.addEventListener('change', (event) => {
+    postsView.viewSort = event.target.value || 'recent';
+    postsView.page = 1;
+    clearPostSelection();
+    fetchPosts();
+  });
+  postsViewSort.value = postsView.viewSort;
 }
 
 if (postsStatusFilter) {
   postsStatusFilter.addEventListener('change', (event) => {
     postsView.status = event.target.value;
     postsView.page = 1;
+    clearPostSelection();
     renderPosts();
   });
 }
@@ -2201,6 +2484,91 @@ postsFilterButtons.forEach((button) => {
     setPostFilter(status);
   });
 });
+
+if (postsSelectAll) {
+  postsSelectAll.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    setSelectionForVisible(target.checked);
+  });
+}
+
+if (bulkTrashBtn) {
+  bulkTrashBtn.addEventListener('click', () => {
+    runBulkAction({
+      key: 'trash',
+      label: '휴지통으로 이동',
+      filter: (post) => post.status !== 'trashed',
+      handler: (post) => trashPost(post.id),
+    });
+  });
+}
+
+if (bulkUnpublishBtn) {
+  bulkUnpublishBtn.addEventListener('click', () => {
+    runBulkAction({
+      key: 'unpublish',
+      label: '게시 중단',
+      filter: (post) => post.status === 'published',
+      handler: (post) => unpublishPost(post.id),
+    });
+  });
+}
+
+if (bulkRepublishBtn) {
+  bulkRepublishBtn.addEventListener('click', () => {
+    runBulkAction({
+      key: 'republish',
+      label: '발행 재개',
+      filter: (post) => post.status === 'paused',
+      handler: (post) => apiFetch(`/cms/posts/${post.id}/publish`, { method: 'POST' }),
+    });
+  });
+}
+
+if (bulkPublishBtn) {
+  bulkPublishBtn.addEventListener('click', () => {
+    runBulkAction({
+      key: 'publish',
+      label: '발행',
+      filter: (post) => ['draft', 'scheduled', 'paused'].includes(post.status),
+      handler: (post) => apiFetch(`/cms/posts/${post.id}/publish`, { method: 'POST' }),
+    });
+  });
+}
+
+if (bulkRestoreBtn) {
+  bulkRestoreBtn.addEventListener('click', () => {
+    runBulkAction({
+      key: 'restore',
+      label: '복원',
+      filter: (post) => post.status === 'trashed',
+      handler: (post) => restorePost(post.id),
+    });
+  });
+}
+
+if (bulkDraftBtn) {
+  bulkDraftBtn.addEventListener('click', () => {
+    runBulkAction({
+      key: 'draft',
+      label: '임시 저장',
+      filter: (post) => post.status === 'trashed',
+      handler: (post) => draftPost(post.id),
+    });
+  });
+}
+
+if (bulkPurgeBtn) {
+  bulkPurgeBtn.addEventListener('click', () => {
+    runBulkAction({
+      key: 'purge',
+      label: '영구 삭제',
+      filter: (post) => post.status === 'trashed',
+      handler: (post) => purgePost(post.id),
+    });
+  });
+}
 
 postsPrevBtn.addEventListener('click', () => {
   if (postsView.page <= 1) return;
@@ -2560,6 +2928,7 @@ publishBtn.addEventListener('click', async () => {
 
   try {
     setStatus(publishMessage, '발행 요청 중…');
+    setGlobalLoading(true, '발행 중...');
     const postId = await ensurePostId(title, body);
     await apiFetch(`/cms/posts/${postId}/autosave`, {
       method: 'POST',
@@ -2588,6 +2957,8 @@ publishBtn.addEventListener('click', async () => {
     }
   } catch (error) {
     setStatus(publishMessage, formatError(error), true);
+  } finally {
+    setGlobalLoading(false);
   }
 });
 
@@ -2646,9 +3017,20 @@ if (tabButtons.length) {
     button.addEventListener('click', () => {
       const target = button.dataset.tabTarget;
       if (!target) return;
+      if (isEditorPage) {
+        window.location.href = `index.html#${target}`;
+        return;
+      }
       setActiveTab(target);
+      if (window.location.hash !== `#${target}`) {
+        window.history.replaceState(null, '', `#${target}`);
+      }
     });
   });
+  const hashTarget = resolveTabFromHash();
+  if (hashTarget) {
+    activeTabId = hashTarget;
+  }
   setActiveTab(activeTabId);
 }
 

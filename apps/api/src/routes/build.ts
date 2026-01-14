@@ -71,4 +71,9 @@ router.get('/build/theme', async (c) => {
   return c.json({ ok: true, preset_id: preset.id, tokens: preset.tokens });
 });
 
+router.get('/build/meta', (c) => {
+  const tenant = c.get('buildTenant');
+  return c.json({ tenant: { id: tenant.id, slug: tenant.slug, name: tenant.name } });
+});
+
 export default router;
