@@ -299,7 +299,17 @@ export async function createPost(db: D1Database, tenantId: string, input: Partia
 
 export async function listPosts(db: D1Database, tenantId: string): Promise<PostRow[]> {
   const { results } = await db
-    .prepare('SELECT * FROM posts WHERE tenant_id = ? ORDER BY created_at DESC')
+    .prepare(
+      `SELECT posts.*,
+        COALESCE(SUM(page_views_daily.views), 0) AS view_count
+       FROM posts
+       LEFT JOIN page_views_daily
+         ON page_views_daily.tenant_id = posts.tenant_id
+        AND page_views_daily.page_key = posts.slug
+       WHERE posts.tenant_id = ?
+       GROUP BY posts.id
+       ORDER BY posts.created_at DESC`
+    )
     .bind(tenantId)
     .all<PostRow>();
   return (results ?? []) as PostRow[];
@@ -351,6 +361,14 @@ export async function updatePost(db: D1Database, tenantId: string, id: string, u
 
 export async function deletePost(db: D1Database, tenantId: string, id: string): Promise<void> {
   await db.prepare('DELETE FROM posts WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+}
+
+export async function purgeTrashedPosts(db: D1Database, cutoffEpoch: number): Promise<number> {
+  const result = await db
+    .prepare("DELETE FROM posts WHERE status = 'trashed' AND updated_at <= ?")
+    .bind(cutoffEpoch)
+    .run();
+  return result?.changes ?? 0;
 }
 
 export async function publishPost(db: D1Database, tenantId: string, id: string, publishTime: number): Promise<PostRow> {
@@ -720,6 +738,7 @@ export function mapPost(row: PostRow) {
   const publishedAt = toNumber((row as any).published_at ?? row.published_at);
   const createdAt = toNumber((row as any).created_at ?? row.created_at);
   const updatedAt = toNumber((row as any).updated_at ?? row.updated_at);
+  const viewCount = toNumber((row as any).view_count ?? 0) ?? 0;
   return {
     id: row.id,
     title: row.title,
@@ -728,6 +747,7 @@ export function mapPost(row: PostRow) {
     body_md: row.body_md,
     category_slug: row.category_slug,
     status: row.status,
+    view_count: viewCount,
     publish_at: publishAt,
     published_at: publishedAt,
     created_at: createdAt ?? undefined,

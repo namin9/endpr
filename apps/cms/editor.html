@@ -36,13 +36,21 @@
             </div>
             <div class="posts-toolbar">
               <button type="button" id="newPostBtn" class="primary">새 글</button>
+              <div class="posts-filters" role="tablist" aria-label="게시글 상태">
+                <button type="button" class="filter-button is-active" data-post-filter="all" role="tab">전체</button>
+                <button type="button" class="filter-button" data-post-filter="published" role="tab">발행</button>
+                <button type="button" class="filter-button" data-post-filter="scheduled" role="tab">발행 예약</button>
+                <button type="button" class="filter-button" data-post-filter="draft" role="tab">임시 저장</button>
+                <button type="button" class="filter-button" data-post-filter="paused" role="tab">게시 중단</button>
+                <button type="button" class="filter-button" data-post-filter="trashed" role="tab">휴지통</button>
+              </div>
             </div>
             <p id="postsStatus" class="muted">로딩 전</p>
             <div class="posts-table" role="table" aria-label="Posts">
               <div class="posts-row posts-row--head" role="row">
                 <div class="posts-cell">제목</div>
                 <div class="posts-cell">발행일</div>
-                <div class="posts-cell">배포 상태</div>
+                <div class="posts-cell">조회수</div>
                 <div class="posts-cell">작업</div>
               </div>
               <div id="postsList" class="posts-body" role="rowgroup"></div>
@@ -275,9 +283,9 @@
                 <button type="button" class="ghost" data-view-mode="edit">Edit Only</button>
                 <button type="button" class="ghost" data-view-mode="preview">Preview Only</button>
               </div>
+              <button type="button" id="previewToggleBtn" class="ghost">미리보기</button>
               <button type="button" id="manualSaveBtn" class="ghost">임시저장</button>
               <button type="button" id="publishBtn" class="primary">발행</button>
-              <button type="button" id="viewOnBlogBtn" class="ghost" disabled>View on blog</button>
             </div>
           </div>
           <p id="viewOnBlogHint" class="muted"></p>
@@ -336,7 +344,10 @@
             <div class="preview-pane">
               <div class="preview-header">
                 <span>미리보기</span>
-                <span id="previewStatus" class="muted">실시간</span>
+                <div class="row gap">
+                  <span id="previewStatus" class="muted">실시간</span>
+                  <button type="button" id="previewCloseBtn" class="ghost">닫기</button>
+                </div>
               </div>
               <div class="preview" id="previewPane"></div>
             </div>

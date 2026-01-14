@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS posts (
   excerpt TEXT,
   body_md TEXT,
   category_slug TEXT,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'scheduled', 'published')),
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'scheduled', 'published', 'paused', 'trashed')),
   publish_at INTEGER,
   published_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),

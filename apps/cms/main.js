@@ -41,6 +41,7 @@ const refreshPostsBtn = document.getElementById('refreshPostsBtn');
 const newPostBtn = document.getElementById('newPostBtn');
 const postsSearchInput = document.getElementById('postsSearchInput');
 const postsStatusFilter = document.getElementById('postsStatusFilter');
+const postsFilterButtons = Array.from(document.querySelectorAll('[data-post-filter]'));
 const postsPrevBtn = document.getElementById('postsPrevBtn');
 const postsNextBtn = document.getElementById('postsNextBtn');
 const postsPageInfo = document.getElementById('postsPageInfo');
@@ -49,6 +50,8 @@ const jobDetailEl = document.getElementById('jobDetail');
 const selectedPostMeta = document.getElementById('selectedPostMeta');
 const printBtn = document.getElementById('printBtn');
 const editorCard = document.querySelector('.editor-card');
+const previewToggleBtn = document.getElementById('previewToggleBtn');
+const previewCloseBtn = document.getElementById('previewCloseBtn');
 const viewModeButtons = Array.from(document.querySelectorAll('[data-view-mode]'));
 const viewOnBlogBtn = document.getElementById('viewOnBlogBtn');
 const viewOnBlogHint = document.getElementById('viewOnBlogHint');
@@ -138,7 +141,6 @@ let currentSession = load(SESSION_KEY, null);
 let currentPosts = [];
 let allPosts = [];
 let currentJobs = load(JOB_KEY, []);
-let latestJobByPostId = new Map();
 let currentCategories = [];
 let currentPrCampaigns = [];
 let currentPrMentions = [];
@@ -171,7 +173,7 @@ let autosaveState = {
   savedAt: null,
   error: null,
 };
-let currentViewMode = 'split';
+let currentViewMode = isEditorPage ? 'edit' : 'split';
 
 function load(key, fallback) {
   const raw = localStorage.getItem(key);
@@ -1047,6 +1049,7 @@ function normalizePost(rawPost) {
     publicUrl: rawPost?.public_url || rawPost?.publicUrl || null,
     body: rawPost?.body_md || rawPost?.body || '',
     categorySlug: rawPost?.category_slug || rawPost?.categorySlug || '',
+    viewCount: Number(rawPost?.view_count ?? rawPost?.viewCount ?? 0) || 0,
   };
 }
 
@@ -1666,7 +1669,9 @@ function getFilteredPosts() {
   if (query) {
     list = list.filter((post) => (post.title || '').toLowerCase().includes(query));
   }
-  if (postsView.status !== 'all') {
+  if (postsView.status === 'all') {
+    list = list.filter((post) => post.status !== 'trashed');
+  } else {
     list = list.filter((post) => (post.status || 'draft') === postsView.status);
   }
   return list;
@@ -1694,31 +1699,45 @@ function renderPostsPagination(totalPages) {
   postsPageInfo.textContent = `페이지 ${postsView.page} / ${totalPages}`;
 }
 
-function formatDeployStatus(job) {
-  if (!job?.status) {
-    return { label: '-', className: 'badge-draft' };
-  }
-  const labelMap = {
-    queued: '대기',
-    building: '배포 중',
-    success: '완료',
-    failed: '실패',
-    canceled: '취소',
-  };
-  return {
-    label: labelMap[job.status] || job.status,
-    className: `badge-${job.status}`,
-  };
+function updatePostFilterButtons() {
+  postsFilterButtons.forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.postFilter === postsView.status);
+  });
 }
 
-async function deletePost(postId) {
+function setPostFilter(status) {
+  postsView.status = status;
+  postsView.page = 1;
+  updatePostFilterButtons();
+  renderPosts();
+}
+
+const postStatusLabels = {
+  draft: '임시 저장',
+  scheduled: '발행 예약',
+  published: '발행',
+  paused: '게시 중단',
+  trashed: '휴지통',
+};
+
+async function trashPost(postId) {
   if (!postId) return;
   await apiFetch(`/cms/posts/${postId}`, { method: 'DELETE' });
 }
 
-async function cancelDeployJob(jobId) {
-  if (!jobId) return;
-  await apiFetch(`/cms/deploy-jobs/${jobId}/cancel`, { method: 'POST' });
+async function purgePost(postId) {
+  if (!postId) return;
+  await apiFetch(`/cms/posts/${postId}/purge`, { method: 'DELETE' });
+}
+
+async function unpublishPost(postId) {
+  if (!postId) return;
+  await apiFetch(`/cms/posts/${postId}/unpublish`, { method: 'POST' });
+}
+
+async function restorePost(postId) {
+  if (!postId) return;
+  await apiFetch(`/cms/posts/${postId}/autosave`, { method: 'POST', body: { status: 'draft' } });
 }
 
 function renderPosts() {
@@ -1759,25 +1778,39 @@ function renderPosts() {
     item.setAttribute('role', 'row');
     item.dataset.postId = post.id;
     const published = formatMaybeDate(post.publishedAt);
-    const latestJob = latestJobByPostId.get(post.id);
-    const deployStatus = formatDeployStatus(latestJob);
+    const statusLabel = postStatusLabels[post.status] || post.status || '임시 저장';
+    const viewCount = Number.isFinite(post.viewCount) ? post.viewCount : 0;
+    const actions = [];
+    if (post.status !== 'trashed') {
+      actions.push({ key: 'edit', label: '수정' });
+      actions.push({ key: 'trash', label: '휴지통', danger: true });
+      if (post.status === 'published') {
+        actions.push({ key: 'unpublish', label: '게시 중단', danger: true });
+      }
+      if (post.status === 'paused') {
+        actions.push({ key: 'republish', label: '발행 재개' });
+      }
+    } else {
+      actions.push({ key: 'restore', label: '복원' });
+      actions.push({ key: 'purge', label: '영구 삭제', danger: true });
+    }
     item.innerHTML = `
       <div class="posts-cell posts-title">
         <strong>${post.title || '제목 없음'}</strong>
         <span class="posts-id muted">#${post.id || '-'}</span>
+        <span class="badge badge-${post.status || 'draft'}">${statusLabel}</span>
       </div>
       <div class="posts-cell">${published}</div>
-      <div class="posts-cell">
-        <span class="badge ${deployStatus.className}">${deployStatus.label}</span>
-      </div>
+      <div class="posts-cell">${viewCount.toLocaleString()}</div>
       <div class="posts-cell posts-actions">
-        <button type="button" class="ghost" data-action="edit">수정</button>
-        <button type="button" class="ghost danger" data-action="delete">삭제</button>
-        ${
-          latestJob && ['queued', 'building'].includes(latestJob.status)
-            ? '<button type="button" class="ghost danger" data-action="cancel-deploy">배포 취소</button>'
-            : ''
-        }
+        ${actions
+          .map(
+            (action) =>
+              `<button type="button" class="ghost${action.danger ? ' danger' : ''}" data-action="${action.key}">${
+                action.label
+              }</button>`
+          )
+          .join('')}
       </div>
     `;
     if (!isDashboard) {
@@ -1794,11 +1827,11 @@ function renderPosts() {
           window.location.href = `editor.html?postId=${post.id}`;
           return;
         }
-        if (action === 'delete') {
-          if (!window.confirm('이 게시글을 삭제할까요?')) return;
+        if (action === 'trash') {
+          if (!window.confirm('이 게시글을 휴지통으로 보낼까요?')) return;
           try {
             target.setAttribute('disabled', 'true');
-            await deletePost(post.id);
+            await trashPost(post.id);
             await fetchPosts();
           } catch (error) {
             setStatus(postsStatusEl, formatError(error), true);
@@ -1806,12 +1839,46 @@ function renderPosts() {
             target.removeAttribute('disabled');
           }
         }
-        if (action === 'cancel-deploy' && latestJob?.id) {
-          if (!window.confirm('배포를 취소할까요?')) return;
+        if (action === 'purge') {
+          if (!window.confirm('이 게시글을 영구 삭제할까요?')) return;
           try {
             target.setAttribute('disabled', 'true');
-            await cancelDeployJob(latestJob.id);
-            await fetchDeployJobs();
+            await purgePost(post.id);
+            await fetchPosts();
+          } catch (error) {
+            setStatus(postsStatusEl, formatError(error), true);
+          } finally {
+            target.removeAttribute('disabled');
+          }
+        }
+        if (action === 'restore') {
+          try {
+            target.setAttribute('disabled', 'true');
+            await restorePost(post.id);
+            await fetchPosts();
+          } catch (error) {
+            setStatus(postsStatusEl, formatError(error), true);
+          } finally {
+            target.removeAttribute('disabled');
+          }
+        }
+        if (action === 'unpublish') {
+          if (!window.confirm('게시글을 게시 중단할까요?')) return;
+          try {
+            target.setAttribute('disabled', 'true');
+            await unpublishPost(post.id);
+            await fetchPosts();
+          } catch (error) {
+            setStatus(postsStatusEl, formatError(error), true);
+          } finally {
+            target.removeAttribute('disabled');
+          }
+        }
+        if (action === 'republish') {
+          if (!window.confirm('게시글을 다시 발행할까요?')) return;
+          try {
+            target.setAttribute('disabled', 'true');
+            await apiFetch(`/cms/posts/${post.id}/publish`, { method: 'POST' });
             await fetchPosts();
           } catch (error) {
             setStatus(postsStatusEl, formatError(error), true);
@@ -1892,6 +1959,7 @@ async function fetchPosts() {
 
     currentPosts = allPosts.slice();
     renderPosts();
+    updatePostFilterButtons();
     await maybeOpenInitialPost();
   } catch (error) {
     renderPostsState({
@@ -1953,6 +2021,13 @@ if (postsStatusFilter) {
     renderPosts();
   });
 }
+
+postsFilterButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    const status = button.dataset.postFilter || 'all';
+    setPostFilter(status);
+  });
+});
 
 postsPrevBtn.addEventListener('click', () => {
   if (postsView.page <= 1) return;
@@ -2028,6 +2103,18 @@ viewModeButtons.forEach((button) => {
   });
 });
 
+if (previewToggleBtn) {
+  previewToggleBtn.addEventListener('click', () => {
+    setViewMode('preview');
+  });
+}
+
+if (previewCloseBtn) {
+  previewCloseBtn.addEventListener('click', () => {
+    setViewMode('edit');
+  });
+}
+
 function normalizeJob(rawJob, overrides = {}) {
   return {
     id: rawJob?.id || overrides.id,
@@ -2087,20 +2174,6 @@ function updateJobs(list) {
     .slice()
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 10);
-  latestJobByPostId = new Map();
-  normalized.forEach((job) => {
-    if (!job.postId) return;
-    const existing = latestJobByPostId.get(job.postId);
-    if (!existing) {
-      latestJobByPostId.set(job.postId, job);
-      return;
-    }
-    const existingTime = new Date(existing.updatedAt || existing.createdAt).getTime();
-    const nextTime = new Date(job.updatedAt || job.createdAt).getTime();
-    if (nextTime >= existingTime) {
-      latestJobByPostId.set(job.postId, job);
-    }
-  });
   save(JOB_KEY, currentJobs);
   renderJobs();
 }
@@ -2280,6 +2353,9 @@ publishBtn.addEventListener('click', async () => {
     const url = buildBlogUrl(postPayload);
     if (url) {
       publishLink.innerHTML = `<a href="${url}" target="_blank" rel="noopener">블로그에서 보기 →</a>`;
+    }
+    if (isEditorPage) {
+      window.location.href = 'index.html';
     }
   } catch (error) {
     setStatus(publishMessage, formatError(error), true);
