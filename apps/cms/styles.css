@@ -900,6 +900,10 @@ button:active {
   gap: 12px;
 }
 
+.modal-body select {
+  width: 100%;
+}
+
 .modal-footer {
   margin-top: 12px;
   display: flex;

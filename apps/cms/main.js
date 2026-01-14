@@ -146,6 +146,7 @@ let currentDraft = load(DRAFT_KEY, {
   categorySlug: '',
   slug: null,
   publicUrl: null,
+  publishAt: null,
 });
 let currentSession = load(SESSION_KEY, null);
 let currentPosts = [];
@@ -868,6 +869,7 @@ function persistDraft(partial) {
   renderPreview();
   renderSelectedPostMeta();
   updateViewOnBlogButton();
+  updateScheduleButtons();
 }
 
 function renderSelectedPostMeta() {
@@ -878,6 +880,13 @@ function renderSelectedPostMeta() {
   const status = currentDraft.status ? ` · ${currentDraft.status}` : '';
   const savedAt = currentDraft.savedAt ? ` · ${formatTime(new Date(currentDraft.savedAt))}` : '';
   selectedPostMeta.textContent = `ID ${currentDraft.id}${status}${savedAt}`;
+}
+
+function updateScheduleButtons() {
+  if (!scheduleBtn || !cancelScheduleBtn) return;
+  const isScheduled = currentDraft?.status === 'scheduled';
+  scheduleBtn.textContent = isScheduled ? '예약 수정' : '예약 발행';
+  cancelScheduleBtn.classList.toggle('hidden', !isScheduled);
 }
 
 function setAutosaveState(state, message, isError = false) {
@@ -947,16 +956,30 @@ function openScheduleModal() {
   scheduleStatus.textContent = '';
   const today = new Date();
   const todayValue = today.toISOString().slice(0, 10);
-  scheduleDateInput.value = scheduleDateInput.value || todayValue;
+  if (currentDraft?.publishAt) {
+    const publishDate = new Date(currentDraft.publishAt * 1000);
+    scheduleDateInput.value = publishDate.toISOString().slice(0, 10);
+  } else {
+    scheduleDateInput.value = scheduleDateInput.value || todayValue;
+  }
   scheduleDateInput.min = todayValue;
   scheduleTimeSelect.innerHTML = '';
-  buildScheduleTimes().forEach((time) => {
+  const times = buildScheduleTimes();
+  times.forEach((time) => {
     const option = document.createElement('option');
     option.value = time;
     option.textContent = time;
     scheduleTimeSelect.appendChild(option);
   });
-  scheduleTimeSelect.value = scheduleTimeSelect.value || buildScheduleTimes()[0];
+  if (currentDraft?.publishAt) {
+    const publishDate = new Date(currentDraft.publishAt * 1000);
+    const hh = String(publishDate.getHours()).padStart(2, '0');
+    const mm = String(Math.floor(publishDate.getMinutes() / 10) * 10).padStart(2, '0');
+    const value = `${hh}:${mm}`;
+    scheduleTimeSelect.value = times.includes(value) ? value : times[0];
+  } else {
+    scheduleTimeSelect.value = scheduleTimeSelect.value || times[0];
+  }
   setScheduleStep('date');
 }
 
@@ -1009,6 +1032,7 @@ async function schedulePublish() {
       slug: updated.slug,
       publicUrl: updated.publicUrl,
       categorySlug: updated.categorySlug || '',
+      publishAt: updated.publishAt,
     });
     scheduleStatus.textContent = '예약 완료';
     closeScheduleModal();
@@ -1025,7 +1049,7 @@ async function cancelSchedule() {
       method: 'POST',
       body: { status: 'draft', publish_at: null },
     });
-    persistDraft({ status: 'draft' });
+    persistDraft({ status: 'draft', publishAt: null });
     fetchPosts();
   } catch (error) {
     setStatus(autosaveStatus, formatError(error), true);
@@ -1078,6 +1102,7 @@ async function saveDraftToApi(title, body) {
       savedAt,
       status: saved?.post?.status,
       categorySlug: categorySlug || '',
+      publishAt: saved?.post?.publish_at ?? saved?.post?.publishAt ?? currentDraft.publishAt ?? null,
     });
     autosaveState = {
       dirty: false,
@@ -1171,6 +1196,7 @@ function normalizePost(rawPost) {
     status: rawPost?.status || rawPost?.state || 'draft',
     updatedAt: rawPost?.updated_at_iso || rawPost?.updated_at || rawPost?.saved_at || null,
     publishedAt: rawPost?.published_at_iso || rawPost?.published_at || rawPost?.publishedAt || null,
+    publishAt: rawPost?.publish_at ?? rawPost?.publishAt ?? null,
     slug: rawPost?.slug || rawPost?.slug_id || rawPost?.slugId || null,
     publicUrl: rawPost?.public_url || rawPost?.publicUrl || null,
     body: rawPost?.body_md || rawPost?.body || '',
@@ -2118,6 +2144,7 @@ async function selectPost(post) {
     slug: next.slug,
     publicUrl: next.publicUrl,
     categorySlug: next.categorySlug || '',
+    publishAt: next.publishAt,
   });
   titleInput.value = next.title || '';
   if (categorySelect) {
@@ -2936,6 +2963,7 @@ function hydrateFromStorage() {
   setViewMode(currentViewMode);
   updateViewOnBlogButton();
   clearShareLink();
+  updateScheduleButtons();
 }
 
 hydrateFromStorage();
