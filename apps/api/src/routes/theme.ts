@@ -6,7 +6,7 @@ import { isSuperAdmin } from '../super_admin';
 import { THEME_PRESETS } from '../theme/presets';
 
 const router = new Hono();
-const DEFAULT_PRESET_ID = 'minimal-clean';
+const DEFAULT_PRESET_ID = 'type-a-portal';
 
 type ThemeConfig = {
   preset_id: string;
@@ -77,9 +77,11 @@ router.get('/cms/theme/presets', async (c) => {
   const presets = THEME_PRESETS.map((preset) => ({
     id: preset.id,
     name: preset.name,
+    description: preset.description,
+    layout_type: preset.layout_type,
     swatch: {
-      bg: preset.tokens.light['--bg'],
-      primary: preset.tokens.light['--primary'],
+      bg: preset.tokens['--bg'],
+      primary: preset.tokens['--accent'],
     },
   }));
   return c.json({ ok: true, presets });
@@ -89,7 +91,12 @@ router.get('/cms/theme/tokens', async (c) => {
   const tenant = c.get('tenant');
   const config = await readThemeConfig(c, tenant.id);
   const preset = resolvePreset(config.preset_id);
-  return c.json({ ok: true, preset_id: preset.id, tokens: preset.tokens });
+  return c.json({
+    ok: true,
+    preset_id: preset.id,
+    layout_type: preset.layout_type,
+    tokens: preset.tokens,
+  });
 });
 
 router.put('/cms/theme', async (c) => {

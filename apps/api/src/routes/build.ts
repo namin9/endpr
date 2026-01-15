@@ -12,7 +12,7 @@ import {
 import { THEME_PRESETS } from '../theme/presets';
 
 const router = new Hono();
-const DEFAULT_PRESET_ID = 'minimal-clean';
+const DEFAULT_PRESET_ID = 'type-a-portal';
 const DEFAULT_HOME_LAYOUT = [
   { type: 'hero', title: '주요 뉴스', limit: 1 },
   { type: 'latest', title: '최신글', limit: 6 },
@@ -184,7 +184,12 @@ router.get('/build/theme', async (c) => {
   const tenant = c.get('buildTenant');
   const config = await readThemeConfig(c, tenant.id);
   const preset = resolvePreset(config.preset_id);
-  return c.json({ ok: true, preset_id: preset.id, tokens: preset.tokens });
+  return c.json({
+    ok: true,
+    preset_id: preset.id,
+    layout_type: preset.layout_type,
+    tokens: preset.tokens,
+  });
 });
 
 router.get('/build/meta', (c) => {

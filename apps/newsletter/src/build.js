@@ -454,21 +454,15 @@ function buildThemeStyle(tokens) {
     Object.entries(vars)
       .map(([key, value]) => `  ${key}: ${value};`)
       .join("\n");
-  const light = toCss(tokens.light || {});
-  const dark = toCss(tokens.dark || {});
+  const rootTokens = toCss(tokens || {});
   return `<style id="theme-tokens">
 :root {
-${light}
+${rootTokens}
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-${dark}
-  }
-}
-body { background: var(--bg); color: var(--fg); font-family: var(--font-sans); }
-a { color: var(--link); }
-hr, .border, .card, .post-card { border-color: var(--border); }
-.card, .post-card { border-radius: var(--radius); }
+body { background: var(--bg, #ffffff); color: var(--fg, #111827); font-family: var(--font-body, var(--font-sans, "ui-sans-serif")); }
+a { color: var(--accent, var(--link, #2563eb)); }
+hr, .border, .card, .post-card { border-color: var(--border, #e5e7eb); }
+.card, .post-card { border-radius: var(--radius, 12px); }
 </style>`;
 }
 

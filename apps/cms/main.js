@@ -378,9 +378,8 @@ function buildThemeStyle(tokens, scopeSelector) {
     Object.entries(vars)
       .map(([key, value]) => `  ${key}: ${value};`)
       .join('\n');
-  return `${scopeSelector} {\n${toCss(tokens.light)}\n}\n@media (prefers-color-scheme: dark) {\n  ${scopeSelector} {\n${toCss(
-    tokens.dark
-  )}\n  }\n}\n${scopeSelector} {\n  background: var(--bg);\n  color: var(--fg);\n  font-family: var(--font-sans);\n  border: 1px solid var(--border);\n  border-radius: var(--radius);\n}\n${scopeSelector} a {\n  color: var(--link);\n}\n${scopeSelector} hr {\n  border-color: var(--border);\n}\n${scopeSelector} .card, ${scopeSelector} .border {\n  border-color: var(--border);\n  border-radius: var(--radius);\n}`;
+  const rootTokens = toCss(tokens || {});
+  return `${scopeSelector} {\n${rootTokens}\n}\n${scopeSelector} {\n  background: var(--bg, #ffffff);\n  color: var(--fg, #111827);\n  font-family: var(--font-body, var(--font-sans, "ui-sans-serif"));\n  border: 1px solid var(--border, #e5e7eb);\n  border-radius: var(--radius, 12px);\n}\n${scopeSelector} a {\n  color: var(--accent, var(--link, #2563eb));\n}\n${scopeSelector} hr {\n  border-color: var(--border, #e5e7eb);\n}\n${scopeSelector} .card, ${scopeSelector} .border {\n  border-color: var(--border, #e5e7eb);\n  border-radius: var(--radius, 12px);\n}`;
 }
 
 function applyPreviewTheme(tokens) {
