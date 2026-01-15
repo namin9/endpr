@@ -14,6 +14,7 @@
         <h1 class="topbar-title">CMS</h1>
         <div class="tab-bar" role="tablist" aria-label="CMS Navigation">
           <button type="button" class="tab-button is-active" data-tab-target="content" role="tab">콘텐츠</button>
+          <button type="button" class="tab-button" data-tab-target="subscribers" role="tab">구독자</button>
           <button type="button" class="tab-button" data-tab-target="inquiries" role="tab">문의함</button>
           <button type="button" class="tab-button" data-tab-target="theme" role="tab">테마</button>
           <button type="button" class="tab-button" data-tab-target="site" role="tab">사이트 설정</button>
@@ -134,6 +135,17 @@
             </div>
             <p id="inquiriesStatus" class="muted">로딩 전</p>
             <div id="inquiriesList" class="inquiry-list"></div>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="subscribers" role="tabpanel">
+          <section class="card" aria-labelledby="subscribers-heading">
+            <div class="card-header">
+              <h2 id="subscribers-heading">구독자</h2>
+              <button type="button" id="exportSubscribersBtn" class="primary">엑셀로 다운로드(CSV)</button>
+            </div>
+            <p class="muted">CSV 파일로 구독자 목록을 내려받을 수 있습니다.</p>
+            <div id="subscribersStatus" class="muted"></div>
           </section>
         </div>
 

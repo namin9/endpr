@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { createInquiry, getTenantBySlug } from '../db';
+import { createInquiry, createSubscriber, getTenantBySlug } from '../db';
 
 const router = new Hono();
 const INQUIRY_MAX_LENGTH = 5000;
@@ -45,6 +45,30 @@ router.post('/public/inquiry', async (c) => {
   }
 
   await createInquiry(c.env.DB, tenant.id, { type: resolvedType, data: serialized });
+  return c.json({ ok: true }, 201);
+});
+
+router.post('/public/subscribe', async (c) => {
+  let body: any = null;
+  try {
+    body = await c.req.json();
+  } catch {
+    body = await c.req.parseBody();
+  }
+  const { tenantSlug, email } = body || {};
+  if (!tenantSlug || !email) {
+    return c.json({ error: 'tenantSlug and email are required' }, 400);
+  }
+
+  const tenant = await getTenantBySlug(c.env.DB, tenantSlug);
+  if (!tenant) return c.json({ error: 'Tenant not found' }, 404);
+
+  const trimmedEmail = String(email).trim().toLowerCase();
+  if (!trimmedEmail || trimmedEmail.length > 254) {
+    return c.json({ error: 'email is invalid' }, 400);
+  }
+
+  await createSubscriber(c.env.DB, tenant.id, trimmedEmail);
   return c.json({ ok: true }, 201);
 });
 

@@ -72,12 +72,21 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
     };
   }
 
-  const postsResp = await fetchJson(`${apiBase}/build/posts`, buildToken);
-  const postsIndex = Array.isArray(postsResp)
-    ? postsResp
-    : postsResp.posts ?? [];
-  if (!Array.isArray(postsIndex)) {
-    throw new Error("Invalid /build/posts response shape");
+  const allPosts = [];
+  let page = 1;
+  let hasNext = true;
+  while (hasNext) {
+    if (page > 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const postsResp = await fetchJson(`${apiBase}/build/posts?page=${page}&limit=100`, buildToken);
+    const chunk = Array.isArray(postsResp) ? postsResp : postsResp.posts ?? [];
+    if (!Array.isArray(chunk)) {
+      throw new Error("Invalid /build/posts response shape");
+    }
+    allPosts.push(...chunk);
+    hasNext = Boolean(postsResp?.meta?.has_next);
+    page += 1;
   }
 
   const categoriesResp = await fetchJson(`${apiBase}/build/categories`, buildToken);
@@ -115,7 +124,7 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
   } catch (error) {
     console.warn("Failed to load home layout, falling back to empty sections.", error);
   }
-  return { posts: postsIndex, categories: categoriesIndex, theme: themePayload, meta, siteConfig, homeSections };
+  return { posts: allPosts, categories: categoriesIndex, theme: themePayload, meta, siteConfig, homeSections };
 }
 
 async function resetDist() {
@@ -150,10 +159,14 @@ function sanitizeHtmlAttributes(rawAttrs) {
     const name = match[1];
     const rawValue = match[2] ?? match[3] ?? match[4] ?? "";
     if (/^on/i.test(name)) continue;
-    if (["href", "src"].includes(name.toLowerCase())) {
+    if (["href", "src", "action"].includes(name.toLowerCase())) {
       const sanitized = sanitizeUrl(rawValue, { allowDataImage: name.toLowerCase() === "src" });
       if (!sanitized) continue;
       attrs.push(`${name}="${escapeHtml(sanitized)}"`);
+      continue;
+    }
+    if (["name", "type", "value", "placeholder", "required", "method"].includes(name.toLowerCase())) {
+      attrs.push(`${name}="${escapeHtml(rawValue)}"`);
       continue;
     }
     if (["class", "style"].includes(name.toLowerCase())) {
@@ -181,12 +194,20 @@ function sanitizeHtmlBlock(html) {
     "ul",
     "ol",
     "li",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "th",
+    "td",
     "h1",
     "h2",
     "h3",
     "h4",
     "h5",
     "h6",
+    "hr",
+    "del",
     "a",
     "img",
     "form",
@@ -298,6 +319,17 @@ function processShortcodes(text = "") {
     return `<a class="btn btn-${color}" href="${escapeHtml(link)}">${label}</a>`;
   });
 
+  output = output.replace(/\[Newsletter\]/gi, () => {
+    const apiBase = analyticsConfig.apiBase ? analyticsConfig.apiBase.replace(/\/$/, "") : "";
+    const actionUrl = apiBase ? `${apiBase}/public/subscribe` : "/public/subscribe";
+    const tenantSlug = analyticsConfig.tenantSlug || "";
+    return `<form class="newsletter" method="post" action="${escapeHtml(actionUrl)}">
+  <input type="hidden" name="tenantSlug" value="${escapeHtml(tenantSlug)}" />
+  <input type="email" name="email" placeholder="이메일을 입력하세요" required />
+  <button type="submit" class="btn btn-primary">구독하기</button>
+</form>`;
+  });
+
   return output;
 }
 
@@ -405,6 +437,8 @@ function layoutHtml({
   .btn-secondary { background: #e5e7eb; color: #111827; }
   .hero { padding: 80px 24px; text-align: center; color: #fff; background-size: cover; background-position: center; border-radius: 18px; margin: 24px 0; }
   .hero-content { max-width: 720px; margin: 0 auto; backdrop-filter: blur(2px); }
+  .newsletter { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; }
+  .newsletter input { padding: 10px 12px; border-radius: 8px; border: 1px solid #e2e8f0; flex: 1; min-width: 200px; }
   .hero-banner { padding: 64px 24px; text-align: center; color: #fff; background-size: cover; background-position: center; border-radius: 16px; margin-bottom: 32px; }
   .hero-banner.sm { min-height: 200px; }
   .hero-banner.md { min-height: 320px; }

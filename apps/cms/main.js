@@ -176,6 +176,8 @@ const clearPrSelectionBtn = document.getElementById('clearPrSelectionBtn');
 const inquiriesStatus = document.getElementById('inquiriesStatus');
 const inquiriesList = document.getElementById('inquiriesList');
 const refreshInquiriesBtn = document.getElementById('refreshInquiriesBtn');
+const exportSubscribersBtn = document.getElementById('exportSubscribersBtn');
+const subscribersStatus = document.getElementById('subscribersStatus');
 
 const pageMode = document.body?.dataset?.page || 'editor';
 const isDashboard = pageMode === 'dashboard';
@@ -3702,6 +3704,31 @@ if (refreshCategoriesBtn) {
 if (refreshInquiriesBtn) {
   refreshInquiriesBtn.addEventListener('click', () => {
     fetchInquiries();
+  });
+}
+
+if (exportSubscribersBtn) {
+  exportSubscribersBtn.addEventListener('click', async () => {
+    try {
+      if (subscribersStatus) setStatus(subscribersStatus, '다운로드 준비 중...');
+      const response = await fetch(buildUrl('/cms/subscribers/export'), { credentials: 'include' });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `다운로드 실패 (${response.status})`);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `subscribers-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      if (subscribersStatus) setStatus(subscribersStatus, '다운로드 완료');
+    } catch (error) {
+      if (subscribersStatus) setStatus(subscribersStatus, formatError(error), true);
+    }
   });
 }
 

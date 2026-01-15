@@ -54,6 +54,13 @@ export type InquiryRow = {
   created_at: number;
 };
 
+export type SubscriberRow = {
+  id: string;
+  tenant_id: string;
+  email: string;
+  created_at: number;
+};
+
 export type DeployJobRow = {
   id: string;
   tenant_id: string;
@@ -477,6 +484,36 @@ export async function markInquiryRead(db: D1Database, tenantId: string, id: stri
     .bind(id, tenantId)
     .first<InquiryRow>();
   return updated ?? null;
+}
+
+export async function createSubscriber(
+  db: D1Database,
+  tenantId: string,
+  email: string
+): Promise<SubscriberRow | null> {
+  const id = uuidv4();
+  const now = Math.floor(Date.now() / 1000);
+  await db
+    .prepare(
+      `INSERT INTO subscribers (id, tenant_id, email, created_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(tenant_id, email) DO NOTHING`
+    )
+    .bind(id, tenantId, email, now)
+    .run();
+  const created = await db
+    .prepare('SELECT * FROM subscribers WHERE tenant_id = ? AND email = ?')
+    .bind(tenantId, email)
+    .first<SubscriberRow>();
+  return created ?? null;
+}
+
+export async function listSubscribers(db: D1Database, tenantId: string): Promise<SubscriberRow[]> {
+  const { results } = await db
+    .prepare('SELECT * FROM subscribers WHERE tenant_id = ? ORDER BY created_at DESC')
+    .bind(tenantId)
+    .all<SubscriberRow>();
+  return (results ?? []) as SubscriberRow[];
 }
 
 export async function deletePost(db: D1Database, tenantId: string, id: string): Promise<void> {

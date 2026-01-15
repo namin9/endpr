@@ -3,7 +3,6 @@ import { buildTokenMiddleware } from '../middleware/rbac';
 import {
   getSiteConfig,
   listEnabledCategories,
-  listPublishedPosts,
   listPublishedPostsByIds,
   listPublishedPostsBySlugs,
   listPublishedPostsWithViews,
@@ -87,8 +86,25 @@ router.use('/build/*', buildTokenMiddleware);
 
 router.get('/build/posts', async (c) => {
   const tenant = c.get('buildTenant');
-  const posts = await listPublishedPosts(c.env.DB, tenant.id);
-  return c.json({ posts: posts.map(mapPost) });
+  const pageParam = Number.parseInt(c.req.query('page') || '1', 10);
+  const limitParam = Number.parseInt(c.req.query('limit') || '100', 10);
+  const page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
+  const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 200) : 100;
+  const offset = (page - 1) * limit;
+
+  const { results } = await c.env.DB.prepare(
+    `SELECT * FROM posts
+     WHERE tenant_id = ? AND status = 'published'
+     ORDER BY published_at DESC
+     LIMIT ? OFFSET ?`
+  )
+    .bind(tenant.id, limit + 1, offset)
+    .all();
+
+  const rows = (results ?? []) as any[];
+  const hasNext = rows.length > limit;
+  const sliced = rows.slice(0, limit);
+  return c.json({ posts: sliced.map(mapPost), meta: { has_next: hasNext } });
 });
 
 router.get('/build/post/:slug', async (c) => {
