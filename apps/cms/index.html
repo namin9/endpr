@@ -17,6 +17,7 @@
           <button type="button" class="tab-button" data-tab-target="subscribers" role="tab">구독자</button>
           <button type="button" class="tab-button" data-tab-target="inquiries" role="tab">문의함</button>
           <button type="button" class="tab-button" data-tab-target="theme" role="tab">테마</button>
+          <button type="button" class="tab-button" data-tab-target="marketing" role="tab">마케팅</button>
           <button type="button" class="tab-button" data-tab-target="site" role="tab">사이트 설정</button>
           <button type="button" class="tab-button" data-tab-target="admin" role="tab" data-admin-tab>관리</button>
           <button type="button" class="tab-button" data-tab-target="pr" role="tab">PR</button>
@@ -124,6 +125,104 @@
               <button type="button" id="themeSaveBtn" class="primary">테마 저장</button>
               <span id="themeSaveStatus" class="muted"></span>
             </div>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="marketing" role="tabpanel">
+          <section class="card" aria-labelledby="popups-heading">
+            <div class="card-header">
+              <h2 id="popups-heading">팝업 관리</h2>
+              <div class="row gap">
+                <button type="button" id="addPopupBtn" class="ghost">팝업 추가</button>
+                <button type="button" id="refreshPopupsBtn" class="ghost">새로고침</button>
+              </div>
+            </div>
+            <p id="popupsStatus" class="muted">로딩 전</p>
+            <div id="popupsList" class="category-list"></div>
+            <div class="divider"></div>
+            <form id="popupForm" class="stack">
+              <label class="field">
+                <span>제목</span>
+                <input id="popupTitleInput" placeholder="예: 신규 이벤트 팝업" />
+              </label>
+              <label class="field">
+                <span>유형</span>
+                <select id="popupTypeInput">
+                  <option value="modal">Modal</option>
+                  <option value="topbar">Top Bar</option>
+                  <option value="bottombar">Bottom Bar</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>내용</span>
+                <textarea id="popupContentInput" rows="4" placeholder="팝업 내용을 입력하세요"></textarea>
+              </label>
+              <div class="row gap wrap">
+                <label class="field inline">
+                  <span>시작</span>
+                  <input id="popupStartInput" type="datetime-local" />
+                </label>
+                <label class="field inline">
+                  <span>종료</span>
+                  <input id="popupEndInput" type="datetime-local" />
+                </label>
+                <label class="field inline">
+                  <span>활성</span>
+                  <input id="popupActiveInput" type="checkbox" checked />
+                </label>
+              </div>
+              <div class="row gap">
+                <button type="submit" class="primary">저장</button>
+                <button type="button" id="popupResetBtn" class="ghost">폼 초기화</button>
+              </div>
+              <div id="popupFormStatus" class="muted"></div>
+            </form>
+          </section>
+
+          <section class="card" aria-labelledby="banners-heading">
+            <div class="card-header">
+              <h2 id="banners-heading">배너 관리</h2>
+              <div class="row gap">
+                <button type="button" id="addBannerBtn" class="ghost">배너 추가</button>
+                <button type="button" id="refreshBannersBtn" class="ghost">새로고침</button>
+              </div>
+            </div>
+            <p id="bannersStatus" class="muted">로딩 전</p>
+            <div id="bannersList" class="category-list"></div>
+            <div class="divider"></div>
+            <form id="bannerForm" class="stack">
+              <label class="field">
+                <span>위치</span>
+                <select id="bannerLocationInput">
+                  <option value="home_top">Home Top</option>
+                  <option value="sidebar">Sidebar</option>
+                  <option value="post_bottom">Post Bottom</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>이미지 URL</span>
+                <input id="bannerImageInput" placeholder="https://..." />
+              </label>
+              <label class="field">
+                <span>링크 URL</span>
+                <input id="bannerLinkInput" placeholder="https://..." />
+              </label>
+              <div class="row gap wrap">
+                <label class="field inline">
+                  <span>순서</span>
+                  <input id="bannerOrderInput" type="number" min="0" placeholder="자동" />
+                </label>
+                <label class="field inline">
+                  <span>활성</span>
+                  <input id="bannerActiveInput" type="checkbox" checked />
+                </label>
+              </div>
+              <div class="row gap">
+                <button type="submit" class="primary">저장</button>
+                <button type="button" id="bannerResetBtn" class="ghost">폼 초기화</button>
+              </div>
+              <div id="bannerFormStatus" class="muted"></div>
+            </form>
           </section>
         </div>
 
@@ -301,8 +400,8 @@
                 <span>권한</span>
                 <select id="userRoleInput">
                   <option value="editor">editor</option>
-                  <option value="admin">admin</option>
-                  <option value="super">super</option>
+                  <option value="tenant_admin">tenant_admin</option>
+                  <option value="super_admin">super_admin</option>
                 </select>
               </label>
               <label class="field">

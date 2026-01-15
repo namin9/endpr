@@ -102,6 +102,35 @@ const themePresetList = document.getElementById('themePresetList');
 const themeSaveBtn = document.getElementById('themeSaveBtn');
 const themeSaveStatus = document.getElementById('themeSaveStatus');
 const refreshThemeBtn = document.getElementById('refreshThemeBtn');
+const marketingTabButton = document.querySelector('[data-tab-target="marketing"]');
+const marketingTabPanel = document.querySelector('[data-tab-panel="marketing"]');
+const siteTabButton = document.querySelector('[data-tab-target="site"]');
+const siteTabPanel = document.querySelector('[data-tab-panel="site"]');
+const popupsStatus = document.getElementById('popupsStatus');
+const popupsList = document.getElementById('popupsList');
+const refreshPopupsBtn = document.getElementById('refreshPopupsBtn');
+const addPopupBtn = document.getElementById('addPopupBtn');
+const popupForm = document.getElementById('popupForm');
+const popupTitleInput = document.getElementById('popupTitleInput');
+const popupTypeInput = document.getElementById('popupTypeInput');
+const popupContentInput = document.getElementById('popupContentInput');
+const popupStartInput = document.getElementById('popupStartInput');
+const popupEndInput = document.getElementById('popupEndInput');
+const popupActiveInput = document.getElementById('popupActiveInput');
+const popupResetBtn = document.getElementById('popupResetBtn');
+const popupFormStatus = document.getElementById('popupFormStatus');
+const bannersStatus = document.getElementById('bannersStatus');
+const bannersList = document.getElementById('bannersList');
+const refreshBannersBtn = document.getElementById('refreshBannersBtn');
+const addBannerBtn = document.getElementById('addBannerBtn');
+const bannerForm = document.getElementById('bannerForm');
+const bannerLocationInput = document.getElementById('bannerLocationInput');
+const bannerImageInput = document.getElementById('bannerImageInput');
+const bannerLinkInput = document.getElementById('bannerLinkInput');
+const bannerOrderInput = document.getElementById('bannerOrderInput');
+const bannerActiveInput = document.getElementById('bannerActiveInput');
+const bannerResetBtn = document.getElementById('bannerResetBtn');
+const bannerFormStatus = document.getElementById('bannerFormStatus');
 const siteConfigStatus = document.getElementById('siteConfigStatus');
 const siteConfigForm = document.getElementById('siteConfigForm');
 const siteLogoInput = document.getElementById('siteLogoInput');
@@ -210,6 +239,8 @@ let currentPrMentions = [];
 let currentPrReports = [];
 let currentInquiries = [];
 let selectedPrCampaignId = null;
+let currentPopups = [];
+let currentBanners = [];
 let themePresets = [];
 let currentThemeConfig = { presetId: 'minimal-clean', updatedAt: null };
 let selectedThemePresetId = null;
@@ -309,8 +340,30 @@ function resolveIsSuperAdmin(session) {
   const user = session?.user || {};
   if (typeof user.is_super_admin === 'boolean') return user.is_super_admin;
   if (typeof user.isSuperAdmin === 'boolean') return user.isSuperAdmin;
-  if (user.role) return user.role === 'super';
+  if (user.role) return user.role === 'super_admin' || user.role === 'super';
   return false;
+}
+
+function resolveUserRole(session) {
+  return session?.user?.role || session?.role || null;
+}
+
+function isEditorSession(session = currentSession) {
+  return resolveUserRole(session) === 'editor';
+}
+
+function applyRoleUiState(role) {
+  const isEditor = role === 'editor';
+  if (siteTabButton) siteTabButton.style.display = isEditor ? 'none' : '';
+  if (siteTabPanel) siteTabPanel.style.display = isEditor ? 'none' : '';
+  if (marketingTabButton) marketingTabButton.style.display = isEditor ? 'none' : '';
+  if (marketingTabPanel) marketingTabPanel.style.display = isEditor ? 'none' : '';
+  if (isEditor && ['site', 'marketing', 'admin'].includes(activeTabId)) {
+    setActiveTab('content');
+    if (!isEditorPage) {
+      window.history.replaceState(null, '', '#content');
+    }
+  }
 }
 
 function setActiveTab(tabId) {
@@ -341,6 +394,18 @@ function toggleFormDisabled(form, disabled) {
   elements.forEach((element) => {
     element.disabled = disabled;
   });
+}
+
+function parseDatetimeInput(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  return Math.floor(parsed.getTime() / 1000);
+}
+
+function formatUnixSeconds(value) {
+  if (!value) return '-';
+  return formatTime(new Date(value * 1000));
 }
 
 function applyAdminUiState(isSuperAdmin) {
@@ -633,6 +698,13 @@ async function apiFetch(path, options = {}) {
     const err = new Error(message);
     err.status = response.status;
     err.data = data;
+    if (response.status === 403 && isEditorSession()) {
+      alert('접근 권한이 없습니다. 홈으로 이동합니다.');
+      setActiveTab('content');
+      if (!isEditorPage) {
+        window.history.replaceState(null, '', '#content');
+      }
+    }
     throw err;
   }
 
@@ -670,6 +742,7 @@ function persistSession(session) {
   save(SESSION_KEY, session);
   themeIsSuperAdmin = resolveIsSuperAdmin(session);
   applyAdminUiState(themeIsSuperAdmin);
+  applyRoleUiState(resolveUserRole(session));
   renderSession();
   updateViewOnBlogButton();
   renderThemeCurrent();
@@ -698,13 +771,12 @@ async function fetchSession() {
     const data = await apiFetch('/cms/auth/me');
     const loggedInAt = currentSession?.loggedInAt || new Date().toISOString();
     persistSession({ ...data, loggedInAt });
-    await Promise.all([
-      fetchThemeConfig(),
-      fetchThemePresets(),
-      fetchThemeTokens(),
-      fetchSiteConfig(),
-      fetchSiteNavigations(),
-    ]);
+    const role = resolveUserRole(currentSession);
+    const baseFetches = [fetchThemeConfig(), fetchThemePresets(), fetchThemeTokens()];
+    if (role && role !== 'editor') {
+      baseFetches.push(fetchSiteConfig(), fetchSiteNavigations(), fetchPopups(), fetchBanners());
+    }
+    await Promise.all(baseFetches);
     if (themeIsSuperAdmin) {
       await fetchTenants();
       await fetchUsers();
@@ -1735,6 +1807,9 @@ async function fetchUsers() {
 
 function renderThemePresets() {
   if (!themePresetList || !themeStatus) return;
+  if (!selectedThemePresetId && currentThemeConfig.presetId) {
+    selectedThemePresetId = currentThemeConfig.presetId;
+  }
   themePresetList.innerHTML = '';
   if (!themePresets.length) {
     themeStatus.textContent = '프리셋이 없습니다.';
@@ -1753,6 +1828,7 @@ function renderThemePresets() {
       <div class="swatch" style="background:${preset.swatch.bg}; border-color:${preset.swatch.primary}"></div>
       <strong>${preset.name}</strong>
       <span class="muted">${preset.id}</span>
+      <span class="muted">${preset.description || ''}</span>
     `;
     button.addEventListener('click', () => {
       if (!themeIsSuperAdmin) return;
@@ -1799,10 +1875,9 @@ async function fetchThemeConfig() {
       presetId: data?.preset_id || 'minimal-clean',
       updatedAt: data?.updated_at || null,
     };
-    if (!selectedThemePresetId) {
-      selectedThemePresetId = currentThemeConfig.presetId;
-    }
+    selectedThemePresetId = currentThemeConfig.presetId;
     renderThemeCurrent();
+    renderThemePresets();
   } catch (error) {
     if (themeStatus) setStatus(themeStatus, formatError(error), true);
   }
@@ -1816,6 +1891,356 @@ async function fetchThemeTokens() {
     }
   } catch (error) {
     if (themeStatus) setStatus(themeStatus, formatError(error), true);
+  }
+}
+
+function normalizePopup(raw) {
+  return {
+    id: raw?.id || '',
+    title: raw?.title || '',
+    content: raw?.content || '',
+    type: raw?.type || 'modal',
+    startAt: raw?.start_at ?? null,
+    endAt: raw?.end_at ?? null,
+    isActive: Boolean(raw?.is_active),
+    createdAt: raw?.created_at ?? null,
+  };
+}
+
+function normalizeBanner(raw) {
+  return {
+    id: raw?.id || '',
+    location: raw?.location || 'home_top',
+    imageUrl: raw?.image_url || '',
+    linkUrl: raw?.link_url || '',
+    orderIndex: Number.isFinite(Number(raw?.order_index)) ? Number(raw.order_index) : null,
+    isActive: Boolean(raw?.is_active),
+  };
+}
+
+function popupTypeLabel(type) {
+  switch (type) {
+    case 'topbar':
+      return 'Top Bar';
+    case 'bottombar':
+      return 'Bottom Bar';
+    default:
+      return 'Modal';
+  }
+}
+
+function bannerLocationLabel(location) {
+  switch (location) {
+    case 'sidebar':
+      return 'Sidebar';
+    case 'post_bottom':
+      return 'Post Bottom';
+    default:
+      return 'Home Top';
+  }
+}
+
+function previewPopupContent(content) {
+  if (!content) return '-';
+  const text = String(content).replace(/<[^>]*>/g, '').trim();
+  if (!text) return '-';
+  return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+}
+
+function resetPopupForm() {
+  if (popupForm) popupForm.dataset.editingId = '';
+  if (popupTitleInput) popupTitleInput.value = '';
+  if (popupTypeInput) popupTypeInput.value = 'modal';
+  if (popupContentInput) popupContentInput.value = '';
+  if (popupStartInput) popupStartInput.value = '';
+  if (popupEndInput) popupEndInput.value = '';
+  if (popupActiveInput) popupActiveInput.checked = true;
+  if (popupFormStatus) setStatus(popupFormStatus, '');
+}
+
+function resetBannerForm() {
+  if (bannerForm) bannerForm.dataset.editingId = '';
+  if (bannerLocationInput) bannerLocationInput.value = 'home_top';
+  if (bannerImageInput) bannerImageInput.value = '';
+  if (bannerLinkInput) bannerLinkInput.value = '';
+  if (bannerOrderInput) bannerOrderInput.value = '';
+  if (bannerActiveInput) bannerActiveInput.checked = true;
+  if (bannerFormStatus) setStatus(bannerFormStatus, '');
+}
+
+function renderPopups() {
+  if (!popupsList || !popupsStatus) return;
+  popupsList.innerHTML = '';
+  if (!currentPopups.length) {
+    popupsStatus.textContent = '팝업이 없습니다.';
+    return;
+  }
+  popupsStatus.textContent = `${currentPopups.length}개 팝업`;
+  currentPopups.forEach((popup) => {
+    const item = document.createElement('div');
+    item.className = 'category-item';
+
+    const info = document.createElement('div');
+    info.className = 'stack';
+    const title = document.createElement('strong');
+    title.textContent = popup.title || '제목 없음';
+    const meta = document.createElement('div');
+    meta.className = 'muted';
+    const periodLabel = `${formatUnixSeconds(popup.startAt)} ~ ${formatUnixSeconds(popup.endAt)}`;
+    meta.textContent = `${popupTypeLabel(popup.type)} · ${periodLabel}`;
+    const preview = document.createElement('div');
+    preview.className = 'muted';
+    preview.textContent = previewPopupContent(popup.content);
+    info.appendChild(title);
+    info.appendChild(meta);
+    info.appendChild(preview);
+
+    const actions = document.createElement('div');
+    actions.className = 'row gap';
+    const statusBadge = document.createElement('span');
+    statusBadge.className = `badge ${popup.isActive ? 'badge-published' : 'badge-draft'}`;
+    statusBadge.textContent = popup.isActive ? 'active' : 'inactive';
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'ghost';
+    editBtn.textContent = '편집';
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'ghost danger';
+    deleteBtn.textContent = '삭제';
+    actions.appendChild(statusBadge);
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
+
+    editBtn.addEventListener('click', () => {
+      if (!popupForm) return;
+      popupForm.dataset.editingId = popup.id;
+      if (popupTitleInput) popupTitleInput.value = popup.title || '';
+      if (popupTypeInput) popupTypeInput.value = popup.type || 'modal';
+      if (popupContentInput) popupContentInput.value = popup.content || '';
+      if (popupStartInput) {
+        popupStartInput.value = popup.startAt ? formatDatetimeLocal(popup.startAt * 1000) : '';
+      }
+      if (popupEndInput) {
+        popupEndInput.value = popup.endAt ? formatDatetimeLocal(popup.endAt * 1000) : '';
+      }
+      if (popupActiveInput) popupActiveInput.checked = Boolean(popup.isActive);
+      if (popupFormStatus) setStatus(popupFormStatus, `편집 중: ${popup.title}`);
+    });
+
+    deleteBtn.addEventListener('click', async () => {
+      if (!popup.id) return;
+      if (!confirm('팝업을 삭제할까요?')) return;
+      await deletePopup(popup.id);
+    });
+
+    item.appendChild(info);
+    item.appendChild(actions);
+    popupsList.appendChild(item);
+  });
+}
+
+function renderBanners() {
+  if (!bannersList || !bannersStatus) return;
+  bannersList.innerHTML = '';
+  if (!currentBanners.length) {
+    bannersStatus.textContent = '배너가 없습니다.';
+    return;
+  }
+  bannersStatus.textContent = `${currentBanners.length}개 배너`;
+  currentBanners.forEach((banner) => {
+    const item = document.createElement('div');
+    item.className = 'category-item';
+
+    const info = document.createElement('div');
+    info.className = 'row gap';
+    const thumb = document.createElement('img');
+    thumb.src = banner.imageUrl || '';
+    thumb.alt = '배너 이미지';
+    thumb.style.width = '64px';
+    thumb.style.height = '40px';
+    thumb.style.objectFit = 'cover';
+    thumb.style.borderRadius = '8px';
+    const text = document.createElement('div');
+    text.className = 'stack';
+    const title = document.createElement('strong');
+    title.textContent = bannerLocationLabel(banner.location);
+    const meta = document.createElement('div');
+    meta.className = 'muted';
+    meta.textContent = `순서: ${banner.orderIndex ?? '-'}`;
+    const link = document.createElement('div');
+    link.className = 'muted';
+    link.textContent = banner.linkUrl || '-';
+    text.appendChild(title);
+    text.appendChild(meta);
+    text.appendChild(link);
+    info.appendChild(thumb);
+    info.appendChild(text);
+
+    const actions = document.createElement('div');
+    actions.className = 'row gap';
+    const statusBadge = document.createElement('span');
+    statusBadge.className = `badge ${banner.isActive ? 'badge-published' : 'badge-draft'}`;
+    statusBadge.textContent = banner.isActive ? 'active' : 'inactive';
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'ghost';
+    editBtn.textContent = '편집';
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'ghost danger';
+    deleteBtn.textContent = '삭제';
+    actions.appendChild(statusBadge);
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
+
+    editBtn.addEventListener('click', () => {
+      if (!bannerForm) return;
+      bannerForm.dataset.editingId = banner.id;
+      if (bannerLocationInput) bannerLocationInput.value = banner.location || 'home_top';
+      if (bannerImageInput) bannerImageInput.value = banner.imageUrl || '';
+      if (bannerLinkInput) bannerLinkInput.value = banner.linkUrl || '';
+      if (bannerOrderInput) bannerOrderInput.value = banner.orderIndex ?? '';
+      if (bannerActiveInput) bannerActiveInput.checked = Boolean(banner.isActive);
+      if (bannerFormStatus) setStatus(bannerFormStatus, `편집 중: ${bannerLocationLabel(banner.location)}`);
+    });
+
+    deleteBtn.addEventListener('click', async () => {
+      if (!banner.id) return;
+      if (!confirm('배너를 삭제할까요?')) return;
+      await deleteBanner(banner.id);
+    });
+
+    item.appendChild(info);
+    item.appendChild(actions);
+    bannersList.appendChild(item);
+  });
+}
+
+async function fetchPopups() {
+  if (!popupsStatus) return;
+  if (!currentSession || isEditorSession()) return;
+  try {
+    setStatus(popupsStatus, '불러오는 중...');
+    const data = await apiFetch('/cms/popups');
+    currentPopups = (data?.popups || []).map(normalizePopup);
+    renderPopups();
+  } catch (error) {
+    setStatus(popupsStatus, formatError(error), true);
+  }
+}
+
+async function fetchBanners() {
+  if (!bannersStatus) return;
+  if (!currentSession || isEditorSession()) return;
+  try {
+    setStatus(bannersStatus, '불러오는 중...');
+    const data = await apiFetch('/cms/banners');
+    currentBanners = (data?.banners || []).map(normalizeBanner);
+    renderBanners();
+  } catch (error) {
+    setStatus(bannersStatus, formatError(error), true);
+  }
+}
+
+async function savePopup() {
+  if (!popupForm) return;
+  const title = popupTitleInput?.value.trim();
+  const content = popupContentInput?.value.trim();
+  const type = popupTypeInput?.value;
+  if (!title || !content || !type) {
+    if (popupFormStatus) setStatus(popupFormStatus, '제목/내용/유형을 입력하세요.', true);
+    return;
+  }
+  const startAt = parseDatetimeInput(popupStartInput?.value);
+  const endAt = parseDatetimeInput(popupEndInput?.value);
+  if (startAt === undefined || endAt === undefined) {
+    if (popupFormStatus) setStatus(popupFormStatus, '날짜 형식이 올바르지 않습니다.', true);
+    return;
+  }
+  const payload = {
+    title,
+    content,
+    type,
+    start_at: startAt,
+    end_at: endAt,
+    is_active: Boolean(popupActiveInput?.checked),
+  };
+  try {
+    if (popupFormStatus) setStatus(popupFormStatus, '저장 중...');
+    const editingId = popupForm.dataset.editingId;
+    if (editingId) {
+      await apiFetch(`/cms/popups/${editingId}`, { method: 'PUT', body: payload });
+    } else {
+      await apiFetch('/cms/popups', { method: 'POST', body: payload });
+    }
+    resetPopupForm();
+    await fetchPopups();
+    if (popupFormStatus) setStatus(popupFormStatus, '저장 완료');
+  } catch (error) {
+    if (popupFormStatus) setStatus(popupFormStatus, formatError(error), true);
+  }
+}
+
+async function deletePopup(id) {
+  try {
+    if (popupFormStatus) setStatus(popupFormStatus, '삭제 중...');
+    await apiFetch(`/cms/popups/${id}`, { method: 'DELETE' });
+    await fetchPopups();
+    if (popupFormStatus) setStatus(popupFormStatus, '삭제 완료');
+  } catch (error) {
+    if (popupFormStatus) setStatus(popupFormStatus, formatError(error), true);
+  }
+}
+
+async function saveBanner() {
+  if (!bannerForm) return;
+  const location = bannerLocationInput?.value;
+  const imageUrl = bannerImageInput?.value.trim();
+  const linkUrl = bannerLinkInput?.value.trim();
+  if (!location || !imageUrl || !linkUrl) {
+    if (bannerFormStatus) setStatus(bannerFormStatus, '위치/이미지/링크를 입력하세요.', true);
+    return;
+  }
+  let orderIndex = bannerOrderInput?.value;
+  if (orderIndex === '') {
+    orderIndex = null;
+  }
+  if (orderIndex !== null && orderIndex !== undefined && Number.isNaN(Number(orderIndex))) {
+    if (bannerFormStatus) setStatus(bannerFormStatus, '순서는 숫자여야 합니다.', true);
+    return;
+  }
+  const payload = {
+    location,
+    image_url: imageUrl,
+    link_url: linkUrl,
+    order_index: orderIndex === null ? null : Number(orderIndex),
+    is_active: Boolean(bannerActiveInput?.checked),
+  };
+  try {
+    if (bannerFormStatus) setStatus(bannerFormStatus, '저장 중...');
+    const editingId = bannerForm.dataset.editingId;
+    if (editingId) {
+      await apiFetch(`/cms/banners/${editingId}`, { method: 'PUT', body: payload });
+    } else {
+      await apiFetch('/cms/banners', { method: 'POST', body: payload });
+    }
+    resetBannerForm();
+    await fetchBanners();
+    if (bannerFormStatus) setStatus(bannerFormStatus, '저장 완료');
+  } catch (error) {
+    if (bannerFormStatus) setStatus(bannerFormStatus, formatError(error), true);
+  }
+}
+
+async function deleteBanner(id) {
+  try {
+    if (bannerFormStatus) setStatus(bannerFormStatus, '삭제 중...');
+    await apiFetch(`/cms/banners/${id}`, { method: 'DELETE' });
+    await fetchBanners();
+    if (bannerFormStatus) setStatus(bannerFormStatus, '삭제 완료');
+  } catch (error) {
+    if (bannerFormStatus) setStatus(bannerFormStatus, formatError(error), true);
   }
 }
 
@@ -2254,6 +2679,7 @@ function renderHomeLayoutEditor() {
 
 async function fetchSiteConfig() {
   if (!siteConfigStatus) return;
+  if (!currentSession || isEditorSession()) return;
   try {
     setStatus(siteConfigStatus, '불러오는 중...');
     const data = await apiFetch('/cms/site-config');
@@ -2271,6 +2697,10 @@ async function fetchSiteConfig() {
 }
 
 async function saveSiteConfig(payloadOverrides = {}, statusEl = siteConfigSaveStatus) {
+  if (isEditorSession()) {
+    if (statusEl) setStatus(statusEl, '권한이 없습니다.', true);
+    return;
+  }
   try {
     if (statusEl) setStatus(statusEl, '저장 중...');
     const payload = {
@@ -2295,6 +2725,7 @@ async function saveSiteConfig(payloadOverrides = {}, statusEl = siteConfigSaveSt
 
 async function fetchSiteNavigations() {
   if (!navStatus) return;
+  if (!currentSession || isEditorSession()) return;
   try {
     setStatus(navStatus, '불러오는 중...');
     const data = await apiFetch('/cms/site-navigations');
@@ -3775,12 +4206,64 @@ if (themeSaveBtn) {
         presetId: data?.preset_id || selectedThemePresetId,
         updatedAt: data?.updated_at || Date.now(),
       };
+      selectedThemePresetId = currentThemeConfig.presetId;
       renderThemeCurrent();
+      renderThemePresets();
       await fetchThemeTokens();
       setStatus(themeSaveStatus, data?.deploy_job?.id ? `배포 Job: ${data.deploy_job.id}` : '저장 완료');
     } catch (error) {
       setStatus(themeSaveStatus, formatError(error), true);
     }
+  });
+}
+
+if (refreshPopupsBtn) {
+  refreshPopupsBtn.addEventListener('click', () => {
+    fetchPopups();
+  });
+}
+
+if (addPopupBtn) {
+  addPopupBtn.addEventListener('click', () => {
+    resetPopupForm();
+  });
+}
+
+if (popupResetBtn) {
+  popupResetBtn.addEventListener('click', () => {
+    resetPopupForm();
+  });
+}
+
+if (popupForm) {
+  popupForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await savePopup();
+  });
+}
+
+if (refreshBannersBtn) {
+  refreshBannersBtn.addEventListener('click', () => {
+    fetchBanners();
+  });
+}
+
+if (addBannerBtn) {
+  addBannerBtn.addEventListener('click', () => {
+    resetBannerForm();
+  });
+}
+
+if (bannerResetBtn) {
+  bannerResetBtn.addEventListener('click', () => {
+    resetBannerForm();
+  });
+}
+
+if (bannerForm) {
+  bannerForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await saveBanner();
   });
 }
 
