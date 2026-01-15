@@ -1,6 +1,7 @@
 import { readFile, rm, mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
+import { marked } from "marked"; // NOTE: requires the `marked` dependency at runtime.
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");
@@ -29,6 +30,8 @@ function resolveSiteBaseUrl() {
 let siteBaseUrl = "";
 let themeStyle = "";
 let analyticsConfig = { apiBase: "", tenantSlug: "" };
+
+marked.setOptions({ gfm: true, breaks: true });
 
 function assertSlugAllowed(slug, entityType) {
   const normalized = `${slug}`.toLowerCase();
@@ -153,6 +156,10 @@ function sanitizeHtmlAttributes(rawAttrs) {
       attrs.push(`${name}="${escapeHtml(sanitized)}"`);
       continue;
     }
+    if (["class", "style"].includes(name.toLowerCase())) {
+      attrs.push(`${name}="${escapeHtml(rawValue)}"`);
+      continue;
+    }
     if (["alt", "title"].includes(name.toLowerCase())) {
       attrs.push(`${name}="${escapeHtml(rawValue)}"`);
     }
@@ -194,6 +201,9 @@ function sanitizeHtmlBlock(html) {
     "legend",
     "div",
     "span",
+    "details",
+    "summary",
+    "section",
   ]);
 
   return withoutScripts.replace(/<\/?([a-z0-9]+)([^>]*)>/gi, (match, tagName, attrs) => {
@@ -214,46 +224,78 @@ function sanitizeHtmlBlock(html) {
   });
 }
 
-function renderInlineMarkdown(text) {
+function parseShortcodeAttributes(raw = "") {
+  const attributes = {};
+  const attrRegex = /(\w+)=(?:"([^"]*)"|'([^']*)')/g;
+  let match;
+  while ((match = attrRegex.exec(raw))) {
+    const key = match[1];
+    const value = match[2] ?? match[3] ?? "";
+    attributes[key] = value;
+  }
+  return attributes;
+}
+
+function processShortcodes(text = "") {
   if (!text) return "";
-  const replacements = [];
+
+  const renderContent = (content) => marked.parse(processShortcodes(content || ""));
+
   let output = `${text}`;
 
-  const store = (html) => {
-    const token = `__INLINE_TOKEN_${replacements.length}__`;
-    replacements.push(html);
-    return token;
-  };
-
-  output = output.replace(/`([^`]+)`/g, (_, code) => {
-    return store(`<code>${escapeHtml(code)}</code>`);
+  output = output.replace(/\[Hero([^\]]*)\]/gi, (_, rawAttrs) => {
+    const attrs = parseShortcodeAttributes(rawAttrs);
+    const image = sanitizeUrl(attrs.image || "");
+    const title = escapeHtml(attrs.title || "");
+    const subtitle = escapeHtml(attrs.subtitle || "");
+    return `<section class="hero"${image ? ` style="background-image:url('${escapeHtml(image)}')"` : ""}>
+  <div class="hero-content">
+    <h1>${title}</h1>
+    <p>${subtitle}</p>
+  </div>
+</section>`;
   });
 
-  output = output.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => {
-    const sanitized = sanitizeUrl(url, { allowDataImage: true });
-    if (!sanitized) return store(escapeHtml(_));
-    return store(`<img src="${escapeHtml(sanitized)}" alt="${escapeHtml(alt)}" />`);
+  output = output.replace(/\[Callout([^\]]*)\]([\s\S]*?)\[\/Callout\]/gi, (_, rawAttrs, content) => {
+    const attrs = parseShortcodeAttributes(rawAttrs);
+    const type = attrs.type || "info";
+    const title = attrs.title ? `<div class="callout-title">${escapeHtml(attrs.title)}</div>` : "";
+    const body = renderContent(content);
+    return `<div class="callout callout-${escapeHtml(type)}">${title}<div class="callout-body">${body}</div></div>`;
   });
 
-  output = output.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
-    const sanitized = sanitizeUrl(url);
-    if (!sanitized) return store(escapeHtml(label));
-    return store(
-      `<a href="${escapeHtml(sanitized)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`
-    );
+  output = output.replace(/\[Grid([^\]]*)\]([\s\S]*?)\[\/Grid\]/gi, (_, rawAttrs, content) => {
+    const attrs = parseShortcodeAttributes(rawAttrs);
+    const columns = Number(attrs.columns || 2);
+    const safeColumns = columns === 3 ? 3 : 2;
+    const body = renderContent(content);
+    return `<div class="grid" style="--columns:${safeColumns}">${body}</div>`;
   });
 
-  output = output.replace(/\*\*([^*]+)\*\*/g, (_, content) => {
-    return store(`<strong>${escapeHtml(content)}</strong>`);
+  output = output.replace(/\[Card([^\]]*)\]([\s\S]*?)\[\/Card\]/gi, (_, rawAttrs, content) => {
+    const attrs = parseShortcodeAttributes(rawAttrs);
+    const icon = attrs.icon ? `<div class="card-icon">${escapeHtml(attrs.icon)}</div>` : "";
+    const title = attrs.title ? `<h3>${escapeHtml(attrs.title)}</h3>` : "";
+    const body = renderContent(content);
+    return `<div class="card">${icon}<div class="card-body">${title}${body}</div></div>`;
   });
 
-  output = output.replace(/\*([^*]+)\*/g, (_, content) => {
-    return store(`<em>${escapeHtml(content)}</em>`);
+  output = output.replace(/\[Details([^\]]*)\]([\s\S]*?)\[\/Details\]/gi, (_, rawAttrs, content) => {
+    const attrs = parseShortcodeAttributes(rawAttrs);
+    const summary = escapeHtml(attrs.summary || "Details");
+    const body = renderContent(content);
+    return `<details class="details"><summary>${summary}</summary>${body}</details>`;
   });
 
-  output = escapeHtml(output);
-  replacements.forEach((replacement, index) => {
-    output = output.replace(`__INLINE_TOKEN_${index}__`, replacement);
+  output = output.replace(/\[Button([^\]]*)\]([\s\S]*?)\[\/Button\]/gi, (_, rawAttrs, content) => {
+    const attrs = parseShortcodeAttributes(rawAttrs);
+    const link = sanitizeUrl(attrs.link || "");
+    const color = attrs.color === "primary" ? "primary" : "secondary";
+    const label = escapeHtml(content.trim());
+    if (!link) {
+      return `<span class="btn btn-${color}">${label}</span>`;
+    }
+    return `<a class="btn btn-${color}" href="${escapeHtml(link)}">${label}</a>`;
   });
 
   return output;
@@ -261,109 +303,9 @@ function renderInlineMarkdown(text) {
 
 function renderMarkdown(md = "") {
   if (!md) return "";
-  const lines = `${md}`.split("\n");
-  const blocks = [];
-  let currentParagraph = [];
-  let currentList = null;
-  let inCodeBlock = false;
-  let codeBuffer = [];
-
-  const flushParagraph = () => {
-    if (!currentParagraph.length) return;
-    blocks.push(`<p>${currentParagraph.join("<br />")}</p>`);
-    currentParagraph = [];
-  };
-
-  const flushList = () => {
-    if (!currentList || !currentList.items.length) return;
-    const tag = currentList.type === "ol" ? "ol" : "ul";
-    blocks.push(`<${tag}>${currentList.items.map((item) => `<li>${item}</li>`).join("")}</${tag}>`);
-    currentList = null;
-  };
-
-  lines.forEach((rawLine) => {
-    const line = rawLine.trimEnd();
-    if (line.startsWith("```")) {
-      if (inCodeBlock) {
-        blocks.push(`<pre><code>${escapeHtml(codeBuffer.join("\n"))}</code></pre>`);
-        codeBuffer = [];
-        inCodeBlock = false;
-      } else {
-        flushParagraph();
-        flushList();
-        inCodeBlock = true;
-      }
-      return;
-    }
-
-    if (inCodeBlock) {
-      codeBuffer.push(rawLine);
-      return;
-    }
-
-    if (!line.trim()) {
-      flushParagraph();
-      flushList();
-      return;
-    }
-
-    if (/^<\/?[a-z][\s\S]*>/i.test(line.trim())) {
-      flushParagraph();
-      flushList();
-      blocks.push(sanitizeHtmlBlock(line));
-      return;
-    }
-
-    const headingMatch = line.match(/^(#{1,6})\s+(.+)/);
-    if (headingMatch) {
-      flushParagraph();
-      flushList();
-      const level = headingMatch[1].length;
-      blocks.push(`<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`);
-      return;
-    }
-
-    const blockquoteMatch = line.match(/^>\s+(.+)/);
-    if (blockquoteMatch) {
-      flushParagraph();
-      flushList();
-      blocks.push(`<blockquote>${renderInlineMarkdown(blockquoteMatch[1])}</blockquote>`);
-      return;
-    }
-
-    const orderedMatch = line.match(/^\d+\.\s+(.+)/);
-    if (orderedMatch) {
-      flushParagraph();
-      if (!currentList || currentList.type !== "ol") {
-        flushList();
-        currentList = { type: "ol", items: [] };
-      }
-      currentList.items.push(renderInlineMarkdown(orderedMatch[1]));
-      return;
-    }
-
-    const listMatch = line.match(/^[-*]\s+(.+)/);
-    if (listMatch) {
-      flushParagraph();
-      if (!currentList || currentList.type !== "ul") {
-        flushList();
-        currentList = { type: "ul", items: [] };
-      }
-      currentList.items.push(renderInlineMarkdown(listMatch[1]));
-      return;
-    }
-
-    currentParagraph.push(renderInlineMarkdown(line));
-  });
-
-  flushParagraph();
-  flushList();
-
-  if (inCodeBlock) {
-    blocks.push(`<pre><code>${escapeHtml(codeBuffer.join("\n"))}</code></pre>`);
-  }
-
-  return blocks.join("\n");
+  const processed = processShortcodes(md);
+  const html = marked.parse(processed);
+  return sanitizeHtmlBlock(html);
 }
 
 function renderPostBody(post) {
@@ -390,6 +332,15 @@ function extractFirstImageUrl(post) {
     }
   }
   return null;
+}
+
+function normalizeSlugPath(slug) {
+  return `${slug}`.replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
+function getPostUrl(post) {
+  const slug = normalizeSlugPath(post.slug || "");
+  return `/${slug}/`;
 }
 
 function summarizeBodyFormat(post) {
@@ -439,6 +390,21 @@ function layoutHtml({
   .search-results.hidden { display: none; }
   .search-results a { text-decoration: none; color: inherit; padding: 4px 6px; border-radius: 6px; }
   .search-results a:hover { background: #f1f5f9; }
+  .callout { padding: 16px; border-radius: 12px; border-left: 4px solid; background: #f8fafc; margin: 16px 0; }
+  .callout-info { border-color: #38bdf8; background: #e0f2fe; }
+  .callout-warn { border-color: #f59e0b; background: #fef3c7; }
+  .callout-error { border-color: #ef4444; background: #fee2e2; }
+  .callout-title { font-weight: 700; margin-bottom: 6px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(var(--columns, 2), minmax(0, 1fr)); }
+  .card { border-radius: 14px; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08); padding: 16px; background: #fff; }
+  .card-icon { font-size: 24px; }
+  .details { margin: 12px 0; }
+  .details summary { cursor: pointer; font-weight: 600; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; padding: 10px 16px; border-radius: 999px; text-decoration: none; font-weight: 600; }
+  .btn-primary { background: #111827; color: #fff; }
+  .btn-secondary { background: #e5e7eb; color: #111827; }
+  .hero { padding: 80px 24px; text-align: center; color: #fff; background-size: cover; background-position: center; border-radius: 18px; margin: 24px 0; }
+  .hero-content { max-width: 720px; margin: 0 auto; backdrop-filter: blur(2px); }
   .hero-banner { padding: 64px 24px; text-align: center; color: #fff; background-size: cover; background-position: center; border-radius: 16px; margin-bottom: 32px; }
   .hero-banner.sm { min-height: 200px; }
   .hero-banner.md { min-height: 320px; }
@@ -458,12 +424,12 @@ function layoutHtml({
   const navigationLinks = [];
   if (prevPost) {
     navigationLinks.push(
-      `<a href="/${prevPost.slug}/" class="nav-prev">← 이전 글: ${escapeHtml(prevPost.title || prevPost.slug)}</a>`
+      `<a href="${getPostUrl(prevPost)}" class="nav-prev">← 이전 글: ${escapeHtml(prevPost.title || prevPost.slug)}</a>`
     );
   }
   if (nextPost) {
     navigationLinks.push(
-      `<a href="/${nextPost.slug}/" class="nav-next">다음 글: ${escapeHtml(nextPost.title || nextPost.slug)} →</a>`
+      `<a href="${getPostUrl(nextPost)}" class="nav-next">다음 글: ${escapeHtml(nextPost.title || nextPost.slug)} →</a>`
     );
   }
   const postNav = navigationLinks.length
@@ -663,7 +629,7 @@ function renderPostListItems(posts, { showDate = true } = {}) {
     .map((post) => {
       const dateValue = post.published_at || post.publish_at || post.created_at;
       const dateLabel = showDate ? formatDateLabel(dateValue) : "";
-      return `<li><a href="/${post.slug}/">${escapeHtml(post.title || post.slug)}</a>${
+      return `<li><a href="${getPostUrl(post)}">${escapeHtml(post.title || post.slug)}</a>${
         showDate ? ` <time datetime="${escapeHtml(formatDate(dateValue))}">${escapeHtml(dateLabel)}</time>` : ""
       }</li>`;
     })
@@ -718,7 +684,7 @@ function renderSection(section) {
     return `<section class="post-section">
   <h2>${escapeHtml(section.title || "Hero")}</h2>
   <article>
-    <h3><a href="/${post.slug}/">${escapeHtml(post.title || post.slug)}</a></h3>
+    <h3><a href="${getPostUrl(post)}">${escapeHtml(post.title || post.slug)}</a></h3>
     <p>${escapeHtml(post.excerpt || "")}</p>
   </article>
 </section>`;
@@ -742,7 +708,8 @@ async function generatePostPages(posts, siteConfig) {
     const post = posts[index];
     const prevPost = posts[index - 1] || null;
     const nextPost = posts[index + 1] || null;
-    assertSlugAllowed(post.slug, "post");
+    const postSlug = normalizeSlugPath(post.slug || "");
+    assertSlugAllowed(postSlug, "post");
     const html = layoutHtml({
       title: post.title || post.slug,
       description: post.excerpt || "",
@@ -752,25 +719,26 @@ async function generatePostPages(posts, siteConfig) {
   ${renderPostBody(post)}
 </article>`,
       siteConfig,
-      pagePath: `/${post.slug}/`,
+      pagePath: `/${postSlug}/`,
       ogImage: extractFirstImageUrl(post),
       prevPost,
       nextPost,
       scripts: buildViewTrackingScript({
         apiBase: analyticsConfig.apiBase,
         tenantSlug: analyticsConfig.tenantSlug,
-        pageKey: post.slug,
+        pageKey: postSlug,
       }),
     });
 
-    const filePath = path.join(DIST_DIR, post.slug, "index.html");
+    const filePath = path.join(DIST_DIR, postSlug, "index.html");
     await writeHtml(filePath, html);
   }
 }
 
 async function generateStaticPages(pages, siteConfig) {
   for (const page of pages) {
-    assertSlugAllowed(page.slug, "page");
+    const pageSlug = normalizeSlugPath(page.slug || "");
+    assertSlugAllowed(pageSlug, "page");
     const html = layoutHtml({
       title: page.title || page.slug,
       description: page.excerpt || "",
@@ -779,16 +747,16 @@ async function generateStaticPages(pages, siteConfig) {
   ${renderPostBody(page)}
 </article>`,
       siteConfig,
-      pagePath: `/${page.slug}/`,
+      pagePath: `/${pageSlug}/`,
       ogImage: extractFirstImageUrl(page),
       scripts: buildViewTrackingScript({
         apiBase: analyticsConfig.apiBase,
         tenantSlug: analyticsConfig.tenantSlug,
-        pageKey: page.slug,
+        pageKey: pageSlug,
       }),
     });
 
-    const filePath = path.join(DIST_DIR, page.slug, "index.html");
+    const filePath = path.join(DIST_DIR, pageSlug, "index.html");
     await writeHtml(filePath, html);
   }
 }
@@ -799,7 +767,7 @@ async function generatePostListPages(posts, siteConfig) {
     const entries = page.items
       .map(
         (post) =>
-          `<li><a href="/${post.slug}/">${escapeHtml(
+          `<li><a href="${getPostUrl(post)}">${escapeHtml(
             post.title || post.slug
           )}</a> <small>${escapeHtml(post.excerpt || "")}</small></li>`
       )
