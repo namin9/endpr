@@ -15,6 +15,7 @@ import themeRoutes from './routes/theme';
 import tenantRoutes from './routes/tenants';
 import userRoutes from './routes/users';
 import siteSettingsRoutes from './routes/site_settings';
+import inquiryRoutes from './routes/inquiries';
 import { corsMiddleware } from './middleware/cors';
 
 const app = new Hono();
@@ -37,6 +38,7 @@ app.route('/', themeRoutes);
 app.route('/', tenantRoutes);
 app.route('/', userRoutes);
 app.route('/', siteSettingsRoutes);
+app.route('/', inquiryRoutes);
 
 app.notFound((c) => c.json({ error: 'Not Found' }, 404));
 

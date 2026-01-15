@@ -89,6 +89,7 @@ const deployJobsScope = document.getElementById('deployJobsScope');
 const quillEditorEl = document.getElementById('quillEditor');
 const editorToolbar = document.getElementById('editorToolbar');
 const categorySelect = document.getElementById('categorySelect');
+const postTypeSelect = document.getElementById('postTypeSelect');
 const categoryForm = document.getElementById('categoryForm');
 const categoryNameInput = document.getElementById('categoryNameInput');
 const categorySlugInput = document.getElementById('categorySlugInput');
@@ -174,6 +175,9 @@ const prReportHighlightsInput = document.getElementById('prReportHighlightsInput
 const prReportsStatus = document.getElementById('prReportsStatus');
 const prReportsList = document.getElementById('prReportsList');
 const clearPrSelectionBtn = document.getElementById('clearPrSelectionBtn');
+const inquiriesStatus = document.getElementById('inquiriesStatus');
+const inquiriesList = document.getElementById('inquiriesList');
+const refreshInquiriesBtn = document.getElementById('refreshInquiriesBtn');
 
 const pageMode = document.body?.dataset?.page || 'editor';
 const isDashboard = pageMode === 'dashboard';
@@ -188,10 +192,14 @@ let currentDraft = load(DRAFT_KEY, {
   savedAt: null,
   status: null,
   categorySlug: '',
+  type: 'post',
   slug: null,
   publicUrl: null,
   publishAt: null,
 });
+if (!currentDraft?.type) {
+  currentDraft.type = 'post';
+}
 let currentSession = load(SESSION_KEY, null);
 let currentPosts = [];
 let allPosts = [];
@@ -200,6 +208,7 @@ let currentCategories = [];
 let currentPrCampaigns = [];
 let currentPrMentions = [];
 let currentPrReports = [];
+let currentInquiries = [];
 let selectedPrCampaignId = null;
 let themePresets = [];
 let currentThemeConfig = { presetId: 'minimal-clean', updatedAt: null };
@@ -1088,12 +1097,14 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
     setStatus(statusEl, '예약 저장 중...');
     setGlobalLoading(true, '예약 발행 저장 중...');
     const postId = await ensurePostId(titleInput.value.trim() || '제목 없음', getBodyValue());
+    const postType = getSelectedPostType();
     const response = await apiFetch(`/cms/posts/${postId}/autosave`, {
       method: 'POST',
       body: {
         title: titleInput.value.trim() || '제목 없음',
         body_md: getBodyValue(),
         category_slug: categorySelect?.value || undefined,
+        type: postType,
         status: 'scheduled',
         publish_at: publishAt,
       },
@@ -1105,6 +1116,7 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
       body: updated.body || '',
       savedAt: updated.updatedAt || currentDraft.savedAt,
       status: updated.status,
+      type: updated.type || postType,
       slug: updated.slug,
       publicUrl: updated.publicUrl,
       categorySlug: updated.categorySlug || '',
@@ -1151,16 +1163,22 @@ async function cancelSchedule() {
   }
 }
 
+function getSelectedPostType() {
+  const value = postTypeSelect?.value || currentDraft?.type || 'post';
+  return value === 'page' ? 'page' : 'post';
+}
+
 async function ensurePostId(title, body) {
   if (currentDraft?.id) return currentDraft.id;
   const categorySlug = categorySelect?.value || undefined;
+  const postType = getSelectedPostType();
   const created = await apiFetch('/cms/posts', {
     method: 'POST',
-    body: { title: title || '제목 없음', body_md: body, category_slug: categorySlug },
+    body: { title: title || '제목 없음', body_md: body, category_slug: categorySlug, type: postType },
   });
   const postId = created?.post?.id;
   if (!postId) throw new Error('게시글 ID를 받을 수 없습니다.');
-  persistDraft({ id: postId, categorySlug: categorySlug || '' });
+  persistDraft({ id: postId, categorySlug: categorySlug || '', type: postType });
   return postId;
 }
 
@@ -1185,9 +1203,10 @@ async function saveDraftToApi(title, body) {
     updateAutosaveStatus();
     const postId = await ensurePostId(title, body);
     const categorySlug = categorySelect?.value || undefined;
+    const postType = getSelectedPostType();
     const saved = await apiFetch(`/cms/posts/${postId}/autosave`, {
       method: 'POST',
-      body: { title, body_md: body, category_slug: categorySlug },
+      body: { title, body_md: body, category_slug: categorySlug, type: postType },
     });
     const savedAt = saved?.saved_at || saved?.post?.updated_at_iso || new Date().toISOString();
     persistDraft({
@@ -1197,6 +1216,7 @@ async function saveDraftToApi(title, body) {
       savedAt,
       status: saved?.post?.status,
       categorySlug: categorySlug || '',
+      type: saved?.post?.type || postType,
       publishAt: saved?.post?.publish_at ?? saved?.post?.publishAt ?? currentDraft.publishAt ?? null,
     });
     autosaveState = {
@@ -1238,6 +1258,9 @@ bodyInput.addEventListener('input', handleAutosave);
 if (categorySelect) {
   categorySelect.addEventListener('change', handleAutosave);
 }
+if (postTypeSelect) {
+  postTypeSelect.addEventListener('change', handleAutosave);
+}
 
 if (quillEditorEl) {
   initQuillEditor();
@@ -1267,11 +1290,13 @@ clearDraftBtn.addEventListener('click', () => {
     savedAt: null,
     status: null,
     categorySlug: '',
+    type: 'post',
     slug: null,
     publicUrl: null,
   };
   titleInput.value = '';
   if (categorySelect) categorySelect.value = '';
+  if (postTypeSelect) postTypeSelect.value = 'post';
   setBodyValue('');
   autosaveState = {
     dirty: false,
@@ -1289,6 +1314,7 @@ function normalizePost(rawPost) {
     id: rawPost?.id,
     title: rawPost?.title || '제목 없음',
     status: rawPost?.status || rawPost?.state || 'draft',
+    type: rawPost?.type || 'post',
     updatedAt: rawPost?.updated_at_iso || rawPost?.updated_at || rawPost?.saved_at || null,
     publishedAt: rawPost?.published_at_iso || rawPost?.published_at || rawPost?.publishedAt || null,
     publishAt: rawPost?.publish_at ?? rawPost?.publishAt ?? null,
@@ -1329,6 +1355,24 @@ function normalizeUser(rawUser) {
     tenantId: rawUser?.tenant_id || '',
     email: rawUser?.email || '',
     role: rawUser?.role || 'editor',
+  };
+}
+
+function normalizeInquiry(rawInquiry) {
+  const createdAtValue = rawInquiry?.created_at_iso || rawInquiry?.createdAtIso || rawInquiry?.created_at || rawInquiry?.createdAt;
+  let createdAt = null;
+  if (typeof createdAtValue === 'string') {
+    createdAt = createdAtValue;
+  } else if (typeof createdAtValue === 'number') {
+    const millis = createdAtValue > 1e12 ? createdAtValue : createdAtValue * 1000;
+    createdAt = new Date(millis).toISOString();
+  }
+  return {
+    id: rawInquiry?.id,
+    type: rawInquiry?.type || 'contact',
+    data: rawInquiry?.data ?? {},
+    isRead: rawInquiry?.is_read === true || rawInquiry?.is_read === 1 || rawInquiry?.isRead === true,
+    createdAt,
   };
 }
 
@@ -1433,6 +1477,83 @@ async function fetchCategories() {
     renderNavCategoryOptions();
   } catch (error) {
     setStatus(categoriesStatus, formatError(error), true);
+  }
+}
+
+function formatInquiryData(data) {
+  if (typeof data === 'string') return data;
+  try {
+    return JSON.stringify(data, null, 2);
+  } catch (error) {
+    console.warn('Failed to stringify inquiry data', error);
+    return String(data);
+  }
+}
+
+function renderInquiries() {
+  if (!inquiriesList) return;
+  inquiriesList.innerHTML = '';
+
+  if (!currentInquiries.length) {
+    if (inquiriesStatus) setStatus(inquiriesStatus, '문의가 없습니다.');
+    return;
+  }
+
+  if (inquiriesStatus) {
+    setStatus(inquiriesStatus, `${currentInquiries.length}건`);
+  }
+
+  currentInquiries.forEach((inquiry) => {
+    const details = document.createElement('details');
+    details.className = 'inquiry-item';
+    if (!inquiry.isRead) {
+      details.dataset.unread = 'true';
+    }
+
+    const summary = document.createElement('summary');
+    const title = document.createElement('span');
+    title.textContent = inquiry.type || 'contact';
+    const status = document.createElement('span');
+    status.textContent = inquiry.isRead ? '읽음' : '미확인';
+    summary.append(title, status);
+
+    const meta = document.createElement('div');
+    meta.className = 'inquiry-meta';
+    const createdLabel = document.createElement('span');
+    createdLabel.textContent = inquiry.createdAt ? formatTime(new Date(inquiry.createdAt)) : '-';
+    meta.append(createdLabel);
+
+    const pre = document.createElement('pre');
+    pre.textContent = formatInquiryData(inquiry.data);
+
+    details.append(summary, meta, pre);
+
+    details.addEventListener('toggle', async () => {
+      if (!details.open || inquiry.isRead) return;
+      try {
+        const updated = await apiFetch(`/cms/inquiries/${inquiry.id}/read`, { method: 'PATCH' });
+        const normalized = normalizeInquiry(updated?.inquiry || updated);
+        inquiry.isRead = normalized.isRead;
+        status.textContent = inquiry.isRead ? '읽음' : '미확인';
+        details.dataset.unread = inquiry.isRead ? 'false' : 'true';
+      } catch (error) {
+        console.warn('Failed to mark inquiry read', error);
+      }
+    });
+
+    inquiriesList.appendChild(details);
+  });
+}
+
+async function fetchInquiries() {
+  try {
+    if (inquiriesStatus) setStatus(inquiriesStatus, '불러오는 중...');
+    const data = await apiFetch('/cms/inquiries');
+    const items = data?.inquiries || data?.items || data?.data || [];
+    currentInquiries = items.map(normalizeInquiry);
+    renderInquiries();
+  } catch (error) {
+    if (inquiriesStatus) setStatus(inquiriesStatus, formatError(error), true);
   }
 }
 
@@ -2768,6 +2889,7 @@ async function selectPost(post) {
     body: next.body || '',
     savedAt: next.updatedAt || currentDraft.savedAt,
     status: next.status,
+    type: next.type || 'post',
     slug: next.slug,
     publicUrl: next.publicUrl,
     categorySlug: next.categorySlug || '',
@@ -2776,6 +2898,9 @@ async function selectPost(post) {
   titleInput.value = next.title || '';
   if (categorySelect) {
     categorySelect.value = next.categorySlug || '';
+  }
+  if (postTypeSelect) {
+    postTypeSelect.value = next.type || 'post';
   }
   setBodyValue(next.body || '');
   renderAutosaveSavedAt(currentDraft.savedAt);
@@ -2956,9 +3081,15 @@ async function createNewPost() {
 
   try {
     renderPostsState({ message: '새 글 생성 중...', isLoading: true });
+    const postType = getSelectedPostType();
     const created = await apiFetch('/cms/posts', {
       method: 'POST',
-      body: { title: '제목 없음', body_md: '', category_slug: categorySelect?.value || undefined },
+      body: {
+        title: '제목 없음',
+        body_md: '',
+        category_slug: categorySelect?.value || undefined,
+        type: postType,
+      },
     });
     const newPost = normalizePost(created?.post || created);
     if (!newPost?.id) throw new Error('게시글 ID를 받을 수 없습니다.');
@@ -3364,6 +3495,12 @@ if (revokeShareBtn) {
 if (refreshCategoriesBtn) {
   refreshCategoriesBtn.addEventListener('click', () => {
     fetchCategories();
+  });
+}
+
+if (refreshInquiriesBtn) {
+  refreshInquiriesBtn.addEventListener('click', () => {
+    fetchInquiries();
   });
 }
 
@@ -3821,6 +3958,9 @@ function hydrateFromStorage() {
   if (categorySelect) {
     categorySelect.value = currentDraft.categorySlug || '';
   }
+  if (postTypeSelect) {
+    postTypeSelect.value = currentDraft.type || 'post';
+  }
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPreview();
   renderSelectedPostMeta();
@@ -3837,6 +3977,7 @@ fetchSession();
 fetchPosts();
 fetchDeployJobs();
 fetchCategories();
+fetchInquiries();
 fetchPrCampaigns();
 fetchSiteConfig();
 fetchSiteNavigations();

@@ -32,6 +32,7 @@ export type TenantAdminRow = {
 export type PostRow = {
   id: string;
   tenant_id: string;
+  type: 'post' | 'page';
   title: string;
   slug: string;
   excerpt: string | null;
@@ -42,6 +43,15 @@ export type PostRow = {
   published_at: number | null;
   created_at: number;
   updated_at: number;
+};
+
+export type InquiryRow = {
+  id: string;
+  tenant_id: string;
+  type: string;
+  data: string;
+  is_read: number;
+  created_at: number;
 };
 
 export type DeployJobRow = {
@@ -295,12 +305,13 @@ export async function createPost(db: D1Database, tenantId: string, input: Partia
   const now = Math.floor(Date.now() / 1000);
   await db
     .prepare(
-      `INSERT INTO posts (id, tenant_id, title, slug, excerpt, body_md, category_slug, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`
+      `INSERT INTO posts (id, tenant_id, type, title, slug, excerpt, body_md, category_slug, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`
     )
     .bind(
       id,
       tenantId,
+      input.type ?? 'post',
       input.title,
       input.slug,
       input.excerpt ?? null,
@@ -316,7 +327,8 @@ export async function createPost(db: D1Database, tenantId: string, input: Partia
   return created;
 }
 
-export async function listPosts(db: D1Database, tenantId: string): Promise<PostRow[]> {
+export async function listPosts(db: D1Database, tenantId: string, type?: 'post' | 'page'): Promise<PostRow[]> {
+  const typeFilter = type ? 'AND posts.type = ?' : '';
   const { results } = await db
     .prepare(
       `SELECT posts.*,
@@ -326,10 +338,11 @@ export async function listPosts(db: D1Database, tenantId: string): Promise<PostR
          ON page_views_daily.tenant_id = posts.tenant_id
         AND page_views_daily.page_key = posts.slug
        WHERE posts.tenant_id = ?
+       ${typeFilter}
        GROUP BY posts.id
        ORDER BY posts.created_at DESC`
     )
-    .bind(tenantId)
+    .bind(...(type ? [tenantId, type] : [tenantId]))
     .all<PostRow>();
   return (results ?? []) as PostRow[];
 }
@@ -343,7 +356,7 @@ type ViewRangeOptions = {
 export async function listPostsWithViews(
   db: D1Database,
   tenantId: string,
-  { startDay = null, endDay = null, orderByViews = false }: ViewRangeOptions = {}
+  { startDay = null, endDay = null, orderByViews = false, type = null }: ViewRangeOptions & { type?: 'post' | 'page' | null } = {}
 ): Promise<PostRow[]> {
   const hasRange = Boolean(startDay && endDay);
   const joinClause = hasRange
@@ -357,18 +370,23 @@ export async function listPostsWithViews(
   const orderClause = orderByViews
     ? 'ORDER BY view_count DESC, posts.created_at DESC'
     : 'ORDER BY posts.created_at DESC';
+  const typeClause = type ? 'AND posts.type = ?' : '';
   const sql = `SELECT posts.*,
         COALESCE(SUM(page_views_daily.views), 0) AS view_count
       FROM posts
       ${joinClause}
       WHERE posts.tenant_id = ?
+      ${typeClause}
       GROUP BY posts.id
       ${orderClause}`;
 
   const statement = db.prepare(sql);
-  const bound = hasRange
-    ? statement.bind(startDay, endDay, tenantId)
-    : statement.bind(tenantId);
+  const bound = (() => {
+    if (hasRange && type) return statement.bind(startDay, endDay, tenantId, type);
+    if (hasRange) return statement.bind(startDay, endDay, tenantId);
+    if (type) return statement.bind(tenantId, type);
+    return statement.bind(tenantId);
+  })();
   const { results } = await bound.all<PostRow>();
   return (results ?? []) as PostRow[];
 }
@@ -390,6 +408,7 @@ export async function updatePost(db: D1Database, tenantId: string, id: string, u
   await db
     .prepare(
       `UPDATE posts SET
+        type = COALESCE(?, type),
         title = COALESCE(?, title),
         slug = COALESCE(?, slug),
         excerpt = COALESCE(?, excerpt),
@@ -400,6 +419,7 @@ export async function updatePost(db: D1Database, tenantId: string, id: string, u
        WHERE id = ? AND tenant_id = ?`
     )
     .bind(
+      updates.type ?? null,
       updates.title ?? null,
       updates.slug ?? null,
       updates.excerpt ?? null,
@@ -415,6 +435,48 @@ export async function updatePost(db: D1Database, tenantId: string, id: string, u
   const updated = await getPost(db, tenantId, id);
   if (!updated) throw new Error('Failed to load updated post');
   return updated;
+}
+
+export async function createInquiry(
+  db: D1Database,
+  tenantId: string,
+  input: { type: string; data: string }
+): Promise<InquiryRow> {
+  const id = uuidv4();
+  const now = Math.floor(Date.now() / 1000);
+  await db
+    .prepare(
+      `INSERT INTO inquiries (id, tenant_id, type, data, is_read, created_at)
+       VALUES (?, ?, ?, ?, 0, ?)`
+    )
+    .bind(id, tenantId, input.type, input.data, now)
+    .run();
+  const created = await db
+    .prepare('SELECT * FROM inquiries WHERE id = ? AND tenant_id = ?')
+    .bind(id, tenantId)
+    .first<InquiryRow>();
+  if (!created) throw new Error('Failed to create inquiry');
+  return created;
+}
+
+export async function listInquiries(db: D1Database, tenantId: string): Promise<InquiryRow[]> {
+  const { results } = await db
+    .prepare('SELECT * FROM inquiries WHERE tenant_id = ? ORDER BY created_at DESC')
+    .bind(tenantId)
+    .all<InquiryRow>();
+  return (results ?? []) as InquiryRow[];
+}
+
+export async function markInquiryRead(db: D1Database, tenantId: string, id: string): Promise<InquiryRow | null> {
+  await db
+    .prepare('UPDATE inquiries SET is_read = 1 WHERE id = ? AND tenant_id = ?')
+    .bind(id, tenantId)
+    .run();
+  const updated = await db
+    .prepare('SELECT * FROM inquiries WHERE id = ? AND tenant_id = ?')
+    .bind(id, tenantId)
+    .first<InquiryRow>();
+  return updated ?? null;
 }
 
 export async function deletePost(db: D1Database, tenantId: string, id: string): Promise<void> {
@@ -1051,6 +1113,7 @@ export function mapPost(row: PostRow) {
   const viewCount = toNumber((row as any).view_count ?? 0) ?? 0;
   return {
     id: row.id,
+    type: (row as any).type ?? 'post',
     title: row.title,
     slug: row.slug,
     excerpt: row.excerpt,
@@ -1064,6 +1127,23 @@ export function mapPost(row: PostRow) {
     updated_at: updatedAt ?? undefined,
     published_at_iso: toIso(publishedAt),
     updated_at_iso: toIso(updatedAt),
+  };
+}
+
+export function mapInquiry(row: InquiryRow) {
+  let data = row.data;
+  try {
+    data = JSON.parse(row.data);
+  } catch {
+    data = row.data;
+  }
+  return {
+    id: row.id,
+    type: row.type,
+    data,
+    is_read: Boolean(row.is_read),
+    created_at: toNumber(row.created_at) ?? undefined,
+    created_at_iso: toIso(toNumber(row.created_at)),
   };
 }
 

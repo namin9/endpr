@@ -24,18 +24,33 @@ const router = new Hono();
 router.use('/cms/posts/*', sessionMiddleware);
 router.use('/cms/posts', sessionMiddleware);
 
+function normalizePostType(value: unknown, fallback: 'post' | 'page' | null = null) {
+  if (value === null || value === undefined || value === '') return fallback;
+  if (value === 'post' || value === 'page') return value;
+  return null;
+}
+
 router.post('/cms/posts', async (c) => {
   const tenant = c.get('tenant');
   const body = await c.req.json();
-  const { title, slug, excerpt, body_md, category_slug } = body;
+  const { title, slug, excerpt, body_md, category_slug, type } = body;
   if (!title) return c.json({ error: 'title is required' }, 400);
+  const postType = normalizePostType(type, 'post');
+  if (!postType) return c.json({ error: 'type must be post or page' }, 400);
 
   const finalSlug = slug ? generateSlug(slug) : generateSlug(title);
   if (isReservedSlug(finalSlug)) {
     return c.json({ error: 'slug is reserved' }, 409);
   }
   try {
-    const post = await createPost(c.env.DB, tenant.id, { title, slug: finalSlug, excerpt, body_md, category_slug });
+    const post = await createPost(c.env.DB, tenant.id, {
+      title,
+      slug: finalSlug,
+      excerpt,
+      body_md,
+      category_slug,
+      type: postType,
+    });
     return c.json({ post: mapPost(post) }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
@@ -45,7 +60,14 @@ router.post('/cms/posts', async (c) => {
     }
     if (isUniqueSlug) {
       const retrySlug = generateSlug(`${finalSlug}-${crypto.randomUUID().slice(0, 8)}`);
-      const post = await createPost(c.env.DB, tenant.id, { title, slug: retrySlug, excerpt, body_md, category_slug });
+      const post = await createPost(c.env.DB, tenant.id, {
+        title,
+        slug: retrySlug,
+        excerpt,
+        body_md,
+        category_slug,
+        type: postType,
+      });
       return c.json({ post: mapPost(post) }, 201);
     }
     throw error;
@@ -56,6 +78,11 @@ router.get('/cms/posts', async (c) => {
   const tenant = c.get('tenant');
   const viewPeriod = c.req.query('viewPeriod') || 'all';
   const viewSort = c.req.query('viewSort') || 'recent';
+  const typeParam = c.req.query('type');
+  const postType = normalizePostType(typeParam, null);
+  if (typeParam && !postType) {
+    return c.json({ error: 'type must be post or page' }, 400);
+  }
   const now = new Date();
   const toDay = (date: Date) => date.toISOString().slice(0, 10);
   let startDay: string | null = null;
@@ -75,11 +102,12 @@ router.get('/cms/posts', async (c) => {
 
   const posts =
     viewPeriod === 'all' && viewSort === 'recent'
-      ? await listPosts(c.env.DB, tenant.id)
+      ? await listPosts(c.env.DB, tenant.id, postType ?? undefined)
       : await listPostsWithViews(c.env.DB, tenant.id, {
           startDay,
           endDay,
           orderByViews: viewSort === 'views',
+          type: postType,
         });
   return c.json({ posts: posts.map(mapPost) });
 });
@@ -96,7 +124,9 @@ router.post('/cms/posts/:id/autosave', async (c) => {
   const tenant = c.get('tenant');
   const id = c.req.param('id');
   const body = await c.req.json();
-  const { title, slug, excerpt, body_md, category_slug, status, publish_at } = body;
+  const { title, slug, excerpt, body_md, category_slug, status, publish_at, type } = body;
+  const postType = normalizePostType(type, null);
+  if (type && !postType) return c.json({ error: 'type must be post or page' }, 400);
 
   const existing = await getPost(c.env.DB, tenant.id, id);
   if (!existing) return c.json({ error: 'Post not found' }, 404);
@@ -108,6 +138,7 @@ router.post('/cms/posts/:id/autosave', async (c) => {
 
   try {
     const updated = await updatePost(c.env.DB, tenant.id, id, {
+      type: postType ?? undefined,
       title,
       slug: nextSlug,
       excerpt,
@@ -127,6 +158,7 @@ router.post('/cms/posts/:id/autosave', async (c) => {
     if (isUniqueSlug && nextSlug) {
       const retrySlug = generateSlug(`${nextSlug}-${crypto.randomUUID().slice(0, 8)}`);
       const updated = await updatePost(c.env.DB, tenant.id, id, {
+        type: postType ?? undefined,
         title,
         slug: retrySlug,
         excerpt,

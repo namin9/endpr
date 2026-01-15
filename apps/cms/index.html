@@ -14,6 +14,7 @@
         <h1 class="topbar-title">CMS</h1>
         <div class="tab-bar" role="tablist" aria-label="CMS Navigation">
           <button type="button" class="tab-button is-active" data-tab-target="content" role="tab">콘텐츠</button>
+          <button type="button" class="tab-button" data-tab-target="inquiries" role="tab">문의함</button>
           <button type="button" class="tab-button" data-tab-target="theme" role="tab">테마</button>
           <button type="button" class="tab-button" data-tab-target="site" role="tab">사이트 설정</button>
           <button type="button" class="tab-button" data-tab-target="admin" role="tab" data-admin-tab>관리</button>
@@ -122,6 +123,17 @@
               <button type="button" id="themeSaveBtn" class="primary">테마 저장</button>
               <span id="themeSaveStatus" class="muted"></span>
             </div>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="inquiries" role="tabpanel">
+          <section class="card" aria-labelledby="inquiries-heading">
+            <div class="card-header">
+              <h2 id="inquiries-heading">문의함</h2>
+              <button type="button" id="refreshInquiriesBtn" class="ghost">새로고침</button>
+            </div>
+            <p id="inquiriesStatus" class="muted">로딩 전</p>
+            <div id="inquiriesList" class="inquiry-list"></div>
           </section>
         </div>
 

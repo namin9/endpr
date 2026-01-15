@@ -874,6 +874,53 @@ button:active {
   gap: 8px;
 }
 
+.inquiry-list {
+  display: grid;
+  gap: 10px;
+}
+
+.inquiry-item {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.inquiry-item[data-unread='true'] {
+  border-color: var(--accent);
+}
+
+.inquiry-item summary {
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 600;
+}
+
+.inquiry-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.inquiry-item .inquiry-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.inquiry-item pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(15, 23, 42, 0.5);
+  padding: 10px;
+  border-radius: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text);
+}
+
 .category-item {
   border: 1px dashed var(--border);
   border-radius: 10px;
