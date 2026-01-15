@@ -64,6 +64,7 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
       categories: parsed.categories || [],
       theme: parsed.theme || null,
       meta: { tenantSlug: process.env.TENANT_SLUG || null },
+      siteConfig: parsed.siteConfig || { config: { logo_url: null, footer_text: null }, navigations: [] },
     };
   }
 
@@ -88,7 +89,22 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
   const metaResp = await fetchJson(`${apiBase}/build/meta`, buildToken);
   const metaTenant = metaResp?.tenant || {};
   const meta = { tenantSlug: metaTenant.slug || null };
-  return { posts: postsIndex, categories: categoriesIndex, theme: themePayload, meta };
+  let siteConfig = { config: { logo_url: null, footer_text: null }, navigations: [] };
+  try {
+    const siteResp = await fetchJson(`${apiBase}/build/site`, buildToken);
+    const config = {
+      logo_url: siteResp?.logo_url ?? null,
+      footer_text: siteResp?.footer_text ?? null,
+    };
+    const navigations = [
+      ...(siteResp?.navigations?.header || []),
+      ...(siteResp?.navigations?.footer || []),
+    ];
+    siteConfig = { config, navigations };
+  } catch (error) {
+    console.warn("Failed to load site config, falling back to defaults.", error);
+  }
+  return { posts: postsIndex, categories: categoriesIndex, theme: themePayload, meta, siteConfig };
 }
 
 async function resetDist() {
@@ -158,6 +174,18 @@ function sanitizeHtmlBlock(html) {
     "h6",
     "a",
     "img",
+    "form",
+    "input",
+    "textarea",
+    "button",
+    "select",
+    "option",
+    "optgroup",
+    "label",
+    "fieldset",
+    "legend",
+    "div",
+    "span",
   ]);
 
   return withoutScripts.replace(/<\/?([a-z0-9]+)([^>]*)>/gi, (match, tagName, attrs) => {
@@ -344,7 +372,27 @@ function summarizeBodyFormat(post) {
   return "empty";
 }
 
-function layoutHtml({ title, content, description = "", scripts = "" }) {
+function layoutHtml({ title, content, description = "", scripts = "", siteConfig = null }) {
+  const headerNav = Array.isArray(siteConfig?.navigations)
+    ? siteConfig.navigations
+        .filter((item) => item.location === "header")
+        .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+    : [];
+  const navLinks = headerNav.length
+    ? headerNav
+        .map((item) => {
+          const url = sanitizeUrl(item.url || "");
+          if (!url) return "";
+          const label = escapeHtml(item.label || item.url || "");
+          return `<a href="${escapeHtml(url)}">${label}</a>`;
+        })
+        .filter(Boolean)
+        .join("\n      ")
+    : `<a href="/posts/page/1/">Posts</a>`;
+  const logoUrl = siteConfig?.config?.logo_url ? sanitizeUrl(siteConfig.config.logo_url) : null;
+  const footerText = siteConfig?.config?.footer_text
+    ? escapeHtml(siteConfig.config.footer_text)
+    : "";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -356,14 +404,15 @@ function layoutHtml({ title, content, description = "", scripts = "" }) {
 </head>
 <body>
   <header>
-    <h1>${escapeHtml(title)}</h1>
+    <h1>${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(title)}" />` : escapeHtml(title)}</h1>
     <nav>
-      <a href="/posts/page/1/">Posts</a>
+      ${navLinks}
     </nav>
   </header>
   <main>
     ${content}
   </main>
+  ${footerText ? `<footer>${footerText}</footer>` : ""}
   ${scripts}
 </body>
 </html>`;
@@ -518,7 +567,7 @@ function formatSitemapLastmod(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-async function generatePostPages(posts) {
+async function generatePostPages(posts, siteConfig) {
   for (const post of posts) {
     assertSlugAllowed(post.slug, "post");
     const html = layoutHtml({
@@ -529,6 +578,7 @@ async function generatePostPages(posts) {
   <p>${escapeHtml(post.excerpt || "")}</p>
   ${renderPostBody(post)}
 </article>`,
+      siteConfig,
       scripts: buildViewTrackingScript({
         apiBase: analyticsConfig.apiBase,
         tenantSlug: analyticsConfig.tenantSlug,
@@ -541,7 +591,7 @@ async function generatePostPages(posts) {
   }
 }
 
-async function generateStaticPages(pages) {
+async function generateStaticPages(pages, siteConfig) {
   for (const page of pages) {
     assertSlugAllowed(page.slug, "page");
     const html = layoutHtml({
@@ -551,6 +601,7 @@ async function generateStaticPages(pages) {
   <h2>${escapeHtml(page.title || page.slug)}</h2>
   ${renderPostBody(page)}
 </article>`,
+      siteConfig,
       scripts: buildViewTrackingScript({
         apiBase: analyticsConfig.apiBase,
         tenantSlug: analyticsConfig.tenantSlug,
@@ -563,7 +614,7 @@ async function generateStaticPages(pages) {
   }
 }
 
-async function generatePostListPages(posts) {
+async function generatePostListPages(posts, siteConfig) {
   const pages = paginate(posts, PAGE_SIZE);
   for (const page of pages) {
     const entries = page.items
@@ -581,6 +632,7 @@ async function generatePostListPages(posts) {
 ${entries}
 </ol>
 <p>Page ${page.page} of ${page.totalPages}</p>`,
+      siteConfig,
     });
 
     const filePath = path.join(
@@ -594,7 +646,7 @@ ${entries}
   }
 }
 
-async function generateHomepage(posts) {
+async function generateHomepage(posts, siteConfig) {
   const hasPosts = posts.length > 0;
   const latestPosts = posts.slice(0, PAGE_SIZE);
   const latestList = latestPosts
@@ -628,13 +680,14 @@ ${latestList}
     title: "Home",
     description: "Latest posts from the blog.",
     content,
+    siteConfig,
   });
 
   await writeHtml(path.join(DIST_DIR, "index.html"), html);
   console.log("Generated dist/index.html");
 }
 
-async function generateCategoryPages(posts, categories) {
+async function generateCategoryPages(posts, categories, siteConfig) {
   const enabledCategories = categories.filter(
     (category) => category.enabled !== false
   );
@@ -664,6 +717,7 @@ async function generateCategoryPages(posts, categories) {
 ${entries}
 </ul>
 <p>Page ${page.page} of ${page.totalPages}</p>`,
+        siteConfig,
       });
 
       const filePath = path.join(
@@ -773,7 +827,7 @@ async function build() {
   if (!siteBase) throw new Error("SITE_BASE_URL is required for sitemap generation.");
   siteBaseUrl = resolveSiteBaseUrl();
 
-  const { posts: rawPosts, categories, theme, meta } = await loadBuildData({
+  const { posts: rawPosts, categories, theme, meta, siteConfig } = await loadBuildData({
     apiBase,
     buildToken,
     useMock,
@@ -810,11 +864,11 @@ async function build() {
   const pageEntries = posts.filter((post) => resolvePostType(post) === "page");
 
   await resetDist();
-  await generateHomepage(postEntries);
-  await generatePostPages(postEntries);
-  await generatePostListPages(postEntries);
-  await generateCategoryPages(postEntries, categories);
-  await generateStaticPages(pageEntries);
+  await generateHomepage(postEntries, siteConfig);
+  await generatePostPages(postEntries, siteConfig);
+  await generatePostListPages(postEntries, siteConfig);
+  await generateCategoryPages(postEntries, categories, siteConfig);
+  await generateStaticPages(pageEntries, siteConfig);
   await generateSitemap(postEntries, categories, pageEntries);
   await generateRobots();
 }
