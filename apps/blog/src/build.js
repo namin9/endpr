@@ -365,6 +365,25 @@ function renderPostBody(post) {
   return "<p></p>";
 }
 
+function extractFirstImageUrl(post) {
+  const sources = [post.body_html, post.body_md, post.body].filter(Boolean);
+  const imgTagRegex = /<img[^>]*src=["']([^"']+)["']/i;
+  const mdImgRegex = /!\[[^\]]*]\(([^)]+)\)/;
+  for (const source of sources) {
+    const htmlMatch = source.match(imgTagRegex);
+    if (htmlMatch?.[1]) {
+      const sanitized = sanitizeUrl(htmlMatch[1]);
+      if (sanitized) return sanitized;
+    }
+    const mdMatch = source.match(mdImgRegex);
+    if (mdMatch?.[1]) {
+      const sanitized = sanitizeUrl(mdMatch[1]);
+      if (sanitized) return sanitized;
+    }
+  }
+  return null;
+}
+
 function summarizeBodyFormat(post) {
   if (post.body_html) return "body_html";
   if (post.body_md) return "body_md";
@@ -372,7 +391,17 @@ function summarizeBodyFormat(post) {
   return "empty";
 }
 
-function layoutHtml({ title, content, description = "", scripts = "", siteConfig = null }) {
+function layoutHtml({
+  title,
+  content,
+  description = "",
+  scripts = "",
+  siteConfig = null,
+  pagePath = "/",
+  ogImage = null,
+  prevPost = null,
+  nextPost = null,
+} = {}) {
   const headerNav = Array.isArray(siteConfig?.navigations)
     ? siteConfig.navigations
         .filter((item) => item.location === "header")
@@ -393,6 +422,25 @@ function layoutHtml({ title, content, description = "", scripts = "", siteConfig
   const footerText = siteConfig?.config?.footer_text
     ? escapeHtml(siteConfig.config.footer_text)
     : "";
+  const resolvedOgImage = ogImage || logoUrl || null;
+  const ogUrl = siteBaseUrl ? buildUrl(siteBaseUrl, pagePath) : null;
+  const searchScript = `(function(){var input=document.querySelector('[data-search-input]');var results=document.querySelector('[data-search-results]');if(!input||!results){return;}var cache=null;function render(list){results.innerHTML='';if(!input.value.trim()){results.classList.add('hidden');return;}if(!list.length){results.innerHTML='<div class=\"muted\">검색 결과가 없습니다.</div>';results.classList.remove('hidden');return;}var items=list.map(function(item){return '<a href=\"/'+item.slug+'/\">'+(item.title||item.slug)+'</a>';}).join('');results.innerHTML=items;results.classList.remove('hidden');}function filter(){var q=input.value.trim().toLowerCase();if(!q){render([]);return;}if(!cache){fetch('/search.json').then(function(resp){return resp.ok?resp.json():[];}).then(function(data){cache=Array.isArray(data)?data:[];applyFilter();}).catch(function(){render([]);});return;}applyFilter();function applyFilter(){var filtered=cache.filter(function(item){return (item.title||'').toLowerCase().includes(q)||(item.slug||'').toLowerCase().includes(q)||(item.excerpt||'').toLowerCase().includes(q);}).slice(0,10);render(filtered);}}input.addEventListener('input',filter);})();`;
+  const navigationLinks = [];
+  if (prevPost) {
+    navigationLinks.push(
+      `<a href="/${prevPost.slug}/" class="nav-prev">← 이전 글: ${escapeHtml(prevPost.title || prevPost.slug)}</a>`
+    );
+  }
+  if (nextPost) {
+    navigationLinks.push(
+      `<a href="/${nextPost.slug}/" class="nav-next">다음 글: ${escapeHtml(nextPost.title || nextPost.slug)} →</a>`
+    );
+  }
+  const postNav = navigationLinks.length
+    ? `<section class="post-nav">
+      ${navigationLinks.join("")}
+    </section>`
+    : "";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -400,6 +448,11 @@ function layoutHtml({ title, content, description = "", scripts = "", siteConfig
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(description)}" />
+  <meta property="og:title" content="${escapeHtml(title)}" />
+  <meta property="og:description" content="${escapeHtml(description)}" />
+  ${ogUrl ? `<meta property="og:url" content="${escapeHtml(ogUrl)}" />` : ""}
+  ${resolvedOgImage ? `<meta property="og:image" content="${escapeHtml(resolvedOgImage)}" />` : ""}
+  <meta name="twitter:card" content="${resolvedOgImage ? "summary_large_image" : "summary"}" />
   ${themeStyle}
 </head>
 <body>
@@ -408,12 +461,19 @@ function layoutHtml({ title, content, description = "", scripts = "", siteConfig
     <nav>
       ${navLinks}
     </nav>
+    <div class="search-shell">
+      <span aria-hidden="true">🔍</span>
+      <input type="search" placeholder="검색" data-search-input />
+      <div class="search-results hidden" data-search-results></div>
+    </div>
   </header>
   <main>
     ${content}
   </main>
+  ${postNav}
   ${footerText ? `<footer>${footerText}</footer>` : ""}
   ${scripts}
+  <script>${searchScript}</script>
 </body>
 </html>`;
 }
@@ -568,7 +628,10 @@ function formatSitemapLastmod(value) {
 }
 
 async function generatePostPages(posts, siteConfig) {
-  for (const post of posts) {
+  for (let index = 0; index < posts.length; index += 1) {
+    const post = posts[index];
+    const prevPost = posts[index - 1] || null;
+    const nextPost = posts[index + 1] || null;
     assertSlugAllowed(post.slug, "post");
     const html = layoutHtml({
       title: post.title || post.slug,
@@ -579,6 +642,10 @@ async function generatePostPages(posts, siteConfig) {
   ${renderPostBody(post)}
 </article>`,
       siteConfig,
+      pagePath: `/${post.slug}/`,
+      ogImage: extractFirstImageUrl(post),
+      prevPost,
+      nextPost,
       scripts: buildViewTrackingScript({
         apiBase: analyticsConfig.apiBase,
         tenantSlug: analyticsConfig.tenantSlug,
@@ -602,6 +669,8 @@ async function generateStaticPages(pages, siteConfig) {
   ${renderPostBody(page)}
 </article>`,
       siteConfig,
+      pagePath: `/${page.slug}/`,
+      ogImage: extractFirstImageUrl(page),
       scripts: buildViewTrackingScript({
         apiBase: analyticsConfig.apiBase,
         tenantSlug: analyticsConfig.tenantSlug,
@@ -633,6 +702,7 @@ ${entries}
 </ol>
 <p>Page ${page.page} of ${page.totalPages}</p>`,
       siteConfig,
+      pagePath: `/posts/page/${page.page}/`,
     });
 
     const filePath = path.join(
@@ -681,6 +751,7 @@ ${latestList}
     description: "Latest posts from the blog.",
     content,
     siteConfig,
+    pagePath: "/",
   });
 
   await writeHtml(path.join(DIST_DIR, "index.html"), html);
@@ -718,6 +789,7 @@ ${entries}
 </ul>
 <p>Page ${page.page} of ${page.totalPages}</p>`,
         siteConfig,
+        pagePath: `/category/${category.slug}/page/${page.page}/`,
       });
 
       const filePath = path.join(
@@ -731,6 +803,32 @@ ${entries}
       await writeHtml(filePath, html);
     }
   }
+}
+
+async function generate404Page(siteConfig) {
+  const html = layoutHtml({
+    title: "404",
+    description: "페이지를 찾을 수 없습니다.",
+    content: `<section>
+  <h2>페이지를 찾을 수 없습니다</h2>
+  <p>요청하신 페이지가 존재하지 않거나 이동되었습니다.</p>
+  <p><a href="/" class="ghost">홈으로 가기</a></p>
+</section>`,
+    siteConfig,
+    pagePath: "/404.html",
+  });
+  await writeHtml(path.join(DIST_DIR, "404.html"), html);
+}
+
+async function generateSearchIndex(posts) {
+  const items = posts.map((post) => ({
+    id: post.id,
+    title: post.title,
+    slug: post.slug,
+    excerpt: post.excerpt || "",
+    published_at: post.published_at || post.publish_at || post.created_at || null,
+  }));
+  await writeFile(path.join(DIST_DIR, "search.json"), JSON.stringify(items));
 }
 
 async function generateRobots() {
@@ -870,7 +968,9 @@ async function build() {
   await generateCategoryPages(postEntries, categories, siteConfig);
   await generateStaticPages(pageEntries, siteConfig);
   await generateSitemap(postEntries, categories, pageEntries);
+  await generateSearchIndex(postEntries);
   await generateRobots();
+  await generate404Page(siteConfig);
 }
 
 build().catch((error) => {
