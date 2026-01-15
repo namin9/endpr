@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 
-export type Role = 'editor' | 'admin' | 'super';
+export type Role = 'editor' | 'tenant_admin' | 'super_admin';
 
 export type TenantRow = {
   id: string;
@@ -98,6 +98,28 @@ export type SiteNavigationRow = {
   order_index: number;
   created_at: number;
   updated_at: number;
+};
+
+export type PopupRow = {
+  id: string;
+  tenant_id: string;
+  title: string;
+  content: string;
+  type: 'modal' | 'topbar' | 'bottombar';
+  start_at: number | null;
+  end_at: number | null;
+  is_active: number;
+  created_at: number;
+};
+
+export type BannerRow = {
+  id: string;
+  tenant_id: string;
+  location: 'home_top' | 'sidebar' | 'post_bottom';
+  image_url: string;
+  link_url: string;
+  order_index: number;
+  is_active: number;
 };
 
 export type PrCampaignRow = {
@@ -887,6 +909,181 @@ export async function updateSiteNavigation(
 
 export async function deleteSiteNavigation(db: D1Database, tenantId: string, id: string): Promise<void> {
   await db.prepare('DELETE FROM site_navigations WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+}
+
+export async function listPopups(db: D1Database, tenantId: string): Promise<PopupRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, tenant_id, title, content, type, start_at, end_at, is_active, created_at
+       FROM popups
+       WHERE tenant_id = ?
+       ORDER BY created_at DESC`
+    )
+    .bind(tenantId)
+    .all<PopupRow>();
+  return (results ?? []) as PopupRow[];
+}
+
+export async function createPopup(
+  db: D1Database,
+  tenantId: string,
+  input: Pick<PopupRow, 'title' | 'content' | 'type' | 'start_at' | 'end_at' | 'is_active'>
+): Promise<PopupRow> {
+  const id = uuidv4();
+  await db
+    .prepare(
+      `INSERT INTO popups (id, tenant_id, title, content, type, start_at, end_at, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(id, tenantId, input.title, input.content, input.type, input.start_at ?? null, input.end_at ?? null, input.is_active)
+    .run();
+  const created = await db
+    .prepare(
+      'SELECT id, tenant_id, title, content, type, start_at, end_at, is_active, created_at FROM popups WHERE id = ? AND tenant_id = ?'
+    )
+    .bind(id, tenantId)
+    .first<PopupRow>();
+  if (!created) throw new Error('Failed to create popup');
+  return created;
+}
+
+export async function updatePopup(
+  db: D1Database,
+  tenantId: string,
+  id: string,
+  updates: Partial<Pick<PopupRow, 'title' | 'content' | 'type' | 'start_at' | 'end_at' | 'is_active'>>
+): Promise<PopupRow> {
+  await db
+    .prepare(
+      `UPDATE popups SET
+        title = COALESCE(?, title),
+        content = COALESCE(?, content),
+        type = COALESCE(?, type),
+        start_at = COALESCE(?, start_at),
+        end_at = COALESCE(?, end_at),
+        is_active = COALESCE(?, is_active)
+       WHERE id = ? AND tenant_id = ?`
+    )
+    .bind(
+      updates.title ?? null,
+      updates.content ?? null,
+      updates.type ?? null,
+      updates.start_at ?? null,
+      updates.end_at ?? null,
+      updates.is_active ?? null,
+      id,
+      tenantId
+    )
+    .run();
+  const updated = await db
+    .prepare(
+      'SELECT id, tenant_id, title, content, type, start_at, end_at, is_active, created_at FROM popups WHERE id = ? AND tenant_id = ?'
+    )
+    .bind(id, tenantId)
+    .first<PopupRow>();
+  if (!updated) throw new Error('Failed to update popup');
+  return updated;
+}
+
+export async function deletePopup(db: D1Database, tenantId: string, id: string): Promise<void> {
+  await db.prepare('DELETE FROM popups WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+}
+
+export async function listBanners(db: D1Database, tenantId: string, location?: BannerRow['location']): Promise<BannerRow[]> {
+  const query = location
+    ? db
+        .prepare(
+          `SELECT id, tenant_id, location, image_url, link_url, order_index, is_active
+           FROM banners
+           WHERE tenant_id = ? AND location = ?
+           ORDER BY order_index ASC, id ASC`
+        )
+        .bind(tenantId, location)
+    : db
+        .prepare(
+          `SELECT id, tenant_id, location, image_url, link_url, order_index, is_active
+           FROM banners
+           WHERE tenant_id = ?
+           ORDER BY location ASC, order_index ASC, id ASC`
+        )
+        .bind(tenantId);
+  const { results } = await query.all<BannerRow>();
+  return (results ?? []) as BannerRow[];
+}
+
+export async function createBanner(
+  db: D1Database,
+  tenantId: string,
+  input: Pick<BannerRow, 'location' | 'image_url' | 'link_url' | 'is_active'> & { order_index?: number | null }
+): Promise<BannerRow> {
+  const id = uuidv4();
+  let orderIndex = input.order_index;
+  if (orderIndex === null || orderIndex === undefined) {
+    const row = await db
+      .prepare(
+        `SELECT COALESCE(MAX(order_index), -1) AS max_order
+         FROM banners
+         WHERE tenant_id = ? AND location = ?`
+      )
+      .bind(tenantId, input.location)
+      .first<{ max_order: number }>();
+    orderIndex = (row?.max_order ?? -1) + 1;
+  }
+  await db
+    .prepare(
+      `INSERT INTO banners (id, tenant_id, location, image_url, link_url, order_index, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(id, tenantId, input.location, input.image_url, input.link_url, orderIndex, input.is_active)
+    .run();
+  const created = await db
+    .prepare(
+      'SELECT id, tenant_id, location, image_url, link_url, order_index, is_active FROM banners WHERE id = ? AND tenant_id = ?'
+    )
+    .bind(id, tenantId)
+    .first<BannerRow>();
+  if (!created) throw new Error('Failed to create banner');
+  return created;
+}
+
+export async function updateBanner(
+  db: D1Database,
+  tenantId: string,
+  id: string,
+  updates: Partial<Pick<BannerRow, 'location' | 'image_url' | 'link_url' | 'order_index' | 'is_active'>>
+): Promise<BannerRow> {
+  await db
+    .prepare(
+      `UPDATE banners SET
+        location = COALESCE(?, location),
+        image_url = COALESCE(?, image_url),
+        link_url = COALESCE(?, link_url),
+        order_index = COALESCE(?, order_index),
+        is_active = COALESCE(?, is_active)
+       WHERE id = ? AND tenant_id = ?`
+    )
+    .bind(
+      updates.location ?? null,
+      updates.image_url ?? null,
+      updates.link_url ?? null,
+      updates.order_index ?? null,
+      updates.is_active ?? null,
+      id,
+      tenantId
+    )
+    .run();
+  const updated = await db
+    .prepare(
+      'SELECT id, tenant_id, location, image_url, link_url, order_index, is_active FROM banners WHERE id = ? AND tenant_id = ?'
+    )
+    .bind(id, tenantId)
+    .first<BannerRow>();
+  if (!updated) throw new Error('Failed to update banner');
+  return updated;
+}
+
+export async function deleteBanner(db: D1Database, tenantId: string, id: string): Promise<void> {
+  await db.prepare('DELETE FROM banners WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
 }
 
 export async function createCategory(

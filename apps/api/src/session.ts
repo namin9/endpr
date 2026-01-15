@@ -2,7 +2,7 @@ export type SessionData = {
   userId: string;
   tenantId: string;
   tenantSlug: string;
-  role: 'editor' | 'admin' | 'super';
+  role: 'editor' | 'tenant_admin' | 'super_admin';
   email: string;
 };
 

@@ -53,10 +53,24 @@ export const buildTokenMiddleware = async (c: Ctx, next: Next) => {
   await next();
 };
 
-export function requireRole(session: SessionData | undefined, roles: Role[]): boolean {
+export function hasRole(session: SessionData | undefined, roles: Role[]): boolean {
   if (!session) return false;
   return roles.includes(session.role);
 }
+
+export const requireRole = (roles: Role[]) => {
+  return async (c: Ctx, next: Next) => {
+    if (c.req.method === 'OPTIONS') {
+      await next();
+      return;
+    }
+    const session = c.get('session') as SessionData | undefined;
+    if (!hasRole(session, roles)) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+    await next();
+  };
+};
 
 export async function refreshSessionCookie(c: Ctx, session: SessionData): Promise<boolean> {
   const sessionSecret = getSessionSecret(c.env);
