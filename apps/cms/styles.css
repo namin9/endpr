@@ -591,6 +591,16 @@ button:active {
   gap: 10px;
 }
 
+.field.inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field.inline span {
+  white-space: nowrap;
+}
+
 .site-layout-picks {
   display: flex;
   flex-direction: column;
@@ -599,6 +609,21 @@ button:active {
 
 .site-layout-picks select {
   min-height: 120px;
+}
+
+.site-layout-features {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.site-layout-feature-row {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 
 .wrap {

@@ -203,10 +203,19 @@
               <button type="button" id="refreshHomeLayoutBtn" class="ghost">새로고침</button>
             </div>
             <div class="row gap wrap">
-              <button type="button" id="addHeroSectionBtn" class="ghost">Hero 섹션 추가</button>
-              <button type="button" id="addLatestSectionBtn" class="ghost">최신글 섹션 추가</button>
-              <button type="button" id="addPopularSectionBtn" class="ghost">인기글 섹션 추가</button>
-              <button type="button" id="addPickSectionBtn" class="ghost">Pick 섹션 추가</button>
+              <label class="field inline">
+                <span>섹션 종류</span>
+                <select id="homeLayoutTypeSelect">
+                  <option value="banner">배너</option>
+                  <option value="features">특징 그리드</option>
+                  <option value="html">HTML/임베드</option>
+                  <option value="hero">히어로(게시글)</option>
+                  <option value="latest">최신글</option>
+                  <option value="popular">인기글</option>
+                  <option value="pick">직접 선택</option>
+                </select>
+              </label>
+              <button type="button" id="addSectionBtn" class="ghost">섹션 추가</button>
             </div>
             <p id="homeLayoutStatus" class="muted">로딩 전</p>
             <div id="homeLayoutList" class="site-layout-list"></div>

@@ -22,11 +22,18 @@ const DEFAULT_HOME_LAYOUT = [
 
 type HomeSection = {
   id?: string;
-  type: 'hero' | 'latest' | 'popular' | 'pick';
+  type: 'hero' | 'latest' | 'popular' | 'pick' | 'banner' | 'features' | 'html';
   title?: string | null;
   limit?: number | null;
   post_ids?: string[] | null;
   post_slugs?: string[] | null;
+  subtitle?: string | null;
+  image_url?: string | null;
+  button_text?: string | null;
+  button_link?: string | null;
+  height_size?: string | null;
+  items?: Array<{ icon?: string | null; title?: string | null; description?: string | null }> | null;
+  raw_content?: string | null;
 };
 
 function getBucket(c: any) {
@@ -126,6 +133,13 @@ router.get('/build/home', async (c) => {
   const sections = [];
   for (const section of layout) {
     if (!section || !section.type) continue;
+    if (section.type === 'banner' || section.type === 'features' || section.type === 'html') {
+      sections.push({
+        ...section,
+        posts: [],
+      });
+      continue;
+    }
     const limit = section.limit && section.limit > 0 ? section.limit : section.type === 'hero' ? 1 : 6;
     let posts = [];
     if (section.type === 'hero' || section.type === 'latest') {

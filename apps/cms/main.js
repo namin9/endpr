@@ -122,10 +122,8 @@ const homeLayoutStatus = document.getElementById('homeLayoutStatus');
 const homeLayoutSaveBtn = document.getElementById('homeLayoutSaveBtn');
 const homeLayoutSaveStatus = document.getElementById('homeLayoutSaveStatus');
 const refreshHomeLayoutBtn = document.getElementById('refreshHomeLayoutBtn');
-const addHeroSectionBtn = document.getElementById('addHeroSectionBtn');
-const addLatestSectionBtn = document.getElementById('addLatestSectionBtn');
-const addPopularSectionBtn = document.getElementById('addPopularSectionBtn');
-const addPickSectionBtn = document.getElementById('addPickSectionBtn');
+const homeLayoutTypeSelect = document.getElementById('homeLayoutTypeSelect');
+const addSectionBtn = document.getElementById('addSectionBtn');
 const tenantsStatus = document.getElementById('tenantsStatus');
 const tenantsList = document.getElementById('tenantsList');
 const refreshTenantsBtn = document.getElementById('refreshTenantsBtn');
@@ -638,6 +636,22 @@ async function apiFetch(path, options = {}) {
   }
 
   return data;
+}
+
+async function uploadImageAsset(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await fetch(buildUrl('/cms/uploads'), {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data?.ok || !data?.url) {
+    const message = data?.error || `Upload failed (${response.status})`;
+    throw new Error(message);
+  }
+  return data.url;
 }
 
 function formatError(error) {
@@ -1814,6 +1828,26 @@ function getHomeSectionDefaults(type) {
       return { title: '인기글', limit: 6 };
     case 'pick':
       return { title: 'Pick', limit: 6 };
+    case 'banner':
+      return {
+        title: '환영합니다',
+        subtitle: '브랜드 메시지를 입력하세요.',
+        image_url: '',
+        button_text: '자세히 보기',
+        button_link: '/',
+        height_size: 'md',
+      };
+    case 'features':
+      return {
+        title: '핵심 특징',
+        items: [
+          { icon: '✨', title: '빠른 구축', description: '빠르게 시작할 수 있습니다.' },
+          { icon: '🔒', title: '안전한 운영', description: '안정적으로 운영됩니다.' },
+          { icon: '📈', title: '성장 지원', description: '성과를 높여줍니다.' },
+        ],
+      };
+    case 'html':
+      return { title: '임베드', raw_content: '<div>HTML 코드를 입력하세요.</div>' };
     default:
       return { title: '', limit: 6 };
   }
@@ -1826,6 +1860,13 @@ function createHomeSection(type) {
     id,
     type,
     title: defaults.title,
+    subtitle: defaults.subtitle,
+    image_url: defaults.image_url,
+    button_text: defaults.button_text,
+    button_link: defaults.button_link,
+    height_size: defaults.height_size,
+    items: defaults.items,
+    raw_content: defaults.raw_content,
     limit: defaults.limit,
     post_ids: type === 'pick' ? [] : undefined,
   };
@@ -1973,54 +2014,214 @@ function renderHomeLayoutEditor() {
     `;
     const fields = document.createElement('div');
     fields.className = 'site-layout-fields';
-    const titleField = document.createElement('label');
-    titleField.className = 'field';
-    titleField.innerHTML = `<span>섹션 타이틀</span><input value="${section.title || ''}" />`;
-    const limitField = document.createElement('label');
-    limitField.className = 'field';
-    limitField.innerHTML = `<span>표시 수</span><input type="number" min="1" value="${section.limit || 1}" />`;
-    fields.appendChild(titleField);
-    fields.appendChild(limitField);
 
-    const picksWrapper = document.createElement('div');
-    picksWrapper.className = 'site-layout-picks';
+    const createInputField = (labelText, value, onChange, options = {}) => {
+      const field = document.createElement('label');
+      field.className = 'field';
+      const input = document.createElement('input');
+      input.type = options.type || 'text';
+      if (options.placeholder) input.placeholder = options.placeholder;
+      if (options.min !== undefined) input.min = options.min;
+      input.value = value || '';
+      input.addEventListener('input', (event) => onChange(event.target.value));
+      field.appendChild(document.createElement('span')).textContent = labelText;
+      field.appendChild(input);
+      return { field, input };
+    };
 
-    if (section.type === 'pick') {
-      const pickLabel = document.createElement('span');
-      pickLabel.className = 'muted';
-      pickLabel.textContent = 'Pick 게시글 선택';
+    const createTextareaField = (labelText, value, onChange) => {
+      const field = document.createElement('label');
+      field.className = 'field';
+      const textarea = document.createElement('textarea');
+      textarea.rows = 4;
+      textarea.value = value || '';
+      textarea.addEventListener('input', (event) => onChange(event.target.value));
+      field.appendChild(document.createElement('span')).textContent = labelText;
+      field.appendChild(textarea);
+      return { field, textarea };
+    };
+
+    const createSelectField = (labelText, value, options, onChange) => {
+      const field = document.createElement('label');
+      field.className = 'field';
       const select = document.createElement('select');
-      select.multiple = true;
-      allPosts.forEach((post) => {
-        const option = document.createElement('option');
-        option.value = post.id;
-        option.textContent = post.title || post.slug;
-        if (Array.isArray(section.post_ids) && section.post_ids.includes(post.id)) {
-          option.selected = true;
-        }
-        select.appendChild(option);
+      options.forEach((option) => {
+        const opt = document.createElement('option');
+        opt.value = option.value;
+        opt.textContent = option.label;
+        select.appendChild(opt);
       });
-      select.addEventListener('change', () => {
-        section.post_ids = Array.from(select.selectedOptions).map((option) => option.value);
-      });
-      picksWrapper.appendChild(pickLabel);
-      picksWrapper.appendChild(select);
-    }
+      select.value = value || options[0]?.value || '';
+      select.addEventListener('change', (event) => onChange(event.target.value));
+      field.appendChild(document.createElement('span')).textContent = labelText;
+      field.appendChild(select);
+      return { field, select };
+    };
 
-    const [titleInput, limitInput] = fields.querySelectorAll('input');
-    titleInput.addEventListener('input', (event) => {
-      section.title = event.target.value;
-    });
-    limitInput.addEventListener('input', (event) => {
-      const value = Number(event.target.value);
-      section.limit = Number.isFinite(value) && value > 0 ? value : null;
-    });
+    if (['hero', 'latest', 'popular', 'pick'].includes(section.type)) {
+      const { field: titleField } = createInputField('섹션 타이틀', section.title || '', (value) => {
+        section.title = value;
+      });
+      const { field: limitField, input: limitInput } = createInputField(
+        '표시 수',
+        section.limit || 1,
+        (value) => {
+          const num = Number(value);
+          section.limit = Number.isFinite(num) && num > 0 ? num : null;
+        },
+        { type: 'number', min: 1 }
+      );
+      fields.appendChild(titleField);
+      fields.appendChild(limitField);
+
+      if (section.type === 'pick') {
+        const picksWrapper = document.createElement('div');
+        picksWrapper.className = 'site-layout-picks';
+        const pickLabel = document.createElement('span');
+        pickLabel.className = 'muted';
+        pickLabel.textContent = 'Pick 게시글 선택';
+        const select = document.createElement('select');
+        select.multiple = true;
+        allPosts.forEach((post) => {
+          const option = document.createElement('option');
+          option.value = post.id;
+          option.textContent = post.title || post.slug;
+          if (Array.isArray(section.post_ids) && section.post_ids.includes(post.id)) {
+            option.selected = true;
+          }
+          select.appendChild(option);
+        });
+        select.addEventListener('change', () => {
+          section.post_ids = Array.from(select.selectedOptions).map((option) => option.value);
+        });
+        picksWrapper.appendChild(pickLabel);
+        picksWrapper.appendChild(select);
+        fields.appendChild(picksWrapper);
+      }
+    } else if (section.type === 'banner') {
+      const { field: titleField } = createInputField('제목', section.title || '', (value) => {
+        section.title = value;
+      });
+      const { field: subtitleField } = createInputField('내용', section.subtitle || '', (value) => {
+        section.subtitle = value;
+      });
+      const { field: imageField, input: imageInput } = createInputField(
+        '배경 이미지 URL',
+        section.image_url || '',
+        (value) => {
+          section.image_url = value;
+        },
+        { placeholder: 'https://...' }
+      );
+      const uploadField = document.createElement('label');
+      uploadField.className = 'field';
+      uploadField.innerHTML = '<span>이미지 업로드</span>';
+      const uploadInput = document.createElement('input');
+      uploadInput.type = 'file';
+      uploadInput.accept = 'image/*';
+      uploadInput.addEventListener('change', async () => {
+        const file = uploadInput.files && uploadInput.files[0];
+        if (!file) return;
+        try {
+          const url = await uploadImageAsset(file);
+          section.image_url = url;
+          imageInput.value = url;
+        } catch (error) {
+          console.error('Banner upload failed', error);
+          if (homeLayoutStatus) setStatus(homeLayoutStatus, '이미지 업로드 실패', true);
+        }
+      });
+      uploadField.appendChild(uploadInput);
+      const { field: buttonTextField } = createInputField('버튼 텍스트', section.button_text || '', (value) => {
+        section.button_text = value;
+      });
+      const { field: buttonLinkField } = createInputField(
+        '버튼 링크',
+        section.button_link || '',
+        (value) => {
+          section.button_link = value;
+        },
+        { placeholder: '/contact' }
+      );
+      const { field: heightField, select: heightSelect } = createSelectField(
+        '높이',
+        section.height_size || 'md',
+        [
+          { value: 'sm', label: '작게' },
+          { value: 'md', label: '보통' },
+          { value: 'lg', label: '크게' },
+        ],
+        (value) => {
+          section.height_size = value;
+        }
+      );
+      fields.appendChild(titleField);
+      fields.appendChild(subtitleField);
+      fields.appendChild(imageField);
+      fields.appendChild(uploadField);
+      fields.appendChild(buttonTextField);
+      fields.appendChild(buttonLinkField);
+      fields.appendChild(heightField);
+    } else if (section.type === 'features') {
+      const { field: titleField } = createInputField('섹션 타이틀', section.title || '', (value) => {
+        section.title = value;
+      });
+      fields.appendChild(titleField);
+
+      if (!Array.isArray(section.items)) {
+        section.items = [];
+      }
+      const itemsWrapper = document.createElement('div');
+      itemsWrapper.className = 'site-layout-features';
+      section.items.forEach((item, itemIndex) => {
+        const row = document.createElement('div');
+        row.className = 'site-layout-feature-row';
+        const { field: iconField } = createInputField('아이콘', item.icon || '', (value) => {
+          item.icon = value;
+        });
+        const { field: itemTitleField } = createInputField('제목', item.title || '', (value) => {
+          item.title = value;
+        });
+        const { field: descField } = createTextareaField('설명', item.description || '', (value) => {
+          item.description = value;
+        });
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'ghost danger';
+        removeBtn.textContent = '삭제';
+        removeBtn.addEventListener('click', () => {
+          section.items.splice(itemIndex, 1);
+          renderHomeLayoutEditor();
+        });
+        row.appendChild(iconField);
+        row.appendChild(itemTitleField);
+        row.appendChild(descField);
+        row.appendChild(removeBtn);
+        itemsWrapper.appendChild(row);
+      });
+      const addItemBtn = document.createElement('button');
+      addItemBtn.type = 'button';
+      addItemBtn.className = 'ghost';
+      addItemBtn.textContent = '특징 추가';
+      addItemBtn.addEventListener('click', () => {
+        section.items.push({ icon: '✨', title: '', description: '' });
+        renderHomeLayoutEditor();
+      });
+      fields.appendChild(itemsWrapper);
+      fields.appendChild(addItemBtn);
+    } else if (section.type === 'html') {
+      const { field: titleField } = createInputField('섹션 타이틀', section.title || '', (value) => {
+        section.title = value;
+      });
+      const { field: htmlField } = createTextareaField('HTML/임베드 코드', section.raw_content || '', (value) => {
+        section.raw_content = value;
+      });
+      fields.appendChild(titleField);
+      fields.appendChild(htmlField);
+    }
 
     container.appendChild(header);
     container.appendChild(fields);
-    if (section.type === 'pick') {
-      container.appendChild(picksWrapper);
-    }
     homeLayoutList.appendChild(container);
 
     const upBtn = header.querySelector('[data-layout-up]');
@@ -3613,30 +3814,10 @@ if (refreshHomeLayoutBtn) {
   });
 }
 
-if (addHeroSectionBtn) {
-  addHeroSectionBtn.addEventListener('click', () => {
-    siteConfig.home_layout = [...(siteConfig.home_layout || []), createHomeSection('hero')];
-    renderHomeLayoutEditor();
-  });
-}
-
-if (addLatestSectionBtn) {
-  addLatestSectionBtn.addEventListener('click', () => {
-    siteConfig.home_layout = [...(siteConfig.home_layout || []), createHomeSection('latest')];
-    renderHomeLayoutEditor();
-  });
-}
-
-if (addPopularSectionBtn) {
-  addPopularSectionBtn.addEventListener('click', () => {
-    siteConfig.home_layout = [...(siteConfig.home_layout || []), createHomeSection('popular')];
-    renderHomeLayoutEditor();
-  });
-}
-
-if (addPickSectionBtn) {
-  addPickSectionBtn.addEventListener('click', () => {
-    siteConfig.home_layout = [...(siteConfig.home_layout || []), createHomeSection('pick')];
+if (addSectionBtn) {
+  addSectionBtn.addEventListener('click', () => {
+    const type = homeLayoutTypeSelect?.value || 'banner';
+    siteConfig.home_layout = [...(siteConfig.home_layout || []), createHomeSection(type)];
     renderHomeLayoutEditor();
   });
 }
