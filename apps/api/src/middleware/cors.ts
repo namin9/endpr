@@ -2,7 +2,7 @@ import type { Context, Next } from 'hono';
 
 const ALLOWED_ORIGINS = ['https://cms.ourcompany.com', 'https://cms.startuppr.kr', 'https://endpr.pages.dev'];
 const ALLOWED_METHODS = 'GET,POST,PUT,PATCH,DELETE,OPTIONS';
-const ALLOWED_HEADERS = 'content-type';
+const ALLOWED_HEADERS = 'content-type, x-tenant-id';
 
 function isAllowed(origin: string | undefined): origin is string {
   return !!origin && ALLOWED_ORIGINS.includes(origin);
