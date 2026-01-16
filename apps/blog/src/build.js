@@ -382,6 +382,71 @@ function summarizeBodyFormat(post) {
   return "empty";
 }
 
+function renderSearchShell() {
+  return `<div class="search-shell">
+    <span aria-hidden="true">🔍</span>
+    <input type="search" placeholder="검색" data-search-input />
+    <div class="search-results hidden" data-search-results></div>
+  </div>`;
+}
+
+function renderBrandTitle(title, logoUrl) {
+  const logo = logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(title)}" />` : escapeHtml(title);
+  return `<a class="brand-logo" href="/">${logo}</a>`;
+}
+
+function renderHeaderPortal({ title, navLinks, logoUrl }) {
+  return `<header class="site-header portal">
+    <div class="container header-inner">
+      ${renderBrandTitle(title, logoUrl)}
+      <nav class="nav-links">${navLinks}</nav>
+      ${renderSearchShell()}
+    </div>
+  </header>`;
+}
+
+function renderHeaderSimple({ title, navLinks, logoUrl }) {
+  return `<header class="site-header simple">
+    <div class="container header-inner">
+      ${renderBrandTitle(title, logoUrl)}
+      <nav class="nav-links">${navLinks}</nav>
+    </div>
+    <div class="container header-search">${renderSearchShell()}</div>
+  </header>`;
+}
+
+function renderHeaderMinimal({ title, navLinks, logoUrl }) {
+  return `<header class="site-header minimal">
+    <div class="container header-inner">
+      ${renderBrandTitle(title, logoUrl)}
+      <nav class="nav-links">${navLinks}</nav>
+    </div>
+    <div class="container header-search">${renderSearchShell()}</div>
+  </header>`;
+}
+
+function renderLayout({ title, content, navLinks, logoUrl, footerText, layoutType, postNav }) {
+  const type = layoutType || "portal";
+  const header =
+    type === "brand"
+      ? renderHeaderSimple({ title, navLinks, logoUrl })
+      : type === "tech"
+        ? renderHeaderMinimal({ title, navLinks, logoUrl })
+        : renderHeaderPortal({ title, navLinks, logoUrl });
+  const footer = footerText ? `<footer class="site-footer">${footerText}</footer>` : "";
+  const mainClass = `site-main ${type}`;
+  return `<div class="layout layout-${type}">
+    ${header}
+    <main class="${mainClass}">
+      <div class="container">
+        ${content}
+      </div>
+    </main>
+    ${postNav}
+    ${footer}
+  </div>`;
+}
+
 function layoutHtml({
   title,
   content,
@@ -392,6 +457,7 @@ function layoutHtml({
   ogImage = null,
   prevPost = null,
   nextPost = null,
+  layoutType = "portal",
 } = {}) {
   const headerNav = Array.isArray(siteConfig?.navigations)
     ? siteConfig.navigations
@@ -410,49 +476,89 @@ function layoutHtml({
         .join("\n      ")
     : `<a href="/posts/page/1/">Posts</a>`;
   const logoUrl = siteConfig?.config?.logo_url ? sanitizeUrl(siteConfig.config.logo_url) : null;
-  const footerText = siteConfig?.config?.footer_text
-    ? escapeHtml(siteConfig.config.footer_text)
-    : "";
+  const footerText = siteConfig?.config?.footer_text ? escapeHtml(siteConfig.config.footer_text) : "";
   const resolvedOgImage = ogImage || logoUrl || null;
   const ogUrl = siteBaseUrl ? buildUrl(siteBaseUrl, pagePath) : null;
   const baseStyles = `<style>
-  .search-shell { display: flex; align-items: center; gap: 8px; margin-top: 8px; position: relative; }
-  .search-shell input { padding: 6px 10px; border-radius: 6px; border: 1px solid #e2e8f0; }
-  .search-results { position: absolute; top: 38px; left: 0; right: 0; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; display: grid; gap: 6px; z-index: 20; }
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; line-height: 1.6; }
+  img { max-width: 100%; display: block; }
+  .layout { min-height: 100vh; display: flex; flex-direction: column; background: transparent; }
+  .container { width: min(1140px, 100% - 48px); margin: 0 auto; }
+  .layout-portal .container { width: min(1200px, 100% - 48px); }
+  .layout-tech .container { width: min(900px, 100% - 48px); }
+  .site-header { border-bottom: 1px solid var(--border, #e5e7eb); height: var(--header-height, 72px); }
+  .site-header .header-inner { height: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .site-header.simple, .site-header.minimal { height: auto; padding: 16px 0; }
+  .header-search { padding-bottom: 16px; }
+  .brand-logo { font-family: var(--font-title, serif); font-size: 24px; font-weight: 700; text-decoration: none; color: inherit; display: inline-flex; align-items: center; gap: 12px; }
+  .brand-logo img { max-height: 40px; }
+  .nav-links { display: flex; gap: 16px; flex-wrap: wrap; }
+  .nav-links a { text-decoration: none; color: inherit; font-weight: 500; }
+  .site-main { flex: 1; padding: 32px 0 48px; }
+  .site-footer { padding: 32px 0; border-top: 1px solid var(--border, #e5e7eb); text-align: center; }
+  .search-shell { display: flex; align-items: center; gap: 8px; position: relative; }
+  .search-shell input { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border, #e2e8f0); background: var(--bg, #fff); color: var(--fg, #111827); }
+  .search-results { position: absolute; top: 38px; left: 0; right: 0; background: var(--bg, #fff); border: 1px solid var(--border, #e2e8f0); border-radius: 8px; padding: 8px; display: grid; gap: 6px; z-index: 20; }
   .search-results.hidden { display: none; }
   .search-results a { text-decoration: none; color: inherit; padding: 4px 6px; border-radius: 6px; }
-  .search-results a:hover { background: #f1f5f9; }
-  .callout { padding: 16px; border-radius: 12px; border-left: 4px solid; background: #f8fafc; margin: 16px 0; }
-  .callout-info { border-color: #38bdf8; background: #e0f2fe; }
-  .callout-warn { border-color: #f59e0b; background: #fef3c7; }
-  .callout-error { border-color: #ef4444; background: #fee2e2; }
+  .search-results a:hover { background: rgba(148, 163, 184, 0.15); }
+  .callout { padding: 16px; border-radius: 12px; border-left: 4px solid; background: rgba(148, 163, 184, 0.15); margin: 16px 0; }
+  .callout-info { border-color: #38bdf8; }
+  .callout-warn { border-color: #f59e0b; }
+  .callout-error { border-color: #ef4444; }
   .callout-title { font-weight: 700; margin-bottom: 6px; }
   .grid { display: grid; gap: 16px; grid-template-columns: repeat(var(--columns, 2), minmax(0, 1fr)); }
-  .card { border-radius: 14px; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08); padding: 16px; background: #fff; }
+  .card { border-radius: var(--radius, 14px); box-shadow: var(--card-shadow, 0 10px 24px rgba(15, 23, 42, 0.08)); padding: 16px; background: var(--bg, #fff); border: 1px solid var(--border, #e5e7eb); }
   .card-icon { font-size: 24px; }
   .details { margin: 12px 0; }
   .details summary { cursor: pointer; font-weight: 600; }
   .btn { display: inline-flex; align-items: center; justify-content: center; padding: 10px 16px; border-radius: 999px; text-decoration: none; font-weight: 600; }
-  .btn-primary { background: #111827; color: #fff; }
-  .btn-secondary { background: #e5e7eb; color: #111827; }
-  .hero { padding: 80px 24px; text-align: center; color: #fff; background-size: cover; background-position: center; border-radius: 18px; margin: 24px 0; }
-  .hero-content { max-width: 720px; margin: 0 auto; backdrop-filter: blur(2px); }
+  .btn-primary { background: var(--accent, #111827); color: #fff; }
+  .btn-secondary { background: rgba(148, 163, 184, 0.2); color: inherit; }
   .newsletter { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; }
-  .newsletter input { padding: 10px 12px; border-radius: 8px; border: 1px solid #e2e8f0; flex: 1; min-width: 200px; }
-  .hero-banner { padding: 64px 24px; text-align: center; color: #fff; background-size: cover; background-position: center; border-radius: 16px; margin-bottom: 32px; }
+  .newsletter input { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border, #e2e8f0); flex: 1; min-width: 200px; background: var(--bg, #fff); color: var(--fg, #111827); }
+  .features-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin: 24px 0; }
+  .feature-card { padding: 16px; border-radius: var(--radius, 12px); background: rgba(148, 163, 184, 0.12); }
+  .feature-card .icon { font-size: 24px; }
+  .post-section { margin: 32px 0; }
+  .post-section ul { list-style: none; padding: 0; }
+  .post-section li { margin-bottom: 8px; }
+  .post-grid { display: grid; gap: 24px; }
+  .post-grid.portal { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .post-grid.brand { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .post-grid.tech { grid-template-columns: 1fr; }
+  .post-card { border-radius: var(--radius, 12px); border: 1px solid var(--border, #e5e7eb); box-shadow: var(--card-shadow, none); overflow: hidden; background: var(--bg, #fff); }
+  .post-card .thumb img { width: 100%; height: 200px; object-fit: cover; }
+  .post-card .post-body { padding: 16px; }
+  .post-card .post-meta { font-size: 12px; color: var(--muted, #6b7280); margin-top: 8px; }
+  .post-list-item { padding: 16px 0; border-bottom: 1px solid var(--border, #e5e7eb); }
+  .post-list-item:last-child { border-bottom: 0; }
+  .hero { border-radius: var(--radius, 16px); padding: 64px 32px; background: rgba(148, 163, 184, 0.15); margin: 24px 0; }
+  .hero.portal { background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.7)); color: #fff; }
+  .hero.brand { min-height: 360px; display: flex; align-items: flex-end; background-size: cover; background-position: center; color: #fff; position: relative; overflow: hidden; }
+  .hero.brand::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0.1), rgba(0,0,0,0.7)); }
+  .hero.brand .hero-content { position: relative; z-index: 1; }
+  .hero.tech { background: transparent; border: 1px solid var(--border, #e5e7eb); }
+  .hero .hero-content { max-width: 720px; }
+  .hero-banner { padding: 64px 24px; text-align: center; color: #fff; background-size: cover; background-position: center; border-radius: var(--radius, 16px); margin-bottom: 32px; }
   .hero-banner.sm { min-height: 200px; }
   .hero-banner.md { min-height: 320px; }
   .hero-banner.lg { min-height: 440px; }
   .hero-banner .hero-content { max-width: 720px; margin: 0 auto; backdrop-filter: blur(2px); }
   .hero-banner .hero-button { display: inline-block; margin-top: 16px; padding: 10px 18px; border-radius: 999px; background: #fff; color: #111827; text-decoration: none; font-weight: 600; }
-  .features-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin: 24px 0; }
-  .feature-card { padding: 16px; border-radius: 12px; background: #f8fafc; }
-  .feature-card .icon { font-size: 24px; }
-  .post-section { margin: 24px 0; }
-  .post-section ul { list-style: none; padding: 0; }
-  .post-section li { margin-bottom: 8px; }
-  .post-nav { display: flex; justify-content: space-between; gap: 12px; padding: 16px 0; border-top: 1px solid #e2e8f0; }
+  .post-nav { display: flex; justify-content: space-between; gap: 12px; padding: 16px 0; border-top: 1px solid var(--border, #e2e8f0); }
   .post-nav a { text-decoration: none; }
+  @media (max-width: 960px) {
+    .post-grid.portal { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 720px) {
+    .post-grid.portal, .post-grid.brand { grid-template-columns: 1fr; }
+    .site-header { height: auto; padding: 16px 0; }
+    .site-header .header-inner { flex-direction: column; align-items: flex-start; }
+    .search-shell { width: 100%; }
+  }
   </style>`;
   const searchScript = `(function(){var input=document.querySelector('[data-search-input]');var results=document.querySelector('[data-search-results]');if(!input||!results){return;}var cache=null;function render(list){results.innerHTML='';if(!input.value.trim()){results.classList.add('hidden');return;}if(!list.length){results.innerHTML='<div class=\"muted\">검색 결과가 없습니다.</div>';results.classList.remove('hidden');return;}var items=list.map(function(item){return '<a href=\"/'+item.slug+'/\">'+(item.title||item.slug)+'</a>';}).join('');results.innerHTML=items;results.classList.remove('hidden');}function filter(){var q=input.value.trim().toLowerCase();if(!q){render([]);return;}if(!cache){fetch('/search.json').then(function(resp){return resp.ok?resp.json():[];}).then(function(data){cache=Array.isArray(data)?data:[];applyFilter();}).catch(function(){render([]);});return;}applyFilter();function applyFilter(){var filtered=cache.filter(function(item){return (item.title||'').toLowerCase().includes(q)||(item.slug||'').toLowerCase().includes(q)||(item.excerpt||'').toLowerCase().includes(q);}).slice(0,10);render(filtered);}}input.addEventListener('input',filter);})();`;
   const navigationLinks = [];
@@ -471,6 +577,15 @@ function layoutHtml({
       ${navigationLinks.join("")}
     </section>`
     : "";
+  const layoutMarkup = renderLayout({
+    title,
+    content,
+    navLinks,
+    logoUrl,
+    footerText,
+    layoutType,
+    postNav,
+  });
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -487,22 +602,7 @@ function layoutHtml({
   ${themeStyle}
 </head>
 <body>
-  <header>
-    <h1>${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(title)}" />` : escapeHtml(title)}</h1>
-    <nav>
-      ${navLinks}
-    </nav>
-    <div class="search-shell">
-      <span aria-hidden="true">🔍</span>
-      <input type="search" placeholder="검색" data-search-input />
-      <div class="search-results hidden" data-search-results></div>
-    </div>
-  </header>
-  <main>
-    ${content}
-  </main>
-  ${postNav}
-  ${footerText ? `<footer>${footerText}</footer>` : ""}
+  ${layoutMarkup}
   ${scripts}
   <script>${searchScript}</script>
 </body>
@@ -540,21 +640,19 @@ function buildThemeStyle(tokens) {
     Object.entries(vars)
       .map(([key, value]) => `  ${key}: ${value};`)
       .join("\n");
-  const light = toCss(tokens.light || {});
-  const dark = toCss(tokens.dark || {});
+  const rootTokens = toCss(tokens || {});
   return `<style id="theme-tokens">
 :root {
-${light}
+${rootTokens}
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-${dark}
-  }
+body {
+  background: var(--bg, #ffffff);
+  color: var(--fg, #111827);
+  font-family: var(--font-body, "ui-sans-serif", "system-ui");
 }
-body { background: var(--bg); color: var(--fg); font-family: var(--font-sans); }
-a { color: var(--link); }
-hr, .border, .card, .post-card { border-color: var(--border); }
-.card, .post-card { border-radius: var(--radius); }
+a { color: var(--accent, #2563eb); }
+hr, .border, .card, .post-card { border-color: var(--border, #e5e7eb); }
+.card, .post-card { border-radius: var(--radius, 12px); }
 </style>`;
 }
 
@@ -670,7 +768,113 @@ function renderPostListItems(posts, { showDate = true } = {}) {
     .join("\n");
 }
 
-function renderSection(section) {
+function renderPostCard(post, layoutType) {
+  const imageUrl = extractFirstImageUrl(post);
+  const imageMarkup = imageUrl
+    ? `<div class="thumb"><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(post.title || post.slug)}" /></div>`
+    : "";
+  const excerpt = post.excerpt ? escapeHtml(post.excerpt) : "";
+  const metaDate = formatDateLabel(post.published_at || post.publish_at || post.created_at);
+  const meta = metaDate ? `<div class="post-meta">${escapeHtml(metaDate)}</div>` : "";
+  const title = escapeHtml(post.title || post.slug);
+  const link = getPostUrl(post);
+  const variant = layoutType === "brand" ? "brand" : layoutType === "portal" ? "portal" : "tech";
+  return `<article class="post-card ${variant}">
+    ${imageMarkup}
+    <div class="post-body">
+      <h3><a href="${link}">${title}</a></h3>
+      ${excerpt ? `<p>${excerpt}</p>` : ""}
+      ${meta}
+    </div>
+  </article>`;
+}
+
+function renderPostList(posts, layoutType) {
+  if (!posts.length) {
+    return `<div class="empty">게시물이 없습니다.</div>`;
+  }
+  if (layoutType === "tech") {
+    return posts
+      .map((post) => {
+        const dateValue = post.published_at || post.publish_at || post.created_at;
+        const dateLabel = formatDateLabel(dateValue);
+        return `<div class="post-list-item">
+  <a href="${getPostUrl(post)}">${escapeHtml(post.title || post.slug)}</a>
+  ${dateLabel ? `<div class="post-meta">${escapeHtml(dateLabel)}</div>` : ""}
+  ${post.excerpt ? `<p>${escapeHtml(post.excerpt)}</p>` : ""}
+</div>`;
+      })
+      .join("\n");
+  }
+  const gridClass = layoutType === "brand" ? "brand" : "portal";
+  return `<div class="post-grid ${gridClass}">
+    ${posts.map((post) => renderPostCard(post, layoutType)).join("\n")}
+  </div>`;
+}
+
+function renderHero(section, layoutType) {
+  const posts = Array.isArray(section.posts) ? section.posts : [];
+  const post = posts[0];
+  const title = section.title || post?.title || "Hero";
+  const subtitle = post?.excerpt || section.subtitle || "";
+  const link = post ? getPostUrl(post) : null;
+  const imageUrl = extractFirstImageUrl(post) || sanitizeUrl(section.image_url || "");
+  if (layoutType === "brand") {
+    return `<section class="hero brand"${imageUrl ? ` style="background-image:url('${escapeHtml(imageUrl)}')"` : ""}>
+  <div class="hero-content">
+    <h2>${escapeHtml(title)}</h2>
+    ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ""}
+    ${link ? `<a class="btn btn-primary" href="${link}">읽어보기</a>` : ""}
+  </div>
+</section>`;
+  }
+  if (layoutType === "tech") {
+    return `<section class="hero tech">
+  <div class="hero-content">
+    <h2>${escapeHtml(title)}</h2>
+    ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ""}
+    ${link ? `<a class="btn btn-secondary" href="${link}">읽어보기</a>` : ""}
+  </div>
+</section>`;
+  }
+  return `<section class="hero portal"${
+    imageUrl
+      ? ` style="background-image:url('${escapeHtml(imageUrl)}'); background-size: cover; background-position: center;"`
+      : ""
+  }>
+  <div class="hero-content">
+    <h2>${escapeHtml(title)}</h2>
+    ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ""}
+    ${link ? `<a class="btn btn-secondary" href="${link}">읽어보기</a>` : ""}
+  </div>
+</section>`;
+}
+
+function renderGridSection(section, layoutType) {
+  const posts = Array.isArray(section.posts) ? section.posts : [];
+  return `<section class="post-section">
+  <h2>${escapeHtml(section.title || "")}</h2>
+  ${renderPostList(posts, layoutType)}
+</section>`;
+}
+
+function renderCardSection(section, layoutType) {
+  const posts = Array.isArray(section.posts) ? section.posts : [];
+  return `<section class="post-section">
+  <h2>${escapeHtml(section.title || "")}</h2>
+  ${renderPostList(posts, layoutType)}
+</section>`;
+}
+
+function renderListSection(section, layoutType) {
+  const posts = Array.isArray(section.posts) ? section.posts : [];
+  return `<section class="post-section">
+  <h2>${escapeHtml(section.title || "")}</h2>
+  ${renderPostList(posts, layoutType)}
+</section>`;
+}
+
+function renderSection(section, layoutType) {
   if (!section || !section.type) return "";
   const type = section.type;
   if (type === "banner") {
@@ -709,35 +913,25 @@ function renderSection(section) {
     return `<section>${section.raw_content || ""}</section>`;
   }
 
-  const posts = Array.isArray(section.posts) ? section.posts : [];
+  const sectionTitle = section.title || (type === "latest" ? "Latest" : type === "popular" ? "Popular" : "Pick");
   if (type === "hero") {
-    const post = posts[0];
-    if (!post) {
-      return `<section class="post-section"><h2>${escapeHtml(section.title || "Hero")}</h2><p>게시물이 없습니다.</p></section>`;
-    }
-    return `<section class="post-section">
-  <h2>${escapeHtml(section.title || "Hero")}</h2>
-  <article>
-    <h3><a href="${getPostUrl(post)}">${escapeHtml(post.title || post.slug)}</a></h3>
-    <p>${escapeHtml(post.excerpt || "")}</p>
-  </article>
-</section>`;
+    return renderHero({ ...section, title: sectionTitle }, layoutType);
   }
 
   if (["latest", "popular", "pick"].includes(type)) {
-    const title = section.title || (type === "latest" ? "Latest" : type === "popular" ? "Popular" : "Pick");
-    const listItems = posts.length ? renderPostListItems(posts) : "<li>게시물이 없습니다.</li>";
-    return `<section class="post-section">
-  <h2>${escapeHtml(title)}</h2>
-  <ul>
-    ${listItems}
-  </ul>
-</section>`;
+    const normalizedType = layoutType || "portal";
+    if (normalizedType === "brand") {
+      return renderCardSection({ ...section, title: sectionTitle }, normalizedType);
+    }
+    if (normalizedType === "tech") {
+      return renderListSection({ ...section, title: sectionTitle }, normalizedType);
+    }
+    return renderGridSection({ ...section, title: sectionTitle }, normalizedType);
   }
   return "";
 }
 
-async function generatePostPages(posts, siteConfig) {
+async function generatePostPages(posts, siteConfig, layoutType) {
   for (let index = 0; index < posts.length; index += 1) {
     const post = posts[index];
     const prevPost = posts[index - 1] || null;
@@ -757,6 +951,7 @@ async function generatePostPages(posts, siteConfig) {
       ogImage: extractFirstImageUrl(post),
       prevPost,
       nextPost,
+      layoutType,
       scripts: buildViewTrackingScript({
         apiBase: analyticsConfig.apiBase,
         tenantSlug: analyticsConfig.tenantSlug,
@@ -769,7 +964,7 @@ async function generatePostPages(posts, siteConfig) {
   }
 }
 
-async function generateStaticPages(pages, siteConfig) {
+async function generateStaticPages(pages, siteConfig, layoutType) {
   for (const page of pages) {
     const pageSlug = normalizeSlugPath(page.slug || "");
     assertSlugAllowed(pageSlug, "page");
@@ -783,6 +978,7 @@ async function generateStaticPages(pages, siteConfig) {
       siteConfig,
       pagePath: `/${pageSlug}/`,
       ogImage: extractFirstImageUrl(page),
+      layoutType,
       scripts: buildViewTrackingScript({
         apiBase: analyticsConfig.apiBase,
         tenantSlug: analyticsConfig.tenantSlug,
@@ -795,7 +991,7 @@ async function generateStaticPages(pages, siteConfig) {
   }
 }
 
-async function generatePostListPages(posts, siteConfig) {
+async function generatePostListPages(posts, siteConfig, layoutType) {
   const pages = paginate(posts, PAGE_SIZE);
   for (const page of pages) {
     const entries = page.items
@@ -815,6 +1011,7 @@ ${entries}
 <p>Page ${page.page} of ${page.totalPages}</p>`,
       siteConfig,
       pagePath: `/posts/page/${page.page}/`,
+      layoutType,
     });
 
     const filePath = path.join(
@@ -828,10 +1025,10 @@ ${entries}
   }
 }
 
-async function generateHomepage(sections, siteConfig) {
+async function generateHomepage(sections, siteConfig, layoutType) {
   const safeSections = Array.isArray(sections) ? sections : [];
   const content = safeSections.length
-    ? safeSections.map(renderSection).join("\n")
+    ? safeSections.map((section) => renderSection(section, layoutType)).join("\n")
     : `<section class="post-section"><p>섹션이 없습니다.</p></section>`;
 
   const html = layoutHtml({
@@ -840,13 +1037,14 @@ async function generateHomepage(sections, siteConfig) {
     content,
     siteConfig,
     pagePath: "/",
+    layoutType,
   });
 
   await writeHtml(path.join(DIST_DIR, "index.html"), html);
   console.log("Generated dist/index.html");
 }
 
-async function generateCategoryPages(posts, categories, siteConfig) {
+async function generateCategoryPages(posts, categories, siteConfig, layoutType) {
   const enabledCategories = categories.filter(
     (category) => category.enabled !== false
   );
@@ -878,6 +1076,7 @@ ${entries}
 <p>Page ${page.page} of ${page.totalPages}</p>`,
         siteConfig,
         pagePath: `/category/${category.slug}/page/${page.page}/`,
+        layoutType,
       });
 
       const filePath = path.join(
@@ -893,7 +1092,7 @@ ${entries}
   }
 }
 
-async function generate404Page(siteConfig) {
+async function generate404Page(siteConfig, layoutType) {
   const html = layoutHtml({
     title: "404",
     description: "페이지를 찾을 수 없습니다.",
@@ -904,6 +1103,7 @@ async function generate404Page(siteConfig) {
 </section>`,
     siteConfig,
     pagePath: "/404.html",
+    layoutType,
   });
   await writeHtml(path.join(DIST_DIR, "404.html"), html);
 }
@@ -1023,6 +1223,7 @@ async function build() {
     tenantSlug: meta?.tenantSlug || "",
   };
 
+  const layoutType = theme?.layout_type || "portal";
   if (theme?.tokens) {
     themeStyle = buildThemeStyle(theme.tokens);
   }
@@ -1050,15 +1251,15 @@ async function build() {
   const pageEntries = posts.filter((post) => resolvePostType(post) === "page");
 
   await resetDist();
-  await generateHomepage(homeSections, siteConfig);
-  await generatePostPages(postEntries, siteConfig);
-  await generatePostListPages(postEntries, siteConfig);
-  await generateCategoryPages(postEntries, categories, siteConfig);
-  await generateStaticPages(pageEntries, siteConfig);
+  await generateHomepage(homeSections, siteConfig, layoutType);
+  await generatePostPages(postEntries, siteConfig, layoutType);
+  await generatePostListPages(postEntries, siteConfig, layoutType);
+  await generateCategoryPages(postEntries, categories, siteConfig, layoutType);
+  await generateStaticPages(pageEntries, siteConfig, layoutType);
   await generateSitemap(postEntries, categories, pageEntries);
   await generateSearchIndex(postEntries);
   await generateRobots();
-  await generate404Page(siteConfig);
+  await generate404Page(siteConfig, layoutType);
 }
 
 build().catch((error) => {

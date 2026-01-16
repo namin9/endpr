@@ -14,12 +14,26 @@
         <h1 class="topbar-title">CMS</h1>
         <div class="tab-bar" role="tablist" aria-label="CMS Navigation">
           <button type="button" class="tab-button is-active" data-tab-target="content" role="tab">콘텐츠</button>
+          <button type="button" class="tab-button" data-tab-target="pages" role="tab">페이지</button>
           <button type="button" class="tab-button" data-tab-target="subscribers" role="tab">구독자</button>
           <button type="button" class="tab-button" data-tab-target="inquiries" role="tab">문의함</button>
           <button type="button" class="tab-button" data-tab-target="theme" role="tab">테마</button>
           <button type="button" class="tab-button" data-tab-target="site" role="tab">사이트 설정</button>
           <button type="button" class="tab-button" data-tab-target="admin" role="tab" data-admin-tab>관리</button>
           <button type="button" class="tab-button" data-tab-target="pr" role="tab">PR</button>
+        </div>
+        <div class="tenant-switcher" data-tenant-switcher>
+          <button type="button" id="tenantSwitchBtn" class="ghost" aria-haspopup="true" aria-expanded="false">
+            <span id="tenantSwitchLabel">테넌트 선택</span>
+            <span aria-hidden="true">▾</span>
+          </button>
+          <div id="tenantSwitchMenu" class="tenant-switcher-menu hidden" role="menu">
+            <label class="field">
+              <span>검색</span>
+              <input id="tenantSearchInput" type="search" placeholder="테넌트 이름 또는 슬러그" />
+            </label>
+            <div id="tenantSwitchList" class="tenant-switcher-list"></div>
+          </div>
         </div>
       </div>
       <div class="topbar-right">
@@ -96,6 +110,7 @@
                   <input type="checkbox" id="postsSelectAll" aria-label="현재 목록 전체 선택" />
                 </div>
                 <div class="posts-cell">제목</div>
+                <div class="posts-cell">상태</div>
                 <div class="posts-cell">발행일</div>
                 <div class="posts-cell">조회수</div>
                 <div class="posts-cell">작업</div>

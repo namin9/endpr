@@ -4,6 +4,7 @@ const BLOG_BASE = window.__BLOG_BASE__ || window.BLOG_BASE || 'https://endpr.pag
 const SESSION_KEY = 'cms-session';
 const DRAFT_KEY = 'cms-draft';
 const JOB_KEY = 'cms-jobs';
+const ACTIVE_TENANT_KEY = 'cms-active-tenant';
 const RESERVED_SLUGS = new Set([
   'posts',
   'category',
@@ -39,6 +40,7 @@ const postsListEl = document.getElementById('postsList');
 const postsStatusEl = document.getElementById('postsStatus');
 const refreshPostsBtn = document.getElementById('refreshPostsBtn');
 const newPostBtn = document.getElementById('newPostBtn');
+const postsHeading = document.getElementById('posts-heading');
 const postsSearchInput = document.getElementById('postsSearchInput');
 const postsStatusFilter = document.getElementById('postsStatusFilter');
 const postsCategoryFilter = document.getElementById('postsCategoryFilter');
@@ -86,6 +88,12 @@ const viewModeButtons = Array.from(document.querySelectorAll('[data-view-mode]')
 const viewOnBlogBtn = document.getElementById('viewOnBlogBtn');
 const viewOnBlogHint = document.getElementById('viewOnBlogHint');
 const deployJobsScope = document.getElementById('deployJobsScope');
+const tenantSwitcher = document.querySelector('[data-tenant-switcher]');
+const tenantSwitchBtn = document.getElementById('tenantSwitchBtn');
+const tenantSwitchLabel = document.getElementById('tenantSwitchLabel');
+const tenantSwitchMenu = document.getElementById('tenantSwitchMenu');
+const tenantSearchInput = document.getElementById('tenantSearchInput');
+const tenantSwitchList = document.getElementById('tenantSwitchList');
 const quillEditorEl = document.getElementById('quillEditor');
 const editorToolbar = document.getElementById('editorToolbar');
 const categorySelect = document.getElementById('categorySelect');
@@ -102,6 +110,35 @@ const themePresetList = document.getElementById('themePresetList');
 const themeSaveBtn = document.getElementById('themeSaveBtn');
 const themeSaveStatus = document.getElementById('themeSaveStatus');
 const refreshThemeBtn = document.getElementById('refreshThemeBtn');
+const marketingTabButton = document.querySelector('[data-tab-target="marketing"]');
+const marketingTabPanel = document.querySelector('[data-tab-panel="marketing"]');
+const siteTabButton = document.querySelector('[data-tab-target="site"]');
+const siteTabPanel = document.querySelector('[data-tab-panel="site"]');
+const popupsStatus = document.getElementById('popupsStatus');
+const popupsList = document.getElementById('popupsList');
+const refreshPopupsBtn = document.getElementById('refreshPopupsBtn');
+const addPopupBtn = document.getElementById('addPopupBtn');
+const popupForm = document.getElementById('popupForm');
+const popupTitleInput = document.getElementById('popupTitleInput');
+const popupTypeInput = document.getElementById('popupTypeInput');
+const popupContentInput = document.getElementById('popupContentInput');
+const popupStartInput = document.getElementById('popupStartInput');
+const popupEndInput = document.getElementById('popupEndInput');
+const popupActiveInput = document.getElementById('popupActiveInput');
+const popupResetBtn = document.getElementById('popupResetBtn');
+const popupFormStatus = document.getElementById('popupFormStatus');
+const bannersStatus = document.getElementById('bannersStatus');
+const bannersList = document.getElementById('bannersList');
+const refreshBannersBtn = document.getElementById('refreshBannersBtn');
+const addBannerBtn = document.getElementById('addBannerBtn');
+const bannerForm = document.getElementById('bannerForm');
+const bannerLocationInput = document.getElementById('bannerLocationInput');
+const bannerImageInput = document.getElementById('bannerImageInput');
+const bannerLinkInput = document.getElementById('bannerLinkInput');
+const bannerOrderInput = document.getElementById('bannerOrderInput');
+const bannerActiveInput = document.getElementById('bannerActiveInput');
+const bannerResetBtn = document.getElementById('bannerResetBtn');
+const bannerFormStatus = document.getElementById('bannerFormStatus');
 const siteConfigStatus = document.getElementById('siteConfigStatus');
 const siteConfigForm = document.getElementById('siteConfigForm');
 const siteLogoInput = document.getElementById('siteLogoInput');
@@ -124,6 +161,7 @@ const homeLayoutSaveStatus = document.getElementById('homeLayoutSaveStatus');
 const refreshHomeLayoutBtn = document.getElementById('refreshHomeLayoutBtn');
 const homeLayoutTypeSelect = document.getElementById('homeLayoutTypeSelect');
 const addSectionBtn = document.getElementById('addSectionBtn');
+const homeLayoutSidebarSaveBtn = document.getElementById('homeLayoutSidebarSaveBtn');
 const tenantsStatus = document.getElementById('tenantsStatus');
 const tenantsList = document.getElementById('tenantsList');
 const refreshTenantsBtn = document.getElementById('refreshTenantsBtn');
@@ -148,6 +186,7 @@ const userFormStatus = document.getElementById('userFormStatus');
 const userResetBtn = document.getElementById('userResetBtn');
 const tabButtons = Array.from(document.querySelectorAll('[data-tab-target]'));
 const tabPanels = Array.from(document.querySelectorAll('[data-tab-panel]'));
+const scrollTargetButtons = Array.from(document.querySelectorAll('[data-scroll-target]'));
 const adminTabButton = document.querySelector('[data-admin-tab]');
 const adminTabPanel = document.querySelector('[data-admin-panel]');
 const prCampaignForm = document.getElementById('prCampaignForm');
@@ -210,6 +249,8 @@ let currentPrMentions = [];
 let currentPrReports = [];
 let currentInquiries = [];
 let selectedPrCampaignId = null;
+let currentPopups = [];
+let currentBanners = [];
 let themePresets = [];
 let currentThemeConfig = { presetId: 'minimal-clean', updatedAt: null };
 let selectedThemePresetId = null;
@@ -219,6 +260,7 @@ let siteConfig = { logo_url: '', footer_text: '', home_layout: [] };
 let siteNavigations = [];
 let editingNavId = null;
 let currentTenants = [];
+let activeTenantId = load(ACTIVE_TENANT_KEY, null);
 let currentUsers = [];
 let selectedTenantId = null;
 let activeTabId = 'content';
@@ -231,6 +273,7 @@ let postsView = {
   category: 'all',
   viewPeriod: 'all',
   viewSort: 'recent',
+  type: 'post',
   page: 1,
   pageSize: 20,
   total: 0,
@@ -309,8 +352,48 @@ function resolveIsSuperAdmin(session) {
   const user = session?.user || {};
   if (typeof user.is_super_admin === 'boolean') return user.is_super_admin;
   if (typeof user.isSuperAdmin === 'boolean') return user.isSuperAdmin;
-  if (user.role) return user.role === 'super';
+  if (user.role) return user.role === 'super_admin' || user.role === 'super';
   return false;
+}
+
+function resolveUserRole(session) {
+  return session?.user?.role || session?.role || null;
+}
+
+function isEditorSession(session = currentSession) {
+  return resolveUserRole(session) === 'editor';
+}
+
+function applyRoleUiState(role) {
+  const isEditor = role === 'editor';
+  if (siteTabButton) siteTabButton.style.display = isEditor ? 'none' : '';
+  if (siteTabPanel) siteTabPanel.style.display = isEditor ? 'none' : '';
+  if (marketingTabButton) marketingTabButton.style.display = isEditor ? 'none' : '';
+  if (marketingTabPanel) marketingTabPanel.style.display = isEditor ? 'none' : '';
+  if (isEditor && ['site', 'marketing', 'admin'].includes(activeTabId)) {
+    setActiveTab('content');
+    if (!isEditorPage) {
+      window.history.replaceState(null, '', '#content');
+    }
+  }
+}
+
+function updatePostsViewLabels() {
+  const isPage = postsView.type === 'page';
+  if (postsHeading) postsHeading.textContent = isPage ? '페이지 목록' : '게시글 목록';
+  if (newPostBtn) newPostBtn.textContent = isPage ? '새 페이지' : '새 글';
+}
+
+function setPostsViewType(type) {
+  const nextType = type === 'page' ? 'page' : 'post';
+  if (postsView.type !== nextType) {
+    postsView.type = nextType;
+    postsView.page = 1;
+  }
+  updatePostsViewLabels();
+  if (currentSession) {
+    fetchPosts();
+  }
 }
 
 function setActiveTab(tabId) {
@@ -324,8 +407,15 @@ function setActiveTab(tabId) {
   });
   tabPanels.forEach((panel) => {
     const panelId = panel.dataset.tabPanel;
-    panel.classList.toggle('is-active', panelId === tabId);
+    const resolvedTabId = tabId === 'pages' ? 'content' : tabId;
+    panel.classList.toggle('is-active', panelId === resolvedTabId);
   });
+  if (tabId === 'content') {
+    setPostsViewType('post');
+  }
+  if (tabId === 'pages') {
+    setPostsViewType('page');
+  }
 }
 
 function resolveTabFromHash() {
@@ -343,12 +433,160 @@ function toggleFormDisabled(form, disabled) {
   });
 }
 
+function resolveActiveTenant() {
+  if (!themeIsSuperAdmin) return currentSession?.tenant || null;
+  const match = currentTenants.find((tenant) => tenant.id === activeTenantId);
+  if (match) return match;
+  return currentSession?.tenant || null;
+}
+
+function renderTenantSwitcherList() {
+  if (!tenantSwitchList) return;
+  tenantSwitchList.innerHTML = '';
+  if (!currentTenants.length) {
+    const empty = document.createElement('div');
+    empty.className = 'muted';
+    empty.textContent = '테넌트가 없습니다.';
+    tenantSwitchList.appendChild(empty);
+    return;
+  }
+  const query = tenantSearchInput?.value.trim().toLowerCase() || '';
+  const filtered = currentTenants.filter((tenant) => {
+    if (!query) return true;
+    return (
+      tenant.name?.toLowerCase().includes(query) ||
+      tenant.slug?.toLowerCase().includes(query) ||
+      tenant.primaryDomain?.toLowerCase().includes(query)
+    );
+  });
+  if (!filtered.length) {
+    const empty = document.createElement('div');
+    empty.className = 'muted';
+    empty.textContent = '검색 결과가 없습니다.';
+    tenantSwitchList.appendChild(empty);
+    return;
+  }
+  filtered.forEach((tenant) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'tenant-switcher-item';
+    if (tenant.id === activeTenantId) {
+      button.classList.add('is-active');
+    }
+    button.innerHTML = `
+      <strong>${tenant.name || tenant.slug}</strong>
+      <span class="muted">${tenant.slug || tenant.id}</span>
+    `;
+    button.addEventListener('click', () => {
+      setActiveTenant(tenant.id);
+      closeTenantMenu();
+    });
+    tenantSwitchList.appendChild(button);
+  });
+}
+
+function renderTenantSwitcher() {
+  if (!tenantSwitchLabel) return;
+  if (!tenantSwitcher) return;
+  if (!themeIsSuperAdmin) {
+    tenantSwitcher.classList.add('hidden');
+    return;
+  }
+  tenantSwitcher.classList.remove('hidden');
+  const activeTenant = resolveActiveTenant();
+  const label = activeTenant ? `${activeTenant.name || activeTenant.slug} (${activeTenant.slug || activeTenant.id})` : '테넌트 선택';
+  tenantSwitchLabel.textContent = label;
+  renderTenantSwitcherList();
+}
+
+function syncActiveTenantFromList() {
+  if (!themeIsSuperAdmin || !currentTenants.length) return;
+  const preferred = currentSession?.tenant?.id;
+  const exists = activeTenantId && currentTenants.some((tenant) => tenant.id === activeTenantId);
+  if (!exists) {
+    const next = preferred || currentTenants[0].id;
+    setActiveTenant(next, { refresh: false });
+    return;
+  }
+  if (!selectedTenantId) {
+    selectedTenantId = activeTenantId;
+  }
+  renderTenantSwitcher();
+}
+
+async function refreshTenantScopedData() {
+  const requests = [
+    fetchPosts(),
+    fetchCategories(),
+    fetchSiteConfig(),
+    fetchSiteNavigations(),
+    fetchThemeConfig(),
+    fetchThemePresets(),
+    fetchThemeTokens(),
+    fetchPopups(),
+    fetchBanners(),
+    fetchInquiries(),
+    fetchPrCampaigns(),
+    fetchDeployJobs(),
+  ];
+  if (themeIsSuperAdmin) {
+    requests.push(fetchUsers());
+  }
+  await Promise.all(requests);
+}
+
+function setActiveTenant(tenantId, options = {}) {
+  if (!tenantId) return;
+  const { refresh = true } = options;
+  activeTenantId = tenantId;
+  save(ACTIVE_TENANT_KEY, tenantId);
+  if (selectedTenantId !== tenantId) {
+    selectedTenantId = tenantId;
+    renderTenantSelect();
+  }
+  renderTenantSwitcher();
+  renderSession();
+  if (themeIsSuperAdmin && refresh) {
+    refreshTenantScopedData();
+  }
+}
+
+function openTenantMenu() {
+  if (!tenantSwitchMenu || !tenantSwitchBtn) return;
+  tenantSwitchMenu.classList.remove('hidden');
+  tenantSwitchBtn.setAttribute('aria-expanded', 'true');
+  if (tenantSearchInput) {
+    tenantSearchInput.value = '';
+    tenantSearchInput.focus();
+  }
+  renderTenantSwitcherList();
+}
+
+function closeTenantMenu() {
+  if (!tenantSwitchMenu || !tenantSwitchBtn) return;
+  tenantSwitchMenu.classList.add('hidden');
+  tenantSwitchBtn.setAttribute('aria-expanded', 'false');
+}
+
+function parseDatetimeInput(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  return Math.floor(parsed.getTime() / 1000);
+}
+
+function formatUnixSeconds(value) {
+  if (!value) return '-';
+  return formatTime(new Date(value * 1000));
+}
+
 function applyAdminUiState(isSuperAdmin) {
   if (refreshTenantsBtn) refreshTenantsBtn.disabled = !isSuperAdmin;
   if (refreshUsersBtn) refreshUsersBtn.disabled = !isSuperAdmin;
   if (usersTenantSelect) usersTenantSelect.disabled = !isSuperAdmin;
   if (tenantResetBtn) tenantResetBtn.disabled = !isSuperAdmin;
   if (userResetBtn) userResetBtn.disabled = !isSuperAdmin;
+  if (tenantSwitcher) tenantSwitcher.classList.toggle('hidden', !isSuperAdmin);
   toggleFormDisabled(tenantForm, !isSuperAdmin);
   toggleFormDisabled(userForm, !isSuperAdmin);
   if (adminTabButton) {
@@ -378,9 +616,8 @@ function buildThemeStyle(tokens, scopeSelector) {
     Object.entries(vars)
       .map(([key, value]) => `  ${key}: ${value};`)
       .join('\n');
-  return `${scopeSelector} {\n${toCss(tokens.light)}\n}\n@media (prefers-color-scheme: dark) {\n  ${scopeSelector} {\n${toCss(
-    tokens.dark
-  )}\n  }\n}\n${scopeSelector} {\n  background: var(--bg);\n  color: var(--fg);\n  font-family: var(--font-sans);\n  border: 1px solid var(--border);\n  border-radius: var(--radius);\n}\n${scopeSelector} a {\n  color: var(--link);\n}\n${scopeSelector} hr {\n  border-color: var(--border);\n}\n${scopeSelector} .card, ${scopeSelector} .border {\n  border-color: var(--border);\n  border-radius: var(--radius);\n}`;
+  const rootTokens = toCss(tokens || {});
+  return `${scopeSelector} {\n${rootTokens}\n}\n${scopeSelector} {\n  background: var(--bg, #ffffff);\n  color: var(--fg, #111827);\n  font-family: var(--font-body, var(--font-sans, "ui-sans-serif"));\n  border: 1px solid var(--border, #e5e7eb);\n  border-radius: var(--radius, 12px);\n}\n${scopeSelector} a {\n  color: var(--accent, var(--link, #2563eb));\n}\n${scopeSelector} hr {\n  border-color: var(--border, #e5e7eb);\n}\n${scopeSelector} .card, ${scopeSelector} .border {\n  border-color: var(--border, #e5e7eb);\n  border-radius: var(--radius, 12px);\n}`;
 }
 
 function applyPreviewTheme(tokens) {
@@ -611,6 +848,9 @@ async function apiFetch(path, options = {}) {
     'Content-Type': 'application/json',
     ...(options.headers || {}),
   };
+  if (themeIsSuperAdmin && activeTenantId && !path.startsWith('/cms/auth/')) {
+    headers['x-tenant-id'] = activeTenantId;
+  }
 
   const response = await fetch(buildUrl(path), {
     credentials: 'include',
@@ -634,6 +874,13 @@ async function apiFetch(path, options = {}) {
     const err = new Error(message);
     err.status = response.status;
     err.data = data;
+    if (response.status === 403 && isEditorSession()) {
+      alert('접근 권한이 없습니다. 홈으로 이동합니다.');
+      setActiveTab('content');
+      if (!isEditorPage) {
+        window.history.replaceState(null, '', '#content');
+      }
+    }
     throw err;
   }
 
@@ -671,6 +918,12 @@ function persistSession(session) {
   save(SESSION_KEY, session);
   themeIsSuperAdmin = resolveIsSuperAdmin(session);
   applyAdminUiState(themeIsSuperAdmin);
+  applyRoleUiState(resolveUserRole(session));
+  if (themeIsSuperAdmin && !activeTenantId) {
+    activeTenantId = session?.tenant?.id || null;
+    save(ACTIVE_TENANT_KEY, activeTenantId);
+  }
+  renderTenantSwitcher();
   renderSession();
   updateViewOnBlogButton();
   renderThemeCurrent();
@@ -683,12 +936,14 @@ function renderSession() {
     return;
   }
 
-  const tenantSlug = currentSession?.tenant?.slug || currentSession?.tenantSlug || currentSession?.tenant || '-';
+  const activeTenant = resolveActiveTenant();
+  const tenantSlug = activeTenant?.slug || currentSession?.tenant?.slug || currentSession?.tenantSlug || currentSession?.tenant || '-';
+  const tenantName = activeTenant?.name ? ` (${activeTenant.name})` : '';
   const email = currentSession?.user?.email || currentSession?.email || 'unknown';
   const loggedInAt = currentSession?.loggedInAt ? formatTime(new Date(currentSession.loggedInAt)) : '알 수 없음';
 
   sessionStatus.innerHTML = `
-    테넌트 <strong>${tenantSlug}</strong> · ${email}<br />
+    테넌트 <strong>${tenantSlug}${tenantName}</strong> · ${email}<br />
     로그인: ${loggedInAt}
   `;
   sessionStatus.classList.remove('error');
@@ -699,17 +954,16 @@ async function fetchSession() {
     const data = await apiFetch('/cms/auth/me');
     const loggedInAt = currentSession?.loggedInAt || new Date().toISOString();
     persistSession({ ...data, loggedInAt });
-    await Promise.all([
-      fetchThemeConfig(),
-      fetchThemePresets(),
-      fetchThemeTokens(),
-      fetchSiteConfig(),
-      fetchSiteNavigations(),
-    ]);
+    const role = resolveUserRole(currentSession);
     if (themeIsSuperAdmin) {
       await fetchTenants();
-      await fetchUsers();
+    }
+    if (role && role !== 'editor') {
+      await refreshTenantScopedData();
     } else {
+      await Promise.all([fetchThemeConfig(), fetchThemePresets(), fetchThemeTokens()]);
+    }
+    if (!themeIsSuperAdmin) {
       currentTenants = [];
       currentUsers = [];
       selectedTenantId = null;
@@ -1655,8 +1909,7 @@ function renderTenants() {
     });
     selectBtn.addEventListener('click', async () => {
       if (!themeIsSuperAdmin) return;
-      selectedTenantId = tenant.id;
-      renderTenantSelect();
+      setActiveTenant(tenant.id);
       await fetchUsers();
     });
     tenantsList.appendChild(item);
@@ -1706,9 +1959,7 @@ async function fetchTenants() {
     const data = await apiFetch('/cms/tenants');
     const tenants = data?.tenants || [];
     currentTenants = tenants.map(normalizeTenant);
-    if (!selectedTenantId && currentTenants.length) {
-      selectedTenantId = currentTenants[0].id;
-    }
+    syncActiveTenantFromList();
     renderTenantSelect();
     renderTenants();
   } catch (error) {
@@ -1736,6 +1987,9 @@ async function fetchUsers() {
 
 function renderThemePresets() {
   if (!themePresetList || !themeStatus) return;
+  if (!selectedThemePresetId && currentThemeConfig.presetId) {
+    selectedThemePresetId = currentThemeConfig.presetId;
+  }
   themePresetList.innerHTML = '';
   if (!themePresets.length) {
     themeStatus.textContent = '프리셋이 없습니다.';
@@ -1754,6 +2008,7 @@ function renderThemePresets() {
       <div class="swatch" style="background:${preset.swatch.bg}; border-color:${preset.swatch.primary}"></div>
       <strong>${preset.name}</strong>
       <span class="muted">${preset.id}</span>
+      <span class="muted">${preset.description || ''}</span>
     `;
     button.addEventListener('click', () => {
       if (!themeIsSuperAdmin) return;
@@ -1800,10 +2055,9 @@ async function fetchThemeConfig() {
       presetId: data?.preset_id || 'minimal-clean',
       updatedAt: data?.updated_at || null,
     };
-    if (!selectedThemePresetId) {
-      selectedThemePresetId = currentThemeConfig.presetId;
-    }
+    selectedThemePresetId = currentThemeConfig.presetId;
     renderThemeCurrent();
+    renderThemePresets();
   } catch (error) {
     if (themeStatus) setStatus(themeStatus, formatError(error), true);
   }
@@ -1817,6 +2071,356 @@ async function fetchThemeTokens() {
     }
   } catch (error) {
     if (themeStatus) setStatus(themeStatus, formatError(error), true);
+  }
+}
+
+function normalizePopup(raw) {
+  return {
+    id: raw?.id || '',
+    title: raw?.title || '',
+    content: raw?.content || '',
+    type: raw?.type || 'modal',
+    startAt: raw?.start_at ?? null,
+    endAt: raw?.end_at ?? null,
+    isActive: Boolean(raw?.is_active),
+    createdAt: raw?.created_at ?? null,
+  };
+}
+
+function normalizeBanner(raw) {
+  return {
+    id: raw?.id || '',
+    location: raw?.location || 'home_top',
+    imageUrl: raw?.image_url || '',
+    linkUrl: raw?.link_url || '',
+    orderIndex: Number.isFinite(Number(raw?.order_index)) ? Number(raw.order_index) : null,
+    isActive: Boolean(raw?.is_active),
+  };
+}
+
+function popupTypeLabel(type) {
+  switch (type) {
+    case 'topbar':
+      return 'Top Bar';
+    case 'bottombar':
+      return 'Bottom Bar';
+    default:
+      return 'Modal';
+  }
+}
+
+function bannerLocationLabel(location) {
+  switch (location) {
+    case 'sidebar':
+      return 'Sidebar';
+    case 'post_bottom':
+      return 'Post Bottom';
+    default:
+      return 'Home Top';
+  }
+}
+
+function previewPopupContent(content) {
+  if (!content) return '-';
+  const text = String(content).replace(/<[^>]*>/g, '').trim();
+  if (!text) return '-';
+  return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+}
+
+function resetPopupForm() {
+  if (popupForm) popupForm.dataset.editingId = '';
+  if (popupTitleInput) popupTitleInput.value = '';
+  if (popupTypeInput) popupTypeInput.value = 'modal';
+  if (popupContentInput) popupContentInput.value = '';
+  if (popupStartInput) popupStartInput.value = '';
+  if (popupEndInput) popupEndInput.value = '';
+  if (popupActiveInput) popupActiveInput.checked = true;
+  if (popupFormStatus) setStatus(popupFormStatus, '');
+}
+
+function resetBannerForm() {
+  if (bannerForm) bannerForm.dataset.editingId = '';
+  if (bannerLocationInput) bannerLocationInput.value = 'home_top';
+  if (bannerImageInput) bannerImageInput.value = '';
+  if (bannerLinkInput) bannerLinkInput.value = '';
+  if (bannerOrderInput) bannerOrderInput.value = '';
+  if (bannerActiveInput) bannerActiveInput.checked = true;
+  if (bannerFormStatus) setStatus(bannerFormStatus, '');
+}
+
+function renderPopups() {
+  if (!popupsList || !popupsStatus) return;
+  popupsList.innerHTML = '';
+  if (!currentPopups.length) {
+    popupsStatus.textContent = '팝업이 없습니다.';
+    return;
+  }
+  popupsStatus.textContent = `${currentPopups.length}개 팝업`;
+  currentPopups.forEach((popup) => {
+    const item = document.createElement('div');
+    item.className = 'category-item';
+
+    const info = document.createElement('div');
+    info.className = 'stack';
+    const title = document.createElement('strong');
+    title.textContent = popup.title || '제목 없음';
+    const meta = document.createElement('div');
+    meta.className = 'muted';
+    const periodLabel = `${formatUnixSeconds(popup.startAt)} ~ ${formatUnixSeconds(popup.endAt)}`;
+    meta.textContent = `${popupTypeLabel(popup.type)} · ${periodLabel}`;
+    const preview = document.createElement('div');
+    preview.className = 'muted';
+    preview.textContent = previewPopupContent(popup.content);
+    info.appendChild(title);
+    info.appendChild(meta);
+    info.appendChild(preview);
+
+    const actions = document.createElement('div');
+    actions.className = 'row gap';
+    const statusBadge = document.createElement('span');
+    statusBadge.className = `badge ${popup.isActive ? 'badge-published' : 'badge-draft'}`;
+    statusBadge.textContent = popup.isActive ? 'active' : 'inactive';
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'ghost';
+    editBtn.textContent = '편집';
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'ghost danger';
+    deleteBtn.textContent = '삭제';
+    actions.appendChild(statusBadge);
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
+
+    editBtn.addEventListener('click', () => {
+      if (!popupForm) return;
+      popupForm.dataset.editingId = popup.id;
+      if (popupTitleInput) popupTitleInput.value = popup.title || '';
+      if (popupTypeInput) popupTypeInput.value = popup.type || 'modal';
+      if (popupContentInput) popupContentInput.value = popup.content || '';
+      if (popupStartInput) {
+        popupStartInput.value = popup.startAt ? formatDatetimeLocal(popup.startAt * 1000) : '';
+      }
+      if (popupEndInput) {
+        popupEndInput.value = popup.endAt ? formatDatetimeLocal(popup.endAt * 1000) : '';
+      }
+      if (popupActiveInput) popupActiveInput.checked = Boolean(popup.isActive);
+      if (popupFormStatus) setStatus(popupFormStatus, `편집 중: ${popup.title}`);
+    });
+
+    deleteBtn.addEventListener('click', async () => {
+      if (!popup.id) return;
+      if (!confirm('팝업을 삭제할까요?')) return;
+      await deletePopup(popup.id);
+    });
+
+    item.appendChild(info);
+    item.appendChild(actions);
+    popupsList.appendChild(item);
+  });
+}
+
+function renderBanners() {
+  if (!bannersList || !bannersStatus) return;
+  bannersList.innerHTML = '';
+  if (!currentBanners.length) {
+    bannersStatus.textContent = '배너가 없습니다.';
+    return;
+  }
+  bannersStatus.textContent = `${currentBanners.length}개 배너`;
+  currentBanners.forEach((banner) => {
+    const item = document.createElement('div');
+    item.className = 'category-item';
+
+    const info = document.createElement('div');
+    info.className = 'row gap';
+    const thumb = document.createElement('img');
+    thumb.src = banner.imageUrl || '';
+    thumb.alt = '배너 이미지';
+    thumb.style.width = '64px';
+    thumb.style.height = '40px';
+    thumb.style.objectFit = 'cover';
+    thumb.style.borderRadius = '8px';
+    const text = document.createElement('div');
+    text.className = 'stack';
+    const title = document.createElement('strong');
+    title.textContent = bannerLocationLabel(banner.location);
+    const meta = document.createElement('div');
+    meta.className = 'muted';
+    meta.textContent = `순서: ${banner.orderIndex ?? '-'}`;
+    const link = document.createElement('div');
+    link.className = 'muted';
+    link.textContent = banner.linkUrl || '-';
+    text.appendChild(title);
+    text.appendChild(meta);
+    text.appendChild(link);
+    info.appendChild(thumb);
+    info.appendChild(text);
+
+    const actions = document.createElement('div');
+    actions.className = 'row gap';
+    const statusBadge = document.createElement('span');
+    statusBadge.className = `badge ${banner.isActive ? 'badge-published' : 'badge-draft'}`;
+    statusBadge.textContent = banner.isActive ? 'active' : 'inactive';
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'ghost';
+    editBtn.textContent = '편집';
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'ghost danger';
+    deleteBtn.textContent = '삭제';
+    actions.appendChild(statusBadge);
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
+
+    editBtn.addEventListener('click', () => {
+      if (!bannerForm) return;
+      bannerForm.dataset.editingId = banner.id;
+      if (bannerLocationInput) bannerLocationInput.value = banner.location || 'home_top';
+      if (bannerImageInput) bannerImageInput.value = banner.imageUrl || '';
+      if (bannerLinkInput) bannerLinkInput.value = banner.linkUrl || '';
+      if (bannerOrderInput) bannerOrderInput.value = banner.orderIndex ?? '';
+      if (bannerActiveInput) bannerActiveInput.checked = Boolean(banner.isActive);
+      if (bannerFormStatus) setStatus(bannerFormStatus, `편집 중: ${bannerLocationLabel(banner.location)}`);
+    });
+
+    deleteBtn.addEventListener('click', async () => {
+      if (!banner.id) return;
+      if (!confirm('배너를 삭제할까요?')) return;
+      await deleteBanner(banner.id);
+    });
+
+    item.appendChild(info);
+    item.appendChild(actions);
+    bannersList.appendChild(item);
+  });
+}
+
+async function fetchPopups() {
+  if (!popupsStatus) return;
+  if (!currentSession || isEditorSession()) return;
+  try {
+    setStatus(popupsStatus, '불러오는 중...');
+    const data = await apiFetch('/cms/popups');
+    currentPopups = (data?.popups || []).map(normalizePopup);
+    renderPopups();
+  } catch (error) {
+    setStatus(popupsStatus, formatError(error), true);
+  }
+}
+
+async function fetchBanners() {
+  if (!bannersStatus) return;
+  if (!currentSession || isEditorSession()) return;
+  try {
+    setStatus(bannersStatus, '불러오는 중...');
+    const data = await apiFetch('/cms/banners');
+    currentBanners = (data?.banners || []).map(normalizeBanner);
+    renderBanners();
+  } catch (error) {
+    setStatus(bannersStatus, formatError(error), true);
+  }
+}
+
+async function savePopup() {
+  if (!popupForm) return;
+  const title = popupTitleInput?.value.trim();
+  const content = popupContentInput?.value.trim();
+  const type = popupTypeInput?.value;
+  if (!title || !content || !type) {
+    if (popupFormStatus) setStatus(popupFormStatus, '제목/내용/유형을 입력하세요.', true);
+    return;
+  }
+  const startAt = parseDatetimeInput(popupStartInput?.value);
+  const endAt = parseDatetimeInput(popupEndInput?.value);
+  if (startAt === undefined || endAt === undefined) {
+    if (popupFormStatus) setStatus(popupFormStatus, '날짜 형식이 올바르지 않습니다.', true);
+    return;
+  }
+  const payload = {
+    title,
+    content,
+    type,
+    start_at: startAt,
+    end_at: endAt,
+    is_active: Boolean(popupActiveInput?.checked),
+  };
+  try {
+    if (popupFormStatus) setStatus(popupFormStatus, '저장 중...');
+    const editingId = popupForm.dataset.editingId;
+    if (editingId) {
+      await apiFetch(`/cms/popups/${editingId}`, { method: 'PUT', body: payload });
+    } else {
+      await apiFetch('/cms/popups', { method: 'POST', body: payload });
+    }
+    resetPopupForm();
+    await fetchPopups();
+    if (popupFormStatus) setStatus(popupFormStatus, '저장 완료');
+  } catch (error) {
+    if (popupFormStatus) setStatus(popupFormStatus, formatError(error), true);
+  }
+}
+
+async function deletePopup(id) {
+  try {
+    if (popupFormStatus) setStatus(popupFormStatus, '삭제 중...');
+    await apiFetch(`/cms/popups/${id}`, { method: 'DELETE' });
+    await fetchPopups();
+    if (popupFormStatus) setStatus(popupFormStatus, '삭제 완료');
+  } catch (error) {
+    if (popupFormStatus) setStatus(popupFormStatus, formatError(error), true);
+  }
+}
+
+async function saveBanner() {
+  if (!bannerForm) return;
+  const location = bannerLocationInput?.value;
+  const imageUrl = bannerImageInput?.value.trim();
+  const linkUrl = bannerLinkInput?.value.trim();
+  if (!location || !imageUrl || !linkUrl) {
+    if (bannerFormStatus) setStatus(bannerFormStatus, '위치/이미지/링크를 입력하세요.', true);
+    return;
+  }
+  let orderIndex = bannerOrderInput?.value;
+  if (orderIndex === '') {
+    orderIndex = null;
+  }
+  if (orderIndex !== null && orderIndex !== undefined && Number.isNaN(Number(orderIndex))) {
+    if (bannerFormStatus) setStatus(bannerFormStatus, '순서는 숫자여야 합니다.', true);
+    return;
+  }
+  const payload = {
+    location,
+    image_url: imageUrl,
+    link_url: linkUrl,
+    order_index: orderIndex === null ? null : Number(orderIndex),
+    is_active: Boolean(bannerActiveInput?.checked),
+  };
+  try {
+    if (bannerFormStatus) setStatus(bannerFormStatus, '저장 중...');
+    const editingId = bannerForm.dataset.editingId;
+    if (editingId) {
+      await apiFetch(`/cms/banners/${editingId}`, { method: 'PUT', body: payload });
+    } else {
+      await apiFetch('/cms/banners', { method: 'POST', body: payload });
+    }
+    resetBannerForm();
+    await fetchBanners();
+    if (bannerFormStatus) setStatus(bannerFormStatus, '저장 완료');
+  } catch (error) {
+    if (bannerFormStatus) setStatus(bannerFormStatus, formatError(error), true);
+  }
+}
+
+async function deleteBanner(id) {
+  try {
+    if (bannerFormStatus) setStatus(bannerFormStatus, '삭제 중...');
+    await apiFetch(`/cms/banners/${id}`, { method: 'DELETE' });
+    await fetchBanners();
+    if (bannerFormStatus) setStatus(bannerFormStatus, '삭제 완료');
+  } catch (error) {
+    if (bannerFormStatus) setStatus(bannerFormStatus, formatError(error), true);
   }
 }
 
@@ -2255,6 +2859,7 @@ function renderHomeLayoutEditor() {
 
 async function fetchSiteConfig() {
   if (!siteConfigStatus) return;
+  if (!currentSession || isEditorSession()) return;
   try {
     setStatus(siteConfigStatus, '불러오는 중...');
     const data = await apiFetch('/cms/site-config');
@@ -2272,6 +2877,10 @@ async function fetchSiteConfig() {
 }
 
 async function saveSiteConfig(payloadOverrides = {}, statusEl = siteConfigSaveStatus) {
+  if (isEditorSession()) {
+    if (statusEl) setStatus(statusEl, '권한이 없습니다.', true);
+    return;
+  }
   try {
     if (statusEl) setStatus(statusEl, '저장 중...');
     const payload = {
@@ -2296,6 +2905,7 @@ async function saveSiteConfig(payloadOverrides = {}, statusEl = siteConfigSaveSt
 
 async function fetchSiteNavigations() {
   if (!navStatus) return;
+  if (!currentSession || isEditorSession()) return;
   try {
     setStatus(navStatus, '불러오는 중...');
     const data = await apiFetch('/cms/site-navigations');
@@ -2585,6 +3195,9 @@ async function selectPrCampaign(campaignId) {
 function getFilteredPosts() {
   const query = postsView.search.trim().toLowerCase();
   let list = allPosts.slice();
+  if (postsView.type) {
+    list = list.filter((post) => (post.type || 'post') === postsView.type);
+  }
   if (query) {
     list = list.filter((post) => (post.title || '').toLowerCase().includes(query));
   }
@@ -2857,7 +3470,8 @@ function renderPosts() {
       </div>
       <div class="posts-cell posts-title">
         <strong>${post.title || '제목 없음'}</strong>
-        <span class="posts-id muted">#${post.id || '-'}</span>
+      </div>
+      <div class="posts-cell posts-status">
         <span class="badge badge-${post.status || 'draft'}">${statusLabel}</span>
       </div>
       <div class="posts-cell">${published}</div>
@@ -2997,6 +3611,11 @@ async function maybeOpenInitialPost() {
   const isNew = params.get('new') === '1';
   const postId = params.get('postId');
   if (isNew) {
+    const typeParam = params.get('type');
+    if (typeParam === 'page' && postTypeSelect) {
+      postTypeSelect.value = 'page';
+      currentDraft.type = 'page';
+    }
     await createNewPost();
     return;
   }
@@ -3024,6 +3643,9 @@ function buildPostsQuery() {
   const query = new URLSearchParams();
   query.set('page', postsView.page);
   query.set('pageSize', postsView.pageSize);
+  if (postsView.type) {
+    query.set('type', postsView.type);
+  }
   if (postsView.viewPeriod && postsView.viewPeriod !== 'all') {
     query.set('viewPeriod', postsView.viewPeriod);
   }
@@ -3311,7 +3933,8 @@ async function createNewPost() {
 
 newPostBtn.addEventListener('click', async () => {
   if (isDashboard) {
-    window.location.href = 'editor.html?new=1';
+    const typeParam = postsView.type === 'page' ? '&type=page' : '';
+    window.location.href = `editor.html?new=1${typeParam}`;
     return;
   }
   await createNewPost();
@@ -3754,6 +4377,50 @@ if (tabButtons.length) {
   setActiveTab(activeTabId);
 }
 
+if (tenantSwitchBtn) {
+  tenantSwitchBtn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (tenantSwitchMenu?.classList.contains('hidden')) {
+      openTenantMenu();
+    } else {
+      closeTenantMenu();
+    }
+  });
+}
+
+if (tenantSearchInput) {
+  tenantSearchInput.addEventListener('input', () => {
+    renderTenantSwitcherList();
+  });
+}
+
+document.addEventListener('click', (event) => {
+  if (!tenantSwitchMenu || tenantSwitchMenu.classList.contains('hidden')) return;
+  const target = event.target;
+  if (target instanceof Node && tenantSwitcher?.contains(target)) return;
+  closeTenantMenu();
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  if (tenantSwitchMenu && !tenantSwitchMenu.classList.contains('hidden')) {
+    closeTenantMenu();
+  }
+});
+
+if (scrollTargetButtons.length) {
+  scrollTargetButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const selector = button.dataset.scrollTarget;
+      if (!selector) return;
+      const panel = button.closest('.tab-panel');
+      const target = panel ? panel.querySelector(selector) : document.querySelector(selector);
+      if (!target) return;
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+}
+
 if (refreshThemeBtn) {
   refreshThemeBtn.addEventListener('click', () => {
     fetchThemeConfig();
@@ -3776,12 +4443,64 @@ if (themeSaveBtn) {
         presetId: data?.preset_id || selectedThemePresetId,
         updatedAt: data?.updated_at || Date.now(),
       };
+      selectedThemePresetId = currentThemeConfig.presetId;
       renderThemeCurrent();
+      renderThemePresets();
       await fetchThemeTokens();
       setStatus(themeSaveStatus, data?.deploy_job?.id ? `배포 Job: ${data.deploy_job.id}` : '저장 완료');
     } catch (error) {
       setStatus(themeSaveStatus, formatError(error), true);
     }
+  });
+}
+
+if (refreshPopupsBtn) {
+  refreshPopupsBtn.addEventListener('click', () => {
+    fetchPopups();
+  });
+}
+
+if (addPopupBtn) {
+  addPopupBtn.addEventListener('click', () => {
+    resetPopupForm();
+  });
+}
+
+if (popupResetBtn) {
+  popupResetBtn.addEventListener('click', () => {
+    resetPopupForm();
+  });
+}
+
+if (popupForm) {
+  popupForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await savePopup();
+  });
+}
+
+if (refreshBannersBtn) {
+  refreshBannersBtn.addEventListener('click', () => {
+    fetchBanners();
+  });
+}
+
+if (addBannerBtn) {
+  addBannerBtn.addEventListener('click', () => {
+    resetBannerForm();
+  });
+}
+
+if (bannerResetBtn) {
+  bannerResetBtn.addEventListener('click', () => {
+    resetBannerForm();
+  });
+}
+
+if (bannerForm) {
+  bannerForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await saveBanner();
   });
 }
 
@@ -3855,6 +4574,12 @@ if (homeLayoutSaveBtn) {
   });
 }
 
+if (homeLayoutSidebarSaveBtn) {
+  homeLayoutSidebarSaveBtn.addEventListener('click', async () => {
+    await saveSiteConfig({ home_layout: siteConfig.home_layout }, homeLayoutSaveStatus);
+  });
+}
+
 if (refreshTenantsBtn) {
   refreshTenantsBtn.addEventListener('click', () => {
     if (!themeIsSuperAdmin) return;
@@ -3872,7 +4597,10 @@ if (refreshUsersBtn) {
 if (usersTenantSelect) {
   usersTenantSelect.addEventListener('change', async () => {
     if (!themeIsSuperAdmin) return;
-    selectedTenantId = usersTenantSelect.value || null;
+    const nextTenantId = usersTenantSelect.value || null;
+    if (nextTenantId) {
+      setActiveTenant(nextTenantId);
+    }
     resetUserForm();
     await fetchUsers();
   });

@@ -16,11 +16,14 @@ function getBucket(c: any) {
 
 function buildPublicUrl(c: any, key: string) {
   const base = c.env?.MEDIA_PUBLIC_URL ? `${c.env.MEDIA_PUBLIC_URL}`.replace(/\/$/, '') : '';
+  const normalizedKey = key.replace(/^\/+/, '');
   if (base) {
-    return `${base}/${key}`;
+    const baseUrl = base.replace(/\/+$/, '');
+    const strippedKey = baseUrl.endsWith('/uploads') ? normalizedKey.replace(/^uploads\//, '') : normalizedKey;
+    return `${baseUrl}/${strippedKey}`;
   }
   const origin = new URL(c.req.url).origin;
-  return `${origin}/uploads/${key}`;
+  return `${origin}/uploads/${normalizedKey}`;
 }
 
 router.post('/cms/uploads', sessionMiddleware, async (c) => {
@@ -40,7 +43,7 @@ router.post('/cms/uploads', sessionMiddleware, async (c) => {
   if (!file.type || !file.type.startsWith('image/')) {
     return c.json({ error: 'unsupported file type' }, 415);
   }
-  if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+  if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'].includes(file.type)) {
     return c.json({ error: 'unsupported file type' }, 415);
   }
   if (file.type === 'image/gif' && file.size > MAX_GIF_BYTES) {
@@ -52,10 +55,10 @@ router.post('/cms/uploads', sessionMiddleware, async (c) => {
   let contentType = file.type;
   let extension = '.webp';
 
-  if (file.type === 'image/gif') {
+  if (file.type === 'image/gif' || file.type === 'image/svg+xml') {
     payload = await file.arrayBuffer();
     contentType = file.type;
-    extension = '.gif';
+    extension = file.type === 'image/svg+xml' ? '.svg' : '.gif';
   } else {
     try {
       const bitmap = await createImageBitmap(file);
@@ -73,7 +76,9 @@ router.post('/cms/uploads', sessionMiddleware, async (c) => {
       contentType = 'image/webp';
       extension = '.webp';
     } catch (error) {
-      return c.json({ error: 'image processing failed' }, 400);
+      payload = await file.arrayBuffer();
+      contentType = file.type;
+      extension = file.type === 'image/png' ? '.png' : file.type === 'image/jpeg' ? '.jpg' : '.webp';
     }
   }
 

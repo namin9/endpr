@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { sessionMiddleware, requireRole } from '../middleware/rbac';
+import { sessionMiddleware, hasRole } from '../middleware/rbac';
 import {
   createPost,
   getPost,
@@ -178,7 +178,7 @@ router.post('/cms/posts/:id/publish', async (c) => {
   const tenant = c.get('tenant');
   const id = c.req.param('id');
 
-  if (!requireRole(session, ['admin', 'super'])) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasRole(session, ['tenant_admin', 'super_admin'])) return c.json({ error: 'Forbidden' }, 403);
 
   const existing = await getPost(c.env.DB, tenant.id, id);
   if (!existing) return c.json({ error: 'Post not found' }, 404);
@@ -202,7 +202,7 @@ router.delete('/cms/posts/:id', async (c) => {
   const tenant = c.get('tenant');
   const id = c.req.param('id');
 
-  if (!requireRole(session, ['admin', 'super'])) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasRole(session, ['tenant_admin', 'super_admin'])) return c.json({ error: 'Forbidden' }, 403);
 
   const existing = await getPost(c.env.DB, tenant.id, id);
   if (!existing) return c.json({ error: 'Post not found' }, 404);
@@ -242,7 +242,7 @@ router.post('/cms/posts/:id/unpublish', async (c) => {
   const tenant = c.get('tenant');
   const id = c.req.param('id');
 
-  if (!requireRole(session, ['admin', 'super'])) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasRole(session, ['tenant_admin', 'super_admin'])) return c.json({ error: 'Forbidden' }, 403);
 
   const existing = await getPost(c.env.DB, tenant.id, id);
   if (!existing) return c.json({ error: 'Post not found' }, 404);
@@ -282,7 +282,7 @@ router.delete('/cms/posts/:id/purge', async (c) => {
   const tenant = c.get('tenant');
   const id = c.req.param('id');
 
-  if (!requireRole(session, ['admin', 'super'])) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasRole(session, ['tenant_admin', 'super_admin'])) return c.json({ error: 'Forbidden' }, 403);
 
   const existing = await getPost(c.env.DB, tenant.id, id);
   if (!existing) return c.json({ error: 'Post not found' }, 404);

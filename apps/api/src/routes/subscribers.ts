@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { sessionMiddleware, requireRole } from '../middleware/rbac';
+import { sessionMiddleware, hasRole } from '../middleware/rbac';
 import { listSubscribers, toIso } from '../db';
 import { SessionData } from '../session';
 
@@ -10,7 +10,7 @@ router.use('/cms/subscribers', sessionMiddleware);
 
 router.get('/cms/subscribers/export', async (c) => {
   const session = c.get('session') as SessionData;
-  if (!requireRole(session, ['admin', 'super'])) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasRole(session, ['tenant_admin', 'super_admin'])) return c.json({ error: 'Forbidden' }, 403);
   const tenant = c.get('tenant');
   const subscribers = await listSubscribers(c.env.DB, tenant.id);
 

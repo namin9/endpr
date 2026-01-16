@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { sessionMiddleware } from '../middleware/rbac';
+import { requireRole, sessionMiddleware } from '../middleware/rbac';
 import {
   createSiteNavigation,
   deleteSiteNavigation,
@@ -58,6 +58,10 @@ router.use('/cms/site-config/*', sessionMiddleware);
 router.use('/cms/site-config', sessionMiddleware);
 router.use('/cms/site-navigations/*', sessionMiddleware);
 router.use('/cms/site-navigations', sessionMiddleware);
+router.use('/cms/site-config/*', requireRole(['tenant_admin', 'super_admin']));
+router.use('/cms/site-config', requireRole(['tenant_admin', 'super_admin']));
+router.use('/cms/site-navigations/*', requireRole(['tenant_admin', 'super_admin']));
+router.use('/cms/site-navigations', requireRole(['tenant_admin', 'super_admin']));
 
 router.get('/cms/site-config', async (c) => {
   const tenant = c.get('tenant');
