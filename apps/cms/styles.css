@@ -290,6 +290,10 @@ body.page-editor .editor-card[data-view-mode='preview'] .editor-pane {
   display: none;
 }
 
+.markdown-toolbar {
+  margin-top: 10px;
+}
+
 .toolbar-group {
   display: flex;
   flex-wrap: wrap;

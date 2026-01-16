@@ -91,6 +91,8 @@ const editorModeToggle = document.getElementById('editorModeToggle');
 const customToolbar = document.getElementById('custom-toolbar');
 const toolbarButtons = customToolbar ? Array.from(customToolbar.querySelectorAll('[data-tool]')) : [];
 const imageUploadInput = document.getElementById('imageUploadInput');
+const markdownToolbar = document.getElementById('markdown-toolbar');
+const markdownButtons = markdownToolbar ? Array.from(markdownToolbar.querySelectorAll('[data-md-action]')) : [];
 const deployJobsScope = document.getElementById('deployJobsScope');
 const tenantSwitcher = document.querySelector('[data-tenant-switcher]');
 const tenantSwitchBtn = document.getElementById('tenantSwitchBtn');
@@ -1166,6 +1168,78 @@ function initCustomToolbar() {
   }
 }
 
+function wrapSelection(prefix, suffix = '') {
+  const start = bodyInput.selectionStart ?? 0;
+  const end = bodyInput.selectionEnd ?? 0;
+  const value = bodyInput.value || '';
+  const before = value.slice(0, start);
+  const selected = value.slice(start, end);
+  const after = value.slice(end);
+  const next = `${before}${prefix}${selected}${suffix}${after}`;
+  bodyInput.value = next;
+  const cursor = start + prefix.length + (selected ? selected.length : 0);
+  bodyInput.focus();
+  bodyInput.setSelectionRange(cursor, cursor);
+}
+
+function prefixLine(prefix) {
+  const start = bodyInput.selectionStart ?? 0;
+  const end = bodyInput.selectionEnd ?? 0;
+  const value = bodyInput.value || '';
+  const before = value.slice(0, start);
+  const selected = value.slice(start, end) || '';
+  const after = value.slice(end);
+  const lines = (selected || '내용을 입력하세요').split('\n').map((line) => `${prefix}${line}`);
+  const block = lines.join('\n');
+  bodyInput.value = `${before}${block}${after}`;
+  const cursor = before.length + block.length;
+  bodyInput.focus();
+  bodyInput.setSelectionRange(cursor, cursor);
+}
+
+function insertAtCursor(text) {
+  const start = bodyInput.selectionStart ?? 0;
+  const end = bodyInput.selectionEnd ?? 0;
+  const value = bodyInput.value || '';
+  bodyInput.value = `${value.slice(0, start)}${text}${value.slice(end)}`;
+  const cursor = start + text.length;
+  bodyInput.focus();
+  bodyInput.setSelectionRange(cursor, cursor);
+}
+
+function initMarkdownToolbar() {
+  if (!markdownToolbar || !markdownButtons.length || !bodyInput) return;
+  markdownToolbar.classList.toggle('is-hidden', editorMode !== 'markdown');
+  markdownButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const action = button.dataset.mdAction;
+      if (!action) return;
+      if (action === 'bold') {
+        wrapSelection('**', '**');
+      } else if (action === 'italic') {
+        wrapSelection('*', '*');
+      } else if (action === 'link') {
+        wrapSelection('[', '](https://)');
+      } else if (action === 'code') {
+        wrapSelection('`', '`');
+      } else if (action === 'h1') {
+        prefixLine('# ');
+      } else if (action === 'h2') {
+        prefixLine('## ');
+      } else if (action === 'h3') {
+        prefixLine('### ');
+      } else if (action === 'ul') {
+        prefixLine('- ');
+      } else if (action === 'quote') {
+        prefixLine('> ');
+      } else if (action === 'divider') {
+        insertAtCursor('\n---\n');
+      }
+      handleAutosave();
+    });
+  });
+}
+
 async function setEditorMode(mode) {
   editorMode = mode === 'markdown' ? 'markdown' : 'rich';
   if (editorModeToggle) {
@@ -1173,6 +1247,9 @@ async function setEditorMode(mode) {
   }
   if (customToolbar) {
     customToolbar.classList.toggle('is-hidden', editorMode === 'markdown');
+  }
+  if (markdownToolbar) {
+    markdownToolbar.classList.toggle('is-hidden', editorMode !== 'markdown');
   }
   if (editorJsContainer) {
     editorJsContainer.classList.toggle('is-hidden', editorMode === 'markdown');
@@ -1254,6 +1331,11 @@ async function apiPostWithFallback(path, payload) {
       if (fallback.body_md === undefined) {
         fallback.body_md = currentDraft?.body || '';
       }
+      return apiFetch(path, { method: 'POST', body: fallback });
+    }
+    if (error?.status === 500 && payload?.body_md !== undefined) {
+      const fallback = { ...payload };
+      fallback.body_md = fallback.body_md?.trim() ? fallback.body_md : ' ';
       return apiFetch(path, { method: 'POST', body: fallback });
     }
     throw error;
@@ -1957,6 +2039,7 @@ if (editorJsContainer) {
   initEditorJs();
   initCustomToolbar();
 }
+initMarkdownToolbar();
 if (editorModeToggle) {
   editorModeToggle.addEventListener('click', async () => {
     const nextMode = editorMode === 'markdown' ? 'rich' : 'markdown';
