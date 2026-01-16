@@ -340,14 +340,113 @@ function renderMarkdown(md = "") {
   return sanitizeHtmlBlock(html);
 }
 
-function renderPostBody(post) {
-  if (post.body_html) return post.body_html;
+function renderEditorList(items = [], style = "unordered") {
+  const tag = style === "ordered" ? "ol" : "ul";
+  const rendered = items
+    .map((item) => {
+      if (typeof item === "string") {
+        return `<li>${sanitizeHtmlBlock(item)}</li>`;
+      }
+      if (item && typeof item === "object") {
+        const content = sanitizeHtmlBlock(item.content || "");
+        const nested = Array.isArray(item.items) && item.items.length ? renderEditorList(item.items, style) : "";
+        return `<li>${content}${nested}</li>`;
+      }
+      return "";
+    })
+    .join("");
+  return `<${tag}>${rendered}</${tag}>`;
+}
+
+function renderEditorBlocks(blocks = []) {
+  return blocks
+    .map((block) => {
+      const data = block?.data || {};
+      switch (block.type) {
+        case "header": {
+          const level = Math.min(Math.max(Number(data.level) || 2, 1), 6);
+          return `<h${level}>${sanitizeHtmlBlock(data.text || "")}</h${level}>`;
+        }
+        case "paragraph":
+          return `<p>${sanitizeHtmlBlock(data.text || "")}</p>`;
+        case "list":
+          return renderEditorList(data.items || [], data.style);
+        case "image": {
+          const url = sanitizeUrl(data.file?.url || data.url || "", { allowDataImage: true });
+          if (!url) return "";
+          const caption = data.caption ? `<figcaption>${sanitizeHtmlBlock(data.caption)}</figcaption>` : "";
+          return `<figure><img src="${escapeHtml(url)}" alt="" />${caption}</figure>`;
+        }
+        case "table": {
+          const rows = Array.isArray(data.content) ? data.content : [];
+          const body = rows
+            .map((row) => {
+              const cells = Array.isArray(row)
+                ? row.map((cell) => `<td>${sanitizeHtmlBlock(cell || "")}</td>`).join("")
+                : "";
+              return `<tr>${cells}</tr>`;
+            })
+            .join("");
+          return `<table><tbody>${body}</tbody></table>`;
+        }
+        case "embed": {
+          const embedUrl = sanitizeUrl(data.embed || data.source || "");
+          if (!embedUrl) {
+            return data.source ? `<a href="${escapeHtml(data.source)}">${escapeHtml(data.source)}</a>` : "";
+          }
+          return `<div class="embed"><iframe src="${escapeHtml(embedUrl)}" allowfullscreen loading="lazy"></iframe></div>`;
+        }
+        case "warning": {
+          const title = data.title ? `<div class="callout-title">${sanitizeHtmlBlock(data.title)}</div>` : "";
+          const message = data.message ? `<div class="callout-body">${sanitizeHtmlBlock(data.message)}</div>` : "";
+          return `<div class="callout callout-warning">${title}${message}</div>`;
+        }
+        case "code":
+          return `<pre><code>${escapeHtml(data.code || "")}</code></pre>`;
+        default:
+          return "";
+      }
+    })
+    .join("");
+}
+
+function renderPostContent(post) {
+  if (post.body_json) {
+    try {
+      const parsed = JSON.parse(post.body_json);
+      if (Array.isArray(parsed?.blocks)) {
+        return renderEditorBlocks(parsed.blocks);
+      }
+    } catch (error) {
+      console.warn("Failed to parse body_json, falling back to markdown.", error);
+    }
+  }
   if (post.body_md) return renderMarkdown(post.body_md);
   if (post.body) return renderMarkdown(post.body);
   return "<p></p>";
 }
 
+function renderPostBody(post) {
+  if (post.body_html) return post.body_html;
+  return renderPostContent(post);
+}
+
 function extractFirstImageUrl(post) {
+  if (post.body_json) {
+    try {
+      const parsed = JSON.parse(post.body_json);
+      const blocks = Array.isArray(parsed?.blocks) ? parsed.blocks : [];
+      for (const block of blocks) {
+        if (block?.type === "image") {
+          const url = block?.data?.file?.url || block?.data?.url;
+          const sanitized = sanitizeUrl(url, { allowDataImage: true });
+          if (sanitized) return sanitized;
+        }
+      }
+    } catch {
+      // ignore parsing errors
+    }
+  }
   const sources = [post.body_html, post.body_md, post.body].filter(Boolean);
   const imgTagRegex = /<img[^>]*src=["']([^"']+)["']/i;
   const mdImgRegex = /!\[[^\]]*]\(([^)]+)\)/;
@@ -377,6 +476,7 @@ function getPostUrl(post) {
 
 function summarizeBodyFormat(post) {
   if (post.body_html) return "body_html";
+  if (post.body_json) return "body_json";
   if (post.body_md) return "body_md";
   if (post.body) return "body";
   return "empty";
@@ -508,7 +608,14 @@ function layoutHtml({
   .callout-info { border-color: #38bdf8; }
   .callout-warn { border-color: #f59e0b; }
   .callout-error { border-color: #ef4444; }
+  .callout-warning { border-color: #f59e0b; }
   .callout-title { font-weight: 700; margin-bottom: 6px; }
+  .post-body table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  .post-body th, .post-body td { border: 1px solid var(--border, #e5e7eb); padding: 8px 10px; text-align: left; }
+  .post-body figure { margin: 16px 0; }
+  .post-body figcaption { font-size: 0.85em; color: var(--muted, #6b7280); margin-top: 8px; }
+  .post-body .embed { position: relative; padding-top: 56.25%; margin: 16px 0; }
+  .post-body .embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   .grid { display: grid; gap: 16px; grid-template-columns: repeat(var(--columns, 2), minmax(0, 1fr)); }
   .card { border-radius: var(--radius, 14px); box-shadow: var(--card-shadow, 0 10px 24px rgba(15, 23, 42, 0.08)); padding: 16px; background: var(--bg, #fff); border: 1px solid var(--border, #e5e7eb); }
   .card-icon { font-size: 24px; }
@@ -944,7 +1051,9 @@ async function generatePostPages(posts, siteConfig, layoutType) {
       content: `<article>
   <h2>${escapeHtml(post.title || post.slug)}</h2>
   <p>${escapeHtml(post.excerpt || "")}</p>
-  ${renderPostBody(post)}
+  <div class="post-body">
+    ${renderPostBody(post)}
+  </div>
 </article>`,
       siteConfig,
       pagePath: `/${postSlug}/`,
@@ -973,7 +1082,9 @@ async function generateStaticPages(pages, siteConfig, layoutType) {
       description: page.excerpt || "",
       content: `<article>
   <h2>${escapeHtml(page.title || page.slug)}</h2>
-  ${renderPostBody(page)}
+  <div class="post-body">
+    ${renderPostBody(page)}
+  </div>
 </article>`,
       siteConfig,
       pagePath: `/${pageSlug}/`,

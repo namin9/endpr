@@ -37,6 +37,7 @@ export type PostRow = {
   slug: string;
   excerpt: string | null;
   body_md: string | null;
+  body_json: string | null;
   category_slug: string | null;
   status: string;
   publish_at: number | null;
@@ -334,7 +335,7 @@ export async function createPost(db: D1Database, tenantId: string, input: Partia
   const now = Math.floor(Date.now() / 1000);
   await db
     .prepare(
-      `INSERT INTO posts (id, tenant_id, type, title, slug, excerpt, body_md, category_slug, status, created_at, updated_at)
+      `INSERT INTO posts (id, tenant_id, type, title, slug, excerpt, body_md, body_json, category_slug, status, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`
     )
     .bind(
@@ -345,6 +346,7 @@ export async function createPost(db: D1Database, tenantId: string, input: Partia
       input.slug,
       input.excerpt ?? null,
       input.body_md ?? null,
+      input.body_json ?? null,
       input.category_slug ?? null,
       now,
       now
@@ -442,6 +444,7 @@ export async function updatePost(db: D1Database, tenantId: string, id: string, u
         slug = COALESCE(?, slug),
         excerpt = COALESCE(?, excerpt),
         body_md = COALESCE(?, body_md),
+        body_json = COALESCE(?, body_json),
         category_slug = COALESCE(?, category_slug),
         status = COALESCE(?, status),
         publish_at = COALESCE(?, publish_at)
@@ -453,6 +456,7 @@ export async function updatePost(db: D1Database, tenantId: string, id: string, u
       updates.slug ?? null,
       updates.excerpt ?? null,
       updates.body_md ?? null,
+      updates.body_json ?? null,
       updates.category_slug ?? null,
       updates.status ?? null,
       updates.publish_at ?? null,
@@ -1352,6 +1356,7 @@ export function mapPost(row: PostRow) {
     slug: row.slug,
     excerpt: row.excerpt,
     body_md: row.body_md,
+    body_json: row.body_json,
     category_slug: row.category_slug,
     status: row.status,
     view_count: viewCount,

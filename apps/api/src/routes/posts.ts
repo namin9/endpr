@@ -33,7 +33,7 @@ function normalizePostType(value: unknown, fallback: 'post' | 'page' | null = nu
 router.post('/cms/posts', async (c) => {
   const tenant = c.get('tenant');
   const body = await c.req.json();
-  const { title, slug, excerpt, body_md, category_slug, type } = body;
+  const { title, slug, excerpt, body_md, body_json, category_slug, type } = body;
   if (!title) return c.json({ error: 'title is required' }, 400);
   const postType = normalizePostType(type, 'post');
   if (!postType) return c.json({ error: 'type must be post or page' }, 400);
@@ -48,6 +48,7 @@ router.post('/cms/posts', async (c) => {
       slug: finalSlug,
       excerpt,
       body_md,
+      body_json,
       category_slug,
       type: postType,
     });
@@ -65,6 +66,7 @@ router.post('/cms/posts', async (c) => {
         slug: retrySlug,
         excerpt,
         body_md,
+        body_json,
         category_slug,
         type: postType,
       });
@@ -124,7 +126,7 @@ router.post('/cms/posts/:id/autosave', async (c) => {
   const tenant = c.get('tenant');
   const id = c.req.param('id');
   const body = await c.req.json();
-  const { title, slug, excerpt, body_md, category_slug, status, publish_at, type } = body;
+  const { title, slug, excerpt, body_md, body_json, category_slug, status, publish_at, type } = body;
   const postType = normalizePostType(type, null);
   if (type && !postType) return c.json({ error: 'type must be post or page' }, 400);
 
@@ -143,6 +145,7 @@ router.post('/cms/posts/:id/autosave', async (c) => {
       slug: nextSlug,
       excerpt,
       body_md,
+      body_json,
       category_slug,
       status,
       publish_at,
@@ -163,6 +166,7 @@ router.post('/cms/posts/:id/autosave', async (c) => {
         slug: retrySlug,
         excerpt,
         body_md,
+        body_json,
         category_slug,
         status,
         publish_at,

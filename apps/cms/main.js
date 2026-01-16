@@ -94,8 +94,7 @@ const tenantSwitchLabel = document.getElementById('tenantSwitchLabel');
 const tenantSwitchMenu = document.getElementById('tenantSwitchMenu');
 const tenantSearchInput = document.getElementById('tenantSearchInput');
 const tenantSwitchList = document.getElementById('tenantSwitchList');
-const quillEditorEl = document.getElementById('quillEditor');
-const editorToolbar = document.getElementById('editorToolbar');
+const editorJsContainer = document.getElementById('editorjs');
 const categorySelect = document.getElementById('categorySelect');
 const postTypeSelect = document.getElementById('postTypeSelect');
 const categoryForm = document.getElementById('categoryForm');
@@ -228,6 +227,7 @@ let currentDraft = load(DRAFT_KEY, {
   id: null,
   title: '',
   body: '',
+  bodyJson: null,
   savedAt: null,
   status: null,
   categorySlug: '',
@@ -264,8 +264,10 @@ let activeTenantId = load(ACTIVE_TENANT_KEY, null);
 let currentUsers = [];
 let selectedTenantId = null;
 let activeTabId = 'content';
-let quill = null;
-let suppressQuillChange = false;
+let editor = null;
+let editorReady = false;
+let editorDataCache = null;
+let editorChangeTimer = null;
 let initialPostRequestHandled = false;
 let postsView = {
   search: '',
@@ -632,185 +634,179 @@ function applyPreviewTheme(tokens) {
   styleEl.textContent = buildThemeStyle(tokens, '.preview-scope');
 }
 
-function initQuillEditor() {
-  if (!window.Quill || !quillEditorEl) return;
-
-  const Font = Quill.import('formats/font');
-  Font.whitelist = ['inter', 'serif', 'monospace'];
-  Quill.register(Font, true);
-
-  const SizeStyle = Quill.import('attributors/style/size');
-  SizeStyle.whitelist = ['12px', '14px', '16px', '18px', '24px', '32px'];
-  Quill.register(SizeStyle, true);
-
-  quill = new Quill(quillEditorEl, {
-    theme: 'snow',
-    modules: {
-      toolbar: editorToolbar,
+function initEditorJs() {
+  if (!window.EditorJS || !editorJsContainer) return;
+  editor = new EditorJS({
+    holder: editorJsContainer,
+    placeholder: '내용을 입력하면 자동 저장됩니다',
+    tools: {
+      header: {
+        class: Header,
+        inlineToolbar: true,
+        config: {
+          levels: [1, 2, 3, 4, 5, 6],
+          defaultLevel: 2,
+        },
+      },
+      list: {
+        class: List,
+        inlineToolbar: true,
+      },
+      table: Table,
+      embed: {
+        class: Embed,
+        config: {
+          services: { youtube: true, twitter: true, instagram: true },
+        },
+      },
+      marker: Marker,
+      warning: {
+        class: Warning,
+        inlineToolbar: true,
+        config: {
+          titlePlaceholder: '콜아웃 제목',
+          messagePlaceholder: '메시지를 입력하세요',
+        },
+      },
+      code: CodeTool,
+      image: {
+        class: SimpleImage,
+        inlineToolbar: true,
+      },
+    },
+    onReady: () => {
+      editorReady = true;
+    },
+    onChange: () => {
+      scheduleEditorCacheUpdate();
+      handleAutosave();
     },
   });
-
-  document.querySelectorAll('.ql-toolbar button').forEach((button) => {
-    button.setAttribute('type', 'button');
-  });
-
-  const toolbar = quill.getModule('toolbar');
-  if (toolbar) {
-    const imageInput = document.createElement('input');
-    imageInput.type = 'file';
-    imageInput.accept = 'image/*';
-    imageInput.className = 'editor-textarea--hidden';
-    document.body.appendChild(imageInput);
-
-    const uploadImage = async (file) => {
-      const formData = new FormData();
-      formData.append('file', file);
-      const response = await fetch(buildUrl('/cms/uploads'), {
-        method: 'POST',
-        credentials: 'include',
-        body: formData,
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok || !data?.ok || !data?.url) {
-        const message = data?.error || `Upload failed (${response.status})`;
-        throw new Error(message);
-      }
-      return data.url;
-    };
-
-    toolbar.addHandler('image', () => {
-      imageInput.value = '';
-      imageInput.click();
-    });
-
-    imageInput.addEventListener('change', async () => {
-      const file = imageInput.files && imageInput.files[0];
-      if (!file) return;
-      try {
-        const url = await uploadImage(file);
-        const range = quill.getSelection(true);
-        const index = range ? range.index : quill.getLength();
-        quill.insertEmbed(index, 'image', url, 'user');
-        quill.setSelection(index + 1, 0);
-      } catch (error) {
-        console.error('Image upload failed', error);
-        setStatus(autosaveStatus, `이미지 업로드 실패: ${error?.message || '다시 시도해 주세요.'}`, true);
-      }
-    });
-  }
 }
 
-function pickBlockAttributes(attributes = {}) {
-  const blockAttributes = {};
-  ['header', 'list', 'blockquote', 'code-block'].forEach((key) => {
-    if (attributes[key]) {
-      blockAttributes[key] = attributes[key];
-    }
-  });
-  return blockAttributes;
+function normalizeEditorData(data) {
+  if (!data || !Array.isArray(data.blocks)) return { blocks: [] };
+  return data;
 }
 
-function formatInlineMarkdown(text, attributes = {}) {
-  if (!text) return '';
-  let output = text;
-  if (attributes.code) {
-    return `\`${output.replace(/`/g, '\\`')}\``;
-  }
-  if (attributes.bold && attributes.italic) {
-    output = `***${output}***`;
-  } else if (attributes.bold) {
-    output = `**${output}**`;
-  } else if (attributes.italic) {
-    output = `*${output}*`;
-  }
-  if (attributes.link) {
-    output = `[${output}](${attributes.link})`;
-  }
-  return output;
+function sanitizeEditorInline(html = '') {
+  return `${html}`.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
 }
 
-function quillDeltaToMarkdown(delta) {
-  const lines = [];
-  let currentLine = [];
-
-  const pushLine = (attributes = {}) => {
-    lines.push({
-      segments: currentLine.slice(),
-      attrs: pickBlockAttributes(attributes),
-    });
-    currentLine = [];
+function buildEditorDataFromMarkdown(markdown = '') {
+  if (!markdown) return { blocks: [] };
+  const paragraphs = `${markdown}`.split(/\n{2,}/).filter(Boolean);
+  return {
+    blocks: paragraphs.map((paragraph) => ({
+      type: 'paragraph',
+      data: { text: escapeHtml(paragraph).replace(/\n/g, '<br />') },
+    })),
   };
+}
 
-  (delta?.ops || []).forEach((op) => {
-    if (typeof op.insert === 'string') {
-      const parts = op.insert.split('\n');
-      const attributes = op.attributes || {};
-      const inlineAttributes = { ...attributes };
-      delete inlineAttributes.header;
-      delete inlineAttributes.list;
-      delete inlineAttributes.blockquote;
-      delete inlineAttributes['code-block'];
-      parts.forEach((part, index) => {
-        if (part) {
-          currentLine.push({ text: part, attrs: inlineAttributes });
-        }
-        if (index < parts.length - 1) {
-          pushLine(attributes);
-        }
-      });
-    } else if (op.insert?.image) {
-      currentLine.push({ text: `![image](${op.insert.image})`, attrs: {} });
-    }
-  });
-
-  if (currentLine.length) {
-    pushLine();
-  }
-
-  const output = [];
-  let inCodeBlock = false;
-
-  lines.forEach((line) => {
-    const text = line.segments.map((segment) => formatInlineMarkdown(segment.text, segment.attrs)).join('');
-    if (line.attrs['code-block']) {
-      if (!inCodeBlock) {
-        output.push('```');
-        inCodeBlock = true;
+async function setEditorContent({ bodyJson, bodyMd }) {
+  const nextBodyMd = bodyMd || '';
+  bodyInput.value = nextBodyMd;
+  if (!editor) return;
+  const parsed = (() => {
+    if (bodyJson) {
+      try {
+        return normalizeEditorData(JSON.parse(bodyJson));
+      } catch (error) {
+        console.warn('Failed to parse body_json', error);
       }
-      output.push(line.segments.map((segment) => segment.text).join(''));
-      return;
     }
-    if (inCodeBlock) {
-      output.push('```');
-      inCodeBlock = false;
-    }
-    if (line.attrs.header) {
-      output.push(`${'#'.repeat(line.attrs.header)} ${text}`);
-      return;
-    }
-    if (line.attrs.list) {
-      const bullet = line.attrs.list === 'ordered' ? '1.' : '-';
-      output.push(`${bullet} ${text}`);
-      return;
-    }
-    if (line.attrs.blockquote) {
-      output.push(`> ${text}`);
-      return;
-    }
-    output.push(text);
-  });
+    return buildEditorDataFromMarkdown(nextBodyMd);
+  })();
+  editorDataCache = parsed;
+  await editor.isReady;
+  await editor.render(parsed);
+}
 
-  if (inCodeBlock) {
-    output.push('```');
+async function getEditorPayload() {
+  if (!editor) {
+    return { bodyJson: null, data: null };
   }
+  const data = await editor.save();
+  const normalized = normalizeEditorData(data);
+  editorDataCache = normalized;
+  return { bodyJson: JSON.stringify(normalized), data: normalized };
+}
 
-  return output.join('\n');
+function renderEditorList(items = [], style = 'unordered') {
+  const tag = style === 'ordered' ? 'ol' : 'ul';
+  const rendered = items
+    .map((item) => {
+      if (typeof item === 'string') {
+        return `<li>${sanitizeEditorInline(item)}</li>`;
+      }
+      if (item && typeof item === 'object') {
+        const content = sanitizeEditorInline(item.content || '');
+        const nested = Array.isArray(item.items) && item.items.length ? renderEditorList(item.items, style) : '';
+        return `<li>${content}${nested}</li>`;
+      }
+      return '';
+    })
+    .join('');
+  return `<${tag}>${rendered}</${tag}>`;
+}
+
+function renderEditorBlocks(data) {
+  const blocks = data?.blocks || [];
+  return blocks
+    .map((block) => {
+      const payload = block?.data || {};
+      switch (block.type) {
+        case 'header': {
+          const level = Math.min(Math.max(Number(payload.level) || 2, 1), 6);
+          return `<h${level}>${sanitizeEditorInline(payload.text || '')}</h${level}>`;
+        }
+        case 'paragraph':
+          return `<p>${sanitizeEditorInline(payload.text || '')}</p>`;
+        case 'list':
+          return renderEditorList(payload.items || [], payload.style);
+        case 'table': {
+          const rows = Array.isArray(payload.content) ? payload.content : [];
+          const body = rows
+            .map((row) => {
+              const cells = Array.isArray(row)
+                ? row.map((cell) => `<td>${sanitizeEditorInline(cell || '')}</td>`).join('')
+                : '';
+              return `<tr>${cells}</tr>`;
+            })
+            .join('');
+          return `<table><tbody>${body}</tbody></table>`;
+        }
+        case 'embed': {
+          const src = sanitizeLink(payload.embed || payload.source || '');
+          if (!src || src === '#') {
+            return payload.source ? `<a href="${sanitizeLink(payload.source)}">${escapeHtml(payload.source)}</a>` : '';
+          }
+          return `<div class="embed"><iframe src="${src}" allowfullscreen loading="lazy"></iframe></div>`;
+        }
+        case 'image': {
+          const url = sanitizeLink(payload.url || payload.file?.url || '');
+          if (!url || url === '#') return '';
+          const caption = payload.caption ? `<figcaption>${sanitizeEditorInline(payload.caption)}</figcaption>` : '';
+          return `<figure><img src="${url}" alt="" />${caption}</figure>`;
+        }
+        case 'warning': {
+          const title = payload.title ? `<div class="callout-title">${sanitizeEditorInline(payload.title)}</div>` : '';
+          const message = payload.message ? `<div class="callout-body">${sanitizeEditorInline(payload.message)}</div>` : '';
+          return `<div class="callout callout-warning">${title}${message}</div>`;
+        }
+        case 'code':
+          return `<pre><code>${escapeHtml(payload.code || '')}</code></pre>`;
+        case 'marker':
+          return `<p><mark>${sanitizeEditorInline(payload.text || '')}</mark></p>`;
+        default:
+          return '';
+      }
+    })
+    .join('');
 }
 
 function getBodyValue() {
-  if (quill) {
-    return quillDeltaToMarkdown(quill.getContents());
-  }
   return bodyInput.value || '';
 }
 
@@ -819,18 +815,16 @@ function isHtmlContent(value) {
 }
 
 function setBodyValue(value) {
-  const nextValue = value || '';
-  bodyInput.value = nextValue;
-  if (!quill) return;
-  suppressQuillChange = true;
-  if (!nextValue) {
-    quill.setText('');
-    suppressQuillChange = false;
-    return;
+  setEditorContent({ bodyJson: null, bodyMd: value || '' });
+}
+
+async function buildBodyPayload() {
+  const bodyMd = getBodyValue();
+  if (!editor || !editorReady) {
+    return { bodyJson: null, bodyMd };
   }
-  const html = isHtmlContent(nextValue) ? nextValue : renderMarkdown(nextValue);
-  quill.clipboard.dangerouslyPasteHTML(html);
-  suppressQuillChange = false;
+  const { bodyJson } = await getEditorPayload();
+  return { bodyJson, bodyMd };
 }
 
 function setStatus(el, message, isError = false) {
@@ -1036,21 +1030,48 @@ logoutBtn.addEventListener('click', async () => {
   renderThemePresets();
 });
 
-function renderPreview() {
-  const draft = currentDraft || { title: '', body: '' };
+async function renderPreview() {
+  const draft = currentDraft || { title: '', body: '', bodyJson: null };
+  const title = draft.title || '제목 없음';
   const body = draft.body || '';
-  if (!draft.title && !body) {
+  const hasEditorData = Boolean(editor && (editorDataCache || draft.bodyJson));
+  if (!title && !body && !hasEditorData) {
+    previewPane.innerHTML = '<div class="preview-scope muted">작성된 내용이 없습니다.</div>';
+    return;
+  }
+
+  if (hasEditorData) {
+    let data = editorDataCache;
+    if (!data && draft.bodyJson) {
+      try {
+        data = normalizeEditorData(JSON.parse(draft.bodyJson));
+      } catch (error) {
+        console.warn('Failed to parse draft body_json', error);
+      }
+    }
+    if (!data && editor) {
+      try {
+        const saved = await editor.save();
+        data = normalizeEditorData(saved);
+        editorDataCache = data;
+      } catch (error) {
+        console.warn('Failed to save editor data for preview', error);
+      }
+    }
+    const content = data ? renderEditorBlocks(data) : '';
+    previewPane.innerHTML = `<div class="preview-scope"><h1>${escapeHtml(title)}</h1>${content}</div>`;
+    previewStatus.textContent = '실시간';
+    return;
+  }
+
+  if (!title && !body) {
     previewPane.innerHTML = '<div class="preview-scope muted">작성된 내용이 없습니다.</div>';
     return;
   }
   const hasHtml = isHtmlContent(body);
-  let content = '';
-  if (hasHtml) {
-    content = body;
-  } else {
-    const markdown = `# ${draft.title || '제목 없음'}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
-    content = renderMarkdown(markdown);
-  }
+  const content = hasHtml
+    ? body
+    : renderMarkdown(`# ${title}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`);
   previewPane.innerHTML = `<div class="preview-scope">${content}</div>`;
   previewStatus.textContent = '실시간';
 }
@@ -1195,20 +1216,25 @@ function renderMarkdown(markdown) {
   return html;
 }
 
+function scheduleEditorCacheUpdate() {
+  if (!editor || !editorReady) return;
+  if (editorChangeTimer) clearTimeout(editorChangeTimer);
+  editorChangeTimer = setTimeout(async () => {
+    try {
+      const data = await editor.save();
+      editorDataCache = normalizeEditorData(data);
+      persistDraft({ bodyJson: JSON.stringify(editorDataCache) });
+    } catch (error) {
+      console.warn('Failed to cache editor data', error);
+    }
+  }, 400);
+}
+
 function schedulePreviewUpdate() {
   if (previewTimer) clearTimeout(previewTimer);
   previewStatus.textContent = '갱신 중...';
   previewTimer = setTimeout(() => {
-    const title = titleInput.value || '제목 없음';
-    const body = getBodyValue();
-    const hasHtml = isHtmlContent(body);
-    if (hasHtml) {
-      previewPane.innerHTML = body;
-    } else {
-      const markdown = `# ${title}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
-      previewPane.innerHTML = renderMarkdown(markdown);
-    }
-    previewStatus.textContent = '실시간';
+    void renderPreview();
   }, 220);
 }
 
@@ -1366,13 +1392,15 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
   try {
     setStatus(statusEl, '예약 저장 중...');
     setGlobalLoading(true, '예약 발행 저장 중...');
-    const postId = await ensurePostId(titleInput.value.trim() || '제목 없음', getBodyValue());
+    const payload = await buildBodyPayload();
+    const postId = await ensurePostId(titleInput.value.trim() || '제목 없음', payload);
     const postType = getSelectedPostType();
+    const bodyPayload = payload.bodyJson ? { body_json: payload.bodyJson } : { body_md: payload.bodyMd };
     const response = await apiFetch(`/cms/posts/${postId}/autosave`, {
       method: 'POST',
       body: {
         title: titleInput.value.trim() || '제목 없음',
-        body_md: getBodyValue(),
+        ...bodyPayload,
         category_slug: categorySelect?.value || undefined,
         type: postType,
         status: 'scheduled',
@@ -1384,6 +1412,7 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
       id: postId,
       title: updated.title,
       body: updated.body || '',
+      bodyJson: updated.bodyJson || payload.bodyJson || null,
       savedAt: updated.updatedAt || currentDraft.savedAt,
       status: updated.status,
       type: updated.type || postType,
@@ -1438,13 +1467,14 @@ function getSelectedPostType() {
   return value === 'page' ? 'page' : 'post';
 }
 
-async function ensurePostId(title, body) {
+async function ensurePostId(title, payload = {}) {
   if (currentDraft?.id) return currentDraft.id;
   const categorySlug = categorySelect?.value || undefined;
   const postType = getSelectedPostType();
+  const bodyPayload = payload?.bodyJson ? { body_json: payload.bodyJson } : { body_md: payload?.bodyMd || '' };
   const created = await apiFetch('/cms/posts', {
     method: 'POST',
-    body: { title: title || '제목 없음', body_md: body, category_slug: categorySlug, type: postType },
+    body: { title: title || '제목 없음', ...bodyPayload, category_slug: categorySlug, type: postType },
   });
   const postId = created?.post?.id;
   if (!postId) throw new Error('게시글 ID를 받을 수 없습니다.');
@@ -1452,7 +1482,7 @@ async function ensurePostId(title, body) {
   return postId;
 }
 
-async function saveDraftToApi(title, body) {
+async function saveDraftToApi(title) {
   if (!currentSession) {
     autosaveState = {
       ...autosaveState,
@@ -1471,18 +1501,21 @@ async function saveDraftToApi(title, body) {
       error: null,
     };
     updateAutosaveStatus();
-    const postId = await ensurePostId(title, body);
+    const payload = await buildBodyPayload();
+    const postId = await ensurePostId(title, payload);
     const categorySlug = categorySelect?.value || undefined;
     const postType = getSelectedPostType();
+    const bodyPayload = payload.bodyJson ? { body_json: payload.bodyJson } : { body_md: payload.bodyMd };
     const saved = await apiFetch(`/cms/posts/${postId}/autosave`, {
       method: 'POST',
-      body: { title, body_md: body, category_slug: categorySlug, type: postType },
+      body: { title, ...bodyPayload, category_slug: categorySlug, type: postType },
     });
     const savedAt = saved?.saved_at || saved?.post?.updated_at_iso || new Date().toISOString();
     persistDraft({
       id: postId,
       title,
-      body,
+      body: payload.bodyMd || currentDraft.body || '',
+      bodyJson: payload.bodyJson || currentDraft.bodyJson || null,
       savedAt,
       status: saved?.post?.status,
       categorySlug: categorySlug || '',
@@ -1509,8 +1542,6 @@ async function saveDraftToApi(title, body) {
 
 function handleAutosave() {
   if (autosaveTimer) clearTimeout(autosaveTimer);
-  const title = titleInput.value;
-  const body = getBodyValue();
   autosaveState = {
     ...autosaveState,
     dirty: true,
@@ -1519,7 +1550,7 @@ function handleAutosave() {
   updateAutosaveStatus();
   schedulePreviewUpdate();
   autosaveTimer = setTimeout(() => {
-    saveDraftToApi(title, body);
+    saveDraftToApi(titleInput.value);
   }, 15000);
 }
 
@@ -1532,23 +1563,16 @@ if (postTypeSelect) {
   postTypeSelect.addEventListener('change', handleAutosave);
 }
 
-if (quillEditorEl) {
-  initQuillEditor();
-  if (quill) {
-    quill.on('text-change', () => {
-      if (suppressQuillChange) return;
-      bodyInput.value = getBodyValue();
-      handleAutosave();
-    });
-  }
+if (editorJsContainer) {
+  initEditorJs();
 }
 
 manualSaveBtn.addEventListener('click', () => {
-  saveDraftToApi(titleInput.value, getBodyValue());
+  saveDraftToApi(titleInput.value);
 });
 
 retrySaveBtn.addEventListener('click', () => {
-  saveDraftToApi(titleInput.value, getBodyValue());
+  saveDraftToApi(titleInput.value);
 });
 
 clearDraftBtn.addEventListener('click', () => {
@@ -1557,6 +1581,7 @@ clearDraftBtn.addEventListener('click', () => {
     id: null,
     title: '',
     body: '',
+    bodyJson: null,
     savedAt: null,
     status: null,
     categorySlug: '',
@@ -1591,6 +1616,7 @@ function normalizePost(rawPost) {
     slug: rawPost?.slug || rawPost?.slug_id || rawPost?.slugId || null,
     publicUrl: rawPost?.public_url || rawPost?.publicUrl || null,
     body: rawPost?.body_md || rawPost?.body || '',
+    bodyJson: rawPost?.body_json || rawPost?.bodyJson || null,
     categorySlug: rawPost?.category_slug || rawPost?.categorySlug || '',
     viewCount: Number(rawPost?.view_count ?? rawPost?.viewCount ?? 0) || 0,
   };
@@ -3712,6 +3738,7 @@ async function selectPost(post) {
     id: next.id,
     title: next.title,
     body: next.body || '',
+    bodyJson: next.bodyJson || null,
     savedAt: next.updatedAt || currentDraft.savedAt,
     status: next.status,
     type: next.type || 'post',
@@ -3727,7 +3754,7 @@ async function selectPost(post) {
   if (postTypeSelect) {
     postTypeSelect.value = next.type || 'post';
   }
-  setBodyValue(next.body || '');
+  await setEditorContent({ bodyJson: next.bodyJson, bodyMd: next.body || '' });
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPosts();
 }
@@ -3911,7 +3938,7 @@ async function createNewPost() {
       method: 'POST',
       body: {
         title: '제목 없음',
-        body_md: '',
+        body_json: JSON.stringify({ blocks: [] }),
         category_slug: categorySelect?.value || undefined,
         type: postType,
       },
@@ -4235,20 +4262,21 @@ publishBtn.addEventListener('click', async () => {
   }
 
   const title = titleInput.value.trim() || '제목 없음';
-  const body = getBodyValue();
   const categorySlug = categorySelect?.value || undefined;
 
   try {
     setStatus(publishMessage, '발행 요청 중…');
     setGlobalLoading(true, '발행 중...');
-    const postId = await ensurePostId(title, body);
+    const payload = await buildBodyPayload();
+    const bodyPayload = payload.bodyJson ? { body_json: payload.bodyJson } : { body_md: payload.bodyMd };
+    const postId = await ensurePostId(title, payload);
     await apiFetch(`/cms/posts/${postId}/autosave`, {
       method: 'POST',
-      body: { title, body_md: body, category_slug: categorySlug },
+      body: { title, ...bodyPayload, category_slug: categorySlug },
     });
     const response = await apiFetch(`/cms/posts/${postId}/publish`, {
       method: 'POST',
-      body: { title, body_md: body, category_slug: categorySlug },
+      body: { title, ...bodyPayload, category_slug: categorySlug },
     });
     const deployJob = response?.deploy_job;
     const jobId = deployJob?.id;
@@ -4890,7 +4918,7 @@ if (printBtn) {
 
 function hydrateFromStorage() {
   titleInput.value = currentDraft.title || '';
-  setBodyValue(currentDraft.body || '');
+  void setEditorContent({ bodyJson: currentDraft.bodyJson, bodyMd: currentDraft.body || '' });
   if (categorySelect) {
     categorySelect.value = currentDraft.categorySlug || '';
   }
