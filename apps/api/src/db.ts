@@ -336,7 +336,7 @@ export async function createPost(db: D1Database, tenantId: string, input: Partia
   await db
     .prepare(
       `INSERT INTO posts (id, tenant_id, type, title, slug, excerpt, body_md, body_json, category_slug, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`
     )
     .bind(
       id,
