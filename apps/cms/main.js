@@ -4,6 +4,7 @@ const BLOG_BASE = window.__BLOG_BASE__ || window.BLOG_BASE || 'https://endpr.pag
 const SESSION_KEY = 'cms-session';
 const DRAFT_KEY = 'cms-draft';
 const JOB_KEY = 'cms-jobs';
+const ACTIVE_TENANT_KEY = 'cms-active-tenant';
 const RESERVED_SLUGS = new Set([
   'posts',
   'category',
@@ -86,6 +87,12 @@ const viewModeButtons = Array.from(document.querySelectorAll('[data-view-mode]')
 const viewOnBlogBtn = document.getElementById('viewOnBlogBtn');
 const viewOnBlogHint = document.getElementById('viewOnBlogHint');
 const deployJobsScope = document.getElementById('deployJobsScope');
+const tenantSwitcher = document.querySelector('[data-tenant-switcher]');
+const tenantSwitchBtn = document.getElementById('tenantSwitchBtn');
+const tenantSwitchLabel = document.getElementById('tenantSwitchLabel');
+const tenantSwitchMenu = document.getElementById('tenantSwitchMenu');
+const tenantSearchInput = document.getElementById('tenantSearchInput');
+const tenantSwitchList = document.getElementById('tenantSwitchList');
 const quillEditorEl = document.getElementById('quillEditor');
 const editorToolbar = document.getElementById('editorToolbar');
 const categorySelect = document.getElementById('categorySelect');
@@ -252,6 +259,7 @@ let siteConfig = { logo_url: '', footer_text: '', home_layout: [] };
 let siteNavigations = [];
 let editingNavId = null;
 let currentTenants = [];
+let activeTenantId = load(ACTIVE_TENANT_KEY, null);
 let currentUsers = [];
 let selectedTenantId = null;
 let activeTabId = 'content';
@@ -398,6 +406,141 @@ function toggleFormDisabled(form, disabled) {
   });
 }
 
+function resolveActiveTenant() {
+  if (!themeIsSuperAdmin) return currentSession?.tenant || null;
+  const match = currentTenants.find((tenant) => tenant.id === activeTenantId);
+  if (match) return match;
+  return currentSession?.tenant || null;
+}
+
+function renderTenantSwitcherList() {
+  if (!tenantSwitchList) return;
+  tenantSwitchList.innerHTML = '';
+  if (!currentTenants.length) {
+    const empty = document.createElement('div');
+    empty.className = 'muted';
+    empty.textContent = '테넌트가 없습니다.';
+    tenantSwitchList.appendChild(empty);
+    return;
+  }
+  const query = tenantSearchInput?.value.trim().toLowerCase() || '';
+  const filtered = currentTenants.filter((tenant) => {
+    if (!query) return true;
+    return (
+      tenant.name?.toLowerCase().includes(query) ||
+      tenant.slug?.toLowerCase().includes(query) ||
+      tenant.primaryDomain?.toLowerCase().includes(query)
+    );
+  });
+  if (!filtered.length) {
+    const empty = document.createElement('div');
+    empty.className = 'muted';
+    empty.textContent = '검색 결과가 없습니다.';
+    tenantSwitchList.appendChild(empty);
+    return;
+  }
+  filtered.forEach((tenant) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'tenant-switcher-item';
+    if (tenant.id === activeTenantId) {
+      button.classList.add('is-active');
+    }
+    button.innerHTML = `
+      <strong>${tenant.name || tenant.slug}</strong>
+      <span class="muted">${tenant.slug || tenant.id}</span>
+    `;
+    button.addEventListener('click', () => {
+      setActiveTenant(tenant.id);
+      closeTenantMenu();
+    });
+    tenantSwitchList.appendChild(button);
+  });
+}
+
+function renderTenantSwitcher() {
+  if (!tenantSwitchLabel) return;
+  if (!tenantSwitcher) return;
+  if (!themeIsSuperAdmin) {
+    tenantSwitcher.classList.add('hidden');
+    return;
+  }
+  tenantSwitcher.classList.remove('hidden');
+  const activeTenant = resolveActiveTenant();
+  const label = activeTenant ? `${activeTenant.name || activeTenant.slug} (${activeTenant.slug || activeTenant.id})` : '테넌트 선택';
+  tenantSwitchLabel.textContent = label;
+  renderTenantSwitcherList();
+}
+
+function syncActiveTenantFromList() {
+  if (!themeIsSuperAdmin || !currentTenants.length) return;
+  const preferred = currentSession?.tenant?.id;
+  const exists = activeTenantId && currentTenants.some((tenant) => tenant.id === activeTenantId);
+  if (!exists) {
+    const next = preferred || currentTenants[0].id;
+    setActiveTenant(next, { refresh: false });
+    return;
+  }
+  if (!selectedTenantId) {
+    selectedTenantId = activeTenantId;
+  }
+  renderTenantSwitcher();
+}
+
+async function refreshTenantScopedData() {
+  const requests = [
+    fetchPosts(),
+    fetchCategories(),
+    fetchSiteConfig(),
+    fetchSiteNavigations(),
+    fetchThemeConfig(),
+    fetchThemePresets(),
+    fetchThemeTokens(),
+    fetchPopups(),
+    fetchBanners(),
+    fetchInquiries(),
+    fetchPrCampaigns(),
+    fetchDeployJobs(),
+  ];
+  if (themeIsSuperAdmin) {
+    requests.push(fetchUsers());
+  }
+  await Promise.all(requests);
+}
+
+function setActiveTenant(tenantId, options = {}) {
+  if (!tenantId) return;
+  const { refresh = true } = options;
+  activeTenantId = tenantId;
+  save(ACTIVE_TENANT_KEY, tenantId);
+  if (selectedTenantId !== tenantId) {
+    selectedTenantId = tenantId;
+    renderTenantSelect();
+  }
+  renderTenantSwitcher();
+  renderSession();
+  if (themeIsSuperAdmin && refresh) {
+    refreshTenantScopedData();
+  }
+}
+
+function openTenantMenu() {
+  if (!tenantSwitchMenu || !tenantSwitchBtn) return;
+  tenantSwitchMenu.classList.remove('hidden');
+  tenantSwitchBtn.setAttribute('aria-expanded', 'true');
+  if (tenantSearchInput) {
+    tenantSearchInput.value = '';
+    tenantSearchInput.focus();
+  }
+  renderTenantSwitcherList();
+}
+
+function closeTenantMenu() {
+  if (!tenantSwitchMenu || !tenantSwitchBtn) return;
+  tenantSwitchMenu.classList.add('hidden');
+  tenantSwitchBtn.setAttribute('aria-expanded', 'false');
+}
+
 function parseDatetimeInput(value) {
   if (!value) return null;
   const parsed = new Date(value);
@@ -416,6 +559,7 @@ function applyAdminUiState(isSuperAdmin) {
   if (usersTenantSelect) usersTenantSelect.disabled = !isSuperAdmin;
   if (tenantResetBtn) tenantResetBtn.disabled = !isSuperAdmin;
   if (userResetBtn) userResetBtn.disabled = !isSuperAdmin;
+  if (tenantSwitcher) tenantSwitcher.classList.toggle('hidden', !isSuperAdmin);
   toggleFormDisabled(tenantForm, !isSuperAdmin);
   toggleFormDisabled(userForm, !isSuperAdmin);
   if (adminTabButton) {
@@ -677,6 +821,9 @@ async function apiFetch(path, options = {}) {
     'Content-Type': 'application/json',
     ...(options.headers || {}),
   };
+  if (themeIsSuperAdmin && activeTenantId && !path.startsWith('/cms/auth/')) {
+    headers['x-tenant-id'] = activeTenantId;
+  }
 
   const response = await fetch(buildUrl(path), {
     credentials: 'include',
@@ -745,6 +892,11 @@ function persistSession(session) {
   themeIsSuperAdmin = resolveIsSuperAdmin(session);
   applyAdminUiState(themeIsSuperAdmin);
   applyRoleUiState(resolveUserRole(session));
+  if (themeIsSuperAdmin && !activeTenantId) {
+    activeTenantId = session?.tenant?.id || null;
+    save(ACTIVE_TENANT_KEY, activeTenantId);
+  }
+  renderTenantSwitcher();
   renderSession();
   updateViewOnBlogButton();
   renderThemeCurrent();
@@ -757,12 +909,14 @@ function renderSession() {
     return;
   }
 
-  const tenantSlug = currentSession?.tenant?.slug || currentSession?.tenantSlug || currentSession?.tenant || '-';
+  const activeTenant = resolveActiveTenant();
+  const tenantSlug = activeTenant?.slug || currentSession?.tenant?.slug || currentSession?.tenantSlug || currentSession?.tenant || '-';
+  const tenantName = activeTenant?.name ? ` (${activeTenant.name})` : '';
   const email = currentSession?.user?.email || currentSession?.email || 'unknown';
   const loggedInAt = currentSession?.loggedInAt ? formatTime(new Date(currentSession.loggedInAt)) : '알 수 없음';
 
   sessionStatus.innerHTML = `
-    테넌트 <strong>${tenantSlug}</strong> · ${email}<br />
+    테넌트 <strong>${tenantSlug}${tenantName}</strong> · ${email}<br />
     로그인: ${loggedInAt}
   `;
   sessionStatus.classList.remove('error');
@@ -774,15 +928,15 @@ async function fetchSession() {
     const loggedInAt = currentSession?.loggedInAt || new Date().toISOString();
     persistSession({ ...data, loggedInAt });
     const role = resolveUserRole(currentSession);
-    const baseFetches = [fetchThemeConfig(), fetchThemePresets(), fetchThemeTokens()];
-    if (role && role !== 'editor') {
-      baseFetches.push(fetchSiteConfig(), fetchSiteNavigations(), fetchPopups(), fetchBanners());
-    }
-    await Promise.all(baseFetches);
     if (themeIsSuperAdmin) {
       await fetchTenants();
-      await fetchUsers();
+    }
+    if (role && role !== 'editor') {
+      await refreshTenantScopedData();
     } else {
+      await Promise.all([fetchThemeConfig(), fetchThemePresets(), fetchThemeTokens()]);
+    }
+    if (!themeIsSuperAdmin) {
       currentTenants = [];
       currentUsers = [];
       selectedTenantId = null;
@@ -1728,8 +1882,7 @@ function renderTenants() {
     });
     selectBtn.addEventListener('click', async () => {
       if (!themeIsSuperAdmin) return;
-      selectedTenantId = tenant.id;
-      renderTenantSelect();
+      setActiveTenant(tenant.id);
       await fetchUsers();
     });
     tenantsList.appendChild(item);
@@ -1779,9 +1932,7 @@ async function fetchTenants() {
     const data = await apiFetch('/cms/tenants');
     const tenants = data?.tenants || [];
     currentTenants = tenants.map(normalizeTenant);
-    if (!selectedTenantId && currentTenants.length) {
-      selectedTenantId = currentTenants[0].id;
-    }
+    syncActiveTenantFromList();
     renderTenantSelect();
     renderTenants();
   } catch (error) {
@@ -4187,6 +4338,37 @@ if (tabButtons.length) {
   setActiveTab(activeTabId);
 }
 
+if (tenantSwitchBtn) {
+  tenantSwitchBtn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (tenantSwitchMenu?.classList.contains('hidden')) {
+      openTenantMenu();
+    } else {
+      closeTenantMenu();
+    }
+  });
+}
+
+if (tenantSearchInput) {
+  tenantSearchInput.addEventListener('input', () => {
+    renderTenantSwitcherList();
+  });
+}
+
+document.addEventListener('click', (event) => {
+  if (!tenantSwitchMenu || tenantSwitchMenu.classList.contains('hidden')) return;
+  const target = event.target;
+  if (target instanceof Node && tenantSwitcher?.contains(target)) return;
+  closeTenantMenu();
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  if (tenantSwitchMenu && !tenantSwitchMenu.classList.contains('hidden')) {
+    closeTenantMenu();
+  }
+});
+
 if (scrollTargetButtons.length) {
   scrollTargetButtons.forEach((button) => {
     button.addEventListener('click', () => {
@@ -4376,7 +4558,10 @@ if (refreshUsersBtn) {
 if (usersTenantSelect) {
   usersTenantSelect.addEventListener('change', async () => {
     if (!themeIsSuperAdmin) return;
-    selectedTenantId = usersTenantSelect.value || null;
+    const nextTenantId = usersTenantSelect.value || null;
+    if (nextTenantId) {
+      setActiveTenant(nextTenantId);
+    }
     resetUserForm();
     await fetchUsers();
   });

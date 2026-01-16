@@ -74,6 +74,63 @@ body {
   gap: 12px;
 }
 
+.tenant-switcher {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+#tenantSwitchBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tenant-switcher-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: 260px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.25);
+}
+
+.tenant-switcher-menu .field span {
+  font-size: 12px;
+}
+
+.tenant-switcher-list {
+  display: grid;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+.tenant-switcher-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.02);
+  text-align: left;
+}
+
+.tenant-switcher-item.is-active {
+  border-color: var(--accent);
+  background: rgba(124, 58, 237, 0.12);
+}
+
+.tenant-switcher-item span {
+  font-size: 12px;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(260px, 320px);

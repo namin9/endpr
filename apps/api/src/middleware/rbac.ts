@@ -5,6 +5,7 @@ import { getTenantByBuildToken, getTenantById, Role, TenantRow } from '../db';
 
 const SESSION_COOKIE = 'session';
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
+const TENANT_OVERRIDE_HEADER = 'x-tenant-id';
 
 export type EnvBindings = {
   DB: D1Database;
@@ -32,7 +33,9 @@ export const sessionMiddleware = async (c: Ctx, next: Next) => {
   const payload = await verifySessionToken(token, sessionSecret);
   if (!payload) return c.json({ error: 'Invalid session' }, 401);
 
-  const tenant = await getTenantById(c.env.DB, payload.tenantId);
+  const overrideTenantId = payload.role === 'super_admin' ? c.req.header(TENANT_OVERRIDE_HEADER) : null;
+  const tenantId = overrideTenantId || payload.tenantId;
+  const tenant = await getTenantById(c.env.DB, tenantId);
   if (!tenant) return c.json({ error: 'Tenant not found' }, 401);
 
   c.set('session', payload);

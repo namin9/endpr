@@ -22,6 +22,19 @@
           <button type="button" class="tab-button" data-tab-target="admin" role="tab" data-admin-tab>관리</button>
           <button type="button" class="tab-button" data-tab-target="pr" role="tab">PR</button>
         </div>
+        <div class="tenant-switcher" data-tenant-switcher>
+          <button type="button" id="tenantSwitchBtn" class="ghost" aria-haspopup="true" aria-expanded="false">
+            <span id="tenantSwitchLabel">테넌트 선택</span>
+            <span aria-hidden="true">▾</span>
+          </button>
+          <div id="tenantSwitchMenu" class="tenant-switcher-menu hidden" role="menu">
+            <label class="field">
+              <span>검색</span>
+              <input id="tenantSearchInput" type="search" placeholder="테넌트 이름 또는 슬러그" />
+            </label>
+            <div id="tenantSwitchList" class="tenant-switcher-list"></div>
+          </div>
+        </div>
       </div>
       <div class="topbar-right">
         <div id="sessionStatus" class="muted" role="status"></div>
