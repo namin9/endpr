@@ -286,6 +286,10 @@ body.page-editor .editor-card[data-view-mode='preview'] .editor-pane {
   background: var(--card);
 }
 
+.custom-toolbar.is-hidden {
+  display: none;
+}
+
 .toolbar-group {
   display: flex;
   flex-wrap: wrap;
@@ -323,6 +327,10 @@ body.page-editor .editor-card[data-view-mode='preview'] .editor-pane {
   background: rgba(255, 255, 255, 0.04);
   min-height: 320px;
   color: var(--text);
+}
+
+.editorjs-container.is-hidden {
+  display: none;
 }
 
 .codex-editor__redactor {
