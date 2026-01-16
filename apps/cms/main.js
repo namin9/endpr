@@ -727,7 +727,81 @@ function initEditorJs() {
 
 function normalizeEditorData(data) {
   if (!data || !Array.isArray(data.blocks)) return { blocks: [] };
-  return data;
+  const normalizedBlocks = data.blocks
+    .map((block) => {
+      if (!block || typeof block !== 'object') return null;
+      const type = block.type;
+      const raw = block.data || {};
+      if (type === 'paragraph') {
+        return { ...block, data: { text: typeof raw.text === 'string' ? raw.text : '' } };
+      }
+      if (type === 'header') {
+        return {
+          ...block,
+          data: {
+            text: typeof raw.text === 'string' ? raw.text : '',
+            level: Math.min(Math.max(Number(raw.level) || 2, 1), 6),
+          },
+        };
+      }
+      if (type === 'list') {
+        const items = Array.isArray(raw.items) ? raw.items : [''];
+        return { ...block, data: { style: raw.style === 'ordered' ? 'ordered' : 'unordered', items } };
+      }
+      if (type === 'checklist') {
+        const items = Array.isArray(raw.items) && raw.items.length
+          ? raw.items.map((item) => ({
+              text: typeof item?.text === 'string' ? item.text : '',
+              checked: Boolean(item?.checked),
+            }))
+          : [{ text: '', checked: false }];
+        return { ...block, data: { items } };
+      }
+      if (type === 'quote') {
+        return {
+          ...block,
+          data: {
+            text: typeof raw.text === 'string' ? raw.text : '',
+            caption: typeof raw.caption === 'string' ? raw.caption : '',
+          },
+        };
+      }
+      if (type === 'table') {
+        const content = Array.isArray(raw.content) ? raw.content : [['']];
+        return { ...block, data: { withHeadings: Boolean(raw.withHeadings), content } };
+      }
+      if (type === 'code') {
+        return { ...block, data: { code: typeof raw.code === 'string' ? raw.code : '' } };
+      }
+      if (type === 'warning') {
+        return {
+          ...block,
+          data: {
+            title: typeof raw.title === 'string' ? raw.title : '',
+            message: typeof raw.message === 'string' ? raw.message : '',
+          },
+        };
+      }
+      if (type === 'delimiter') {
+        return { ...block, data: {} };
+      }
+      if (type === 'image') {
+        const url = raw.url || raw.file?.url;
+        if (!url) return null;
+        return { ...block, data: { ...raw, url, file: raw.file } };
+      }
+      if (type === 'embed') {
+        const embed = raw.embed || raw.source;
+        if (!embed) return null;
+        return { ...block, data: { ...raw, embed } };
+      }
+      if (type === 'marker') {
+        return { ...block, data: { text: typeof raw.text === 'string' ? raw.text : '' } };
+      }
+      return block;
+    })
+    .filter(Boolean);
+  return { ...data, blocks: normalizedBlocks };
 }
 
 function sanitizeEditorInline(html = '') {
@@ -882,8 +956,42 @@ function insertEditorBlock(tool, data = {}) {
     setStatus(autosaveStatus, '해당 블록 도구를 불러올 수 없습니다.', true);
     return;
   }
+  const index = editor.blocks.getCurrentBlockIndex();
   editor.blocks.insert(tool, data);
+  if (typeof index === 'number' && editor.caret?.setToBlock) {
+    editor.caret.setToBlock(index + 1, 'end');
+  }
   handleAutosave();
+}
+
+function convertOrInsertBlock(tool, data = {}) {
+  if (!editor || !editorReady) {
+    setStatus(autosaveStatus, '에디터가 아직 준비되지 않았습니다.', true);
+    return;
+  }
+  if (!editorToolsAvailable.has(tool)) {
+    setStatus(autosaveStatus, '해당 블록 도구를 불러올 수 없습니다.', true);
+    return;
+  }
+  const index = editor.blocks.getCurrentBlockIndex();
+  const block = typeof index === 'number' ? editor.blocks.getBlockByIndex(index) : null;
+  if (editor.blocks.convert && block) {
+    const blockText = typeof block?.data?.text === 'string' ? block.data.text : '';
+    const payload = { ...data };
+    if (tool === 'header' || tool === 'quote') {
+      payload.text = payload.text ?? blockText;
+    }
+    if (tool === 'list') {
+      payload.items = payload.items?.length ? payload.items : [blockText || ''];
+    }
+    if (tool === 'checklist') {
+      payload.items = payload.items?.length ? payload.items : [{ text: blockText || '', checked: false }];
+    }
+    editor.blocks.convert(tool, payload);
+    handleAutosave();
+    return;
+  }
+  insertEditorBlock(tool, data);
 }
 
 function handleImageUpload(file) {
@@ -919,19 +1027,19 @@ function initCustomToolbar() {
       }
       if (selectedTool === 'header') {
         const level = Number(button.dataset.level) || 2;
-        insertEditorBlock('header', { level, text: '' });
+        convertOrInsertBlock('header', { level, text: '' });
         return;
       }
       if (selectedTool === 'list') {
-        insertEditorBlock('list', { style: 'unordered', items: [''] });
+        convertOrInsertBlock('list', { style: 'unordered', items: [''] });
         return;
       }
       if (selectedTool === 'checklist') {
-        insertEditorBlock('checklist', { items: [{ text: '', checked: false }] });
+        convertOrInsertBlock('checklist', { items: [{ text: '', checked: false }] });
         return;
       }
       if (selectedTool === 'quote') {
-        insertEditorBlock('quote', { text: '', caption: '' });
+        convertOrInsertBlock('quote', { text: '', caption: '' });
         return;
       }
       if (selectedTool === 'image') {
@@ -1013,6 +1121,22 @@ async function apiFetch(path, options = {}) {
   }
 
   return data;
+}
+
+async function apiPostWithFallback(path, payload) {
+  try {
+    return await apiFetch(path, { method: 'POST', body: payload });
+  } catch (error) {
+    if (payload?.body_json && error?.status === 500) {
+      const fallback = { ...payload };
+      delete fallback.body_json;
+      if (fallback.body_md === undefined) {
+        fallback.body_md = currentDraft?.body || '';
+      }
+      return apiFetch(path, { method: 'POST', body: fallback });
+    }
+    throw error;
+  }
 }
 
 async function uploadImageAsset(file) {
@@ -1530,16 +1654,13 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
     const postId = await ensurePostId(titleInput.value.trim() || '제목 없음', payload);
     const postType = getSelectedPostType();
     const bodyPayload = payload.bodyJson ? { body_json: payload.bodyJson } : { body_md: payload.bodyMd };
-    const response = await apiFetch(`/cms/posts/${postId}/autosave`, {
-      method: 'POST',
-      body: {
-        title: titleInput.value.trim() || '제목 없음',
-        ...bodyPayload,
-        category_slug: categorySelect?.value || undefined,
-        type: postType,
-        status: 'scheduled',
-        publish_at: publishAt,
-      },
+    const response = await apiPostWithFallback(`/cms/posts/${postId}/autosave`, {
+      title: titleInput.value.trim() || '제목 없음',
+      ...bodyPayload,
+      category_slug: categorySelect?.value || undefined,
+      type: postType,
+      status: 'scheduled',
+      publish_at: publishAt,
     });
     const updated = normalizePost(response?.post || response);
     persistDraft({
@@ -1606,9 +1727,11 @@ async function ensurePostId(title, payload = {}) {
   const categorySlug = categorySelect?.value || undefined;
   const postType = getSelectedPostType();
   const bodyPayload = payload?.bodyJson ? { body_json: payload.bodyJson } : { body_md: payload?.bodyMd || '' };
-  const created = await apiFetch('/cms/posts', {
-    method: 'POST',
-    body: { title: title || '제목 없음', ...bodyPayload, category_slug: categorySlug, type: postType },
+  const created = await apiPostWithFallback('/cms/posts', {
+    title: title || '제목 없음',
+    ...bodyPayload,
+    category_slug: categorySlug,
+    type: postType,
   });
   const postId = created?.post?.id;
   if (!postId) throw new Error('게시글 ID를 받을 수 없습니다.');
@@ -1640,9 +1763,11 @@ async function saveDraftToApi(title) {
     const categorySlug = categorySelect?.value || undefined;
     const postType = getSelectedPostType();
     const bodyPayload = payload.bodyJson ? { body_json: payload.bodyJson } : { body_md: payload.bodyMd };
-    const saved = await apiFetch(`/cms/posts/${postId}/autosave`, {
-      method: 'POST',
-      body: { title, ...bodyPayload, category_slug: categorySlug, type: postType },
+    const saved = await apiPostWithFallback(`/cms/posts/${postId}/autosave`, {
+      title,
+      ...bodyPayload,
+      category_slug: categorySlug,
+      type: postType,
     });
     const savedAt = saved?.saved_at || saved?.post?.updated_at_iso || new Date().toISOString();
     persistDraft({
@@ -4405,13 +4530,15 @@ publishBtn.addEventListener('click', async () => {
     const payload = await buildBodyPayload();
     const bodyPayload = payload.bodyJson ? { body_json: payload.bodyJson } : { body_md: payload.bodyMd };
     const postId = await ensurePostId(title, payload);
-    await apiFetch(`/cms/posts/${postId}/autosave`, {
-      method: 'POST',
-      body: { title, ...bodyPayload, category_slug: categorySlug },
+    await apiPostWithFallback(`/cms/posts/${postId}/autosave`, {
+      title,
+      ...bodyPayload,
+      category_slug: categorySlug,
     });
-    const response = await apiFetch(`/cms/posts/${postId}/publish`, {
-      method: 'POST',
-      body: { title, ...bodyPayload, category_slug: categorySlug },
+    const response = await apiPostWithFallback(`/cms/posts/${postId}/publish`, {
+      title,
+      ...bodyPayload,
+      category_slug: categorySlug,
     });
     const deployJob = response?.deploy_job;
     const jobId = deployJob?.id;
