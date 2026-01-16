@@ -3091,8 +3091,14 @@ function renderSiteConfigForm() {
   siteLogoInput.value = siteConfig.logo_url || '';
   siteFooterInput.value = siteConfig.footer_text || '';
   if (siteSearchEnabledInput) {
-    siteSearchEnabledInput.checked = siteConfig.search_enabled !== false;
+    siteSearchEnabledInput.checked = resolveSearchEnabled(siteConfig.search_enabled);
   }
+}
+
+function resolveSearchEnabled(value) {
+  if (value === false || value === 0 || value === '0') return false;
+  if (value === true || value === 1 || value === '1') return true;
+  return true;
 }
 
 function getNavLinkType() {
@@ -3544,7 +3550,7 @@ async function fetchSiteConfig() {
       logo_url: data?.config?.logo_url || '',
       footer_text: data?.config?.footer_text || '',
       home_layout: ensureHomeLayoutIds(Array.isArray(data?.config?.home_layout) ? data.config.home_layout : []),
-      search_enabled: data?.config?.search_enabled !== false,
+      search_enabled: resolveSearchEnabled(data?.config?.search_enabled),
     };
     renderSiteConfigForm();
     renderHomeLayoutEditor();
@@ -3573,7 +3579,7 @@ async function saveSiteConfig(payloadOverrides = {}, statusEl = siteConfigSaveSt
       logo_url: data?.config?.logo_url || '',
       footer_text: data?.config?.footer_text || '',
       home_layout: ensureHomeLayoutIds(Array.isArray(data?.config?.home_layout) ? data.config.home_layout : []),
-      search_enabled: data?.config?.search_enabled !== false,
+      search_enabled: resolveSearchEnabled(data?.config?.search_enabled),
     };
     renderSiteConfigForm();
     renderHomeLayoutEditor();
