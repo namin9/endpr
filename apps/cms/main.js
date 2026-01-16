@@ -153,6 +153,7 @@ const homeLayoutSaveStatus = document.getElementById('homeLayoutSaveStatus');
 const refreshHomeLayoutBtn = document.getElementById('refreshHomeLayoutBtn');
 const homeLayoutTypeSelect = document.getElementById('homeLayoutTypeSelect');
 const addSectionBtn = document.getElementById('addSectionBtn');
+const homeLayoutSidebarSaveBtn = document.getElementById('homeLayoutSidebarSaveBtn');
 const tenantsStatus = document.getElementById('tenantsStatus');
 const tenantsList = document.getElementById('tenantsList');
 const refreshTenantsBtn = document.getElementById('refreshTenantsBtn');
@@ -177,6 +178,7 @@ const userFormStatus = document.getElementById('userFormStatus');
 const userResetBtn = document.getElementById('userResetBtn');
 const tabButtons = Array.from(document.querySelectorAll('[data-tab-target]'));
 const tabPanels = Array.from(document.querySelectorAll('[data-tab-panel]'));
+const scrollTargetButtons = Array.from(document.querySelectorAll('[data-scroll-target]'));
 const adminTabButton = document.querySelector('[data-admin-tab]');
 const adminTabPanel = document.querySelector('[data-admin-panel]');
 const prCampaignForm = document.getElementById('prCampaignForm');
@@ -3287,7 +3289,8 @@ function renderPosts() {
       </div>
       <div class="posts-cell posts-title">
         <strong>${post.title || '제목 없음'}</strong>
-        <span class="posts-id muted">#${post.id || '-'}</span>
+      </div>
+      <div class="posts-cell posts-status">
         <span class="badge badge-${post.status || 'draft'}">${statusLabel}</span>
       </div>
       <div class="posts-cell">${published}</div>
@@ -4184,6 +4187,19 @@ if (tabButtons.length) {
   setActiveTab(activeTabId);
 }
 
+if (scrollTargetButtons.length) {
+  scrollTargetButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const selector = button.dataset.scrollTarget;
+      if (!selector) return;
+      const panel = button.closest('.tab-panel');
+      const target = panel ? panel.querySelector(selector) : document.querySelector(selector);
+      if (!target) return;
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+}
+
 if (refreshThemeBtn) {
   refreshThemeBtn.addEventListener('click', () => {
     fetchThemeConfig();
@@ -4333,6 +4349,12 @@ if (addSectionBtn) {
 
 if (homeLayoutSaveBtn) {
   homeLayoutSaveBtn.addEventListener('click', async () => {
+    await saveSiteConfig({ home_layout: siteConfig.home_layout }, homeLayoutSaveStatus);
+  });
+}
+
+if (homeLayoutSidebarSaveBtn) {
+  homeLayoutSidebarSaveBtn.addEventListener('click', async () => {
     await saveSiteConfig({ home_layout: siteConfig.home_layout }, homeLayoutSaveStatus);
   });
 }
