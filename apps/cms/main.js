@@ -1207,6 +1207,11 @@ function insertAtCursor(text) {
   bodyInput.setSelectionRange(cursor, cursor);
 }
 
+function insertMarkdownTable() {
+  const table = '\n| 제목 | 내용 |\n| --- | --- |\n| 값 | 값 |\n';
+  insertAtCursor(table);
+}
+
 function initMarkdownToolbar() {
   if (!markdownToolbar || !markdownButtons.length || !bodyInput) return;
   markdownToolbar.classList.toggle('is-hidden', editorMode !== 'markdown');
@@ -1220,6 +1225,8 @@ function initMarkdownToolbar() {
         wrapSelection('*', '*');
       } else if (action === 'link') {
         wrapSelection('[', '](https://)');
+      } else if (action === 'strike') {
+        wrapSelection('~~', '~~');
       } else if (action === 'code') {
         wrapSelection('`', '`');
       } else if (action === 'h1') {
@@ -1230,8 +1237,14 @@ function initMarkdownToolbar() {
         prefixLine('### ');
       } else if (action === 'ul') {
         prefixLine('- ');
+      } else if (action === 'ol') {
+        prefixLine('1. ');
       } else if (action === 'quote') {
         prefixLine('> ');
+      } else if (action === 'image') {
+        wrapSelection('![](', ')');
+      } else if (action === 'table') {
+        insertMarkdownTable();
       } else if (action === 'divider') {
         insertAtCursor('\n---\n');
       }
@@ -1862,6 +1875,9 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
     const bodyPayload = payload.bodyJson
       ? { body_json: payload.bodyJson, body_md: payload.bodyMd }
       : { body_md: payload.bodyMd };
+    if (bodyPayload.body_md !== undefined && !bodyPayload.body_md.trim()) {
+      bodyPayload.body_md = ' ';
+    }
     const response = await apiPostWithFallback(`/cms/posts/${postId}/autosave`, {
       title: titleInput.value.trim() || '제목 없음',
       ...bodyPayload,
@@ -1937,6 +1953,9 @@ async function ensurePostId(title, payload = {}) {
   const bodyPayload = payload?.bodyJson
     ? { body_json: payload.bodyJson, body_md: payload?.bodyMd || '' }
     : { body_md: payload?.bodyMd || '' };
+  if (bodyPayload.body_md !== undefined && !bodyPayload.body_md.trim()) {
+    bodyPayload.body_md = ' ';
+  }
   const created = await apiPostWithFallback('/cms/posts', {
     title: title || '제목 없음',
     ...bodyPayload,
@@ -1975,6 +1994,9 @@ async function saveDraftToApi(title) {
     const bodyPayload = payload.bodyJson
       ? { body_json: payload.bodyJson, body_md: payload.bodyMd }
       : { body_md: payload.bodyMd };
+    if (bodyPayload.body_md !== undefined && !bodyPayload.body_md.trim()) {
+      bodyPayload.body_md = ' ';
+    }
     const saved = await apiPostWithFallback(`/cms/posts/${postId}/autosave`, {
       title,
       ...bodyPayload,
@@ -4418,8 +4440,8 @@ async function createNewPost() {
     const postType = getSelectedPostType();
     const emptyBodyJson = editorMode === 'rich' ? JSON.stringify({ blocks: [{ type: 'paragraph', data: { text: '' } }] }) : null;
     const bodyPayload = emptyBodyJson
-      ? { body_json: emptyBodyJson, body_md: '' }
-      : { body_md: '' };
+      ? { body_json: emptyBodyJson, body_md: ' ' }
+      : { body_md: ' ' };
     const created = await apiPostWithFallback('/cms/posts', {
       title: '제목 없음',
       ...bodyPayload,
@@ -4754,6 +4776,9 @@ publishBtn.addEventListener('click', async () => {
     const bodyPayload = payload.bodyJson
       ? { body_json: payload.bodyJson, body_md: payload.bodyMd }
       : { body_md: payload.bodyMd };
+    if (bodyPayload.body_md !== undefined && !bodyPayload.body_md.trim()) {
+      bodyPayload.body_md = ' ';
+    }
     const postId = await ensurePostId(title, payload);
     await apiPostWithFallback(`/cms/posts/${postId}/autosave`, {
       title,
