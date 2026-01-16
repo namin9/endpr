@@ -16,11 +16,14 @@ function getBucket(c: any) {
 
 function buildPublicUrl(c: any, key: string) {
   const base = c.env?.MEDIA_PUBLIC_URL ? `${c.env.MEDIA_PUBLIC_URL}`.replace(/\/$/, '') : '';
+  const normalizedKey = key.replace(/^\/+/, '');
   if (base) {
-    return `${base}/${key}`;
+    const baseUrl = base.replace(/\/+$/, '');
+    const strippedKey = baseUrl.endsWith('/uploads') ? normalizedKey.replace(/^uploads\//, '') : normalizedKey;
+    return `${baseUrl}/${strippedKey}`;
   }
   const origin = new URL(c.req.url).origin;
-  return `${origin}/uploads/${key}`;
+  return `${origin}/uploads/${normalizedKey}`;
 }
 
 router.post('/cms/uploads', sessionMiddleware, async (c) => {
