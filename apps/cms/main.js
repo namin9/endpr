@@ -40,6 +40,7 @@ const postsListEl = document.getElementById('postsList');
 const postsStatusEl = document.getElementById('postsStatus');
 const refreshPostsBtn = document.getElementById('refreshPostsBtn');
 const newPostBtn = document.getElementById('newPostBtn');
+const postsHeading = document.getElementById('posts-heading');
 const postsSearchInput = document.getElementById('postsSearchInput');
 const postsStatusFilter = document.getElementById('postsStatusFilter');
 const postsCategoryFilter = document.getElementById('postsCategoryFilter');
@@ -272,6 +273,7 @@ let postsView = {
   category: 'all',
   viewPeriod: 'all',
   viewSort: 'recent',
+  type: 'post',
   page: 1,
   pageSize: 20,
   total: 0,
@@ -376,6 +378,24 @@ function applyRoleUiState(role) {
   }
 }
 
+function updatePostsViewLabels() {
+  const isPage = postsView.type === 'page';
+  if (postsHeading) postsHeading.textContent = isPage ? '페이지 목록' : '게시글 목록';
+  if (newPostBtn) newPostBtn.textContent = isPage ? '새 페이지' : '새 글';
+}
+
+function setPostsViewType(type) {
+  const nextType = type === 'page' ? 'page' : 'post';
+  if (postsView.type !== nextType) {
+    postsView.type = nextType;
+    postsView.page = 1;
+  }
+  updatePostsViewLabels();
+  if (currentSession) {
+    fetchPosts();
+  }
+}
+
 function setActiveTab(tabId) {
   activeTabId = tabId;
   tabButtons.forEach((button) => {
@@ -387,8 +407,15 @@ function setActiveTab(tabId) {
   });
   tabPanels.forEach((panel) => {
     const panelId = panel.dataset.tabPanel;
-    panel.classList.toggle('is-active', panelId === tabId);
+    const resolvedTabId = tabId === 'pages' ? 'content' : tabId;
+    panel.classList.toggle('is-active', panelId === resolvedTabId);
   });
+  if (tabId === 'content') {
+    setPostsViewType('post');
+  }
+  if (tabId === 'pages') {
+    setPostsViewType('page');
+  }
 }
 
 function resolveTabFromHash() {
@@ -3168,6 +3195,9 @@ async function selectPrCampaign(campaignId) {
 function getFilteredPosts() {
   const query = postsView.search.trim().toLowerCase();
   let list = allPosts.slice();
+  if (postsView.type) {
+    list = list.filter((post) => (post.type || 'post') === postsView.type);
+  }
   if (query) {
     list = list.filter((post) => (post.title || '').toLowerCase().includes(query));
   }
@@ -3581,6 +3611,11 @@ async function maybeOpenInitialPost() {
   const isNew = params.get('new') === '1';
   const postId = params.get('postId');
   if (isNew) {
+    const typeParam = params.get('type');
+    if (typeParam === 'page' && postTypeSelect) {
+      postTypeSelect.value = 'page';
+      currentDraft.type = 'page';
+    }
     await createNewPost();
     return;
   }
@@ -3608,6 +3643,9 @@ function buildPostsQuery() {
   const query = new URLSearchParams();
   query.set('page', postsView.page);
   query.set('pageSize', postsView.pageSize);
+  if (postsView.type) {
+    query.set('type', postsView.type);
+  }
   if (postsView.viewPeriod && postsView.viewPeriod !== 'all') {
     query.set('viewPeriod', postsView.viewPeriod);
   }
@@ -3895,7 +3933,8 @@ async function createNewPost() {
 
 newPostBtn.addEventListener('click', async () => {
   if (isDashboard) {
-    window.location.href = 'editor.html?new=1';
+    const typeParam = postsView.type === 'page' ? '&type=page' : '';
+    window.location.href = `editor.html?new=1${typeParam}`;
     return;
   }
   await createNewPost();
