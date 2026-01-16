@@ -4333,10 +4333,10 @@ async function createNewPost() {
   try {
     renderPostsState({ message: '새 글 생성 중...', isLoading: true });
     const postType = getSelectedPostType();
-    const payload = await buildBodyPayload();
-    const bodyPayload = payload.bodyJson
-      ? { body_json: payload.bodyJson, body_md: payload.bodyMd }
-      : { body_md: payload.bodyMd || '' };
+    const emptyBodyJson = editorMode === 'rich' ? JSON.stringify({ blocks: [{ type: 'paragraph', data: { text: '' } }] }) : null;
+    const bodyPayload = emptyBodyJson
+      ? { body_json: emptyBodyJson, body_md: '' }
+      : { body_md: '' };
     const created = await apiPostWithFallback('/cms/posts', {
       title: '제목 없음',
       ...bodyPayload,
