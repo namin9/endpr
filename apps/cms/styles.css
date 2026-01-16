@@ -268,6 +268,50 @@ body.page-editor .editor-card[data-view-mode='preview'] .editor-pane {
   overflow: visible;
 }
 
+.editor-container {
+  position: relative;
+}
+
+.custom-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.toolbar-btn {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.toolbar-btn:hover {
+  background: rgba(148, 163, 184, 0.22);
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+.toolbar-btn:active {
+  background: rgba(148, 163, 184, 0.3);
+}
+
 .editorjs-container {
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -277,7 +321,8 @@ body.page-editor .editor-card[data-view-mode='preview'] .editor-pane {
 }
 
 .codex-editor__redactor {
-  padding-bottom: 100px;
+  padding-top: 16px;
+  padding-bottom: 120px;
 }
 
 .codex-editor__redactor,

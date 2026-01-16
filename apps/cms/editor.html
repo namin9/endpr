@@ -15,6 +15,9 @@
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/warning@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/code@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/simple-image@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/checklist@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/quote@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/delimiter@latest"></script>
   </head>
   <body class="page-editor" data-page="editor">
     <header class="topbar">
@@ -492,7 +495,31 @@
           <div class="editor-split">
             <div class="field editor-pane">
               <span>본문</span>
-              <div id="editorjs" class="editorjs-container"></div>
+              <div id="editor-container" class="editor-container">
+                <div id="custom-toolbar" class="custom-toolbar" role="toolbar" aria-label="Editor toolbar">
+                  <div class="toolbar-group" aria-label="Text blocks">
+                    <button type="button" class="toolbar-btn" data-tool="header" data-level="1">H1</button>
+                    <button type="button" class="toolbar-btn" data-tool="header" data-level="2">H2</button>
+                    <button type="button" class="toolbar-btn" data-tool="header" data-level="3">H3</button>
+                  </div>
+                  <div class="toolbar-group" aria-label="Structure blocks">
+                    <button type="button" class="toolbar-btn" data-tool="list">📋 목록</button>
+                    <button type="button" class="toolbar-btn" data-tool="checklist">✅ 체크</button>
+                    <button type="button" class="toolbar-btn" data-tool="quote">❝ 인용</button>
+                  </div>
+                  <div class="toolbar-group" aria-label="Insert blocks">
+                    <button type="button" class="toolbar-btn" data-tool="image">🖼️ 이미지</button>
+                    <button type="button" class="toolbar-btn" data-tool="table">📊 표</button>
+                    <button type="button" class="toolbar-btn" data-tool="code">💻 코드</button>
+                  </div>
+                  <div class="toolbar-group" aria-label="Emphasis blocks">
+                    <button type="button" class="toolbar-btn" data-tool="warning">⚠️ 콜아웃</button>
+                    <button type="button" class="toolbar-btn" data-tool="delimiter">➖ 구분선</button>
+                  </div>
+                </div>
+                <input id="imageUploadInput" type="file" accept="image/*" class="editor-textarea--hidden" />
+                <div id="editorjs" class="editorjs-container"></div>
+              </div>
               <textarea
                 id="bodyInput"
                 rows="18"

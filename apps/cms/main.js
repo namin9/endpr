@@ -87,6 +87,9 @@ const previewModalContent = document.getElementById('previewModalContent');
 const viewModeButtons = Array.from(document.querySelectorAll('[data-view-mode]'));
 const viewOnBlogBtn = document.getElementById('viewOnBlogBtn');
 const viewOnBlogHint = document.getElementById('viewOnBlogHint');
+const customToolbar = document.getElementById('custom-toolbar');
+const toolbarButtons = customToolbar ? Array.from(customToolbar.querySelectorAll('[data-tool]')) : [];
+const imageUploadInput = document.getElementById('imageUploadInput');
 const deployJobsScope = document.getElementById('deployJobsScope');
 const tenantSwitcher = document.querySelector('[data-tenant-switcher]');
 const tenantSwitchBtn = document.getElementById('tenantSwitchBtn');
@@ -687,6 +690,25 @@ function initEditorJs() {
       inlineToolbar: true,
     };
   }
+  if (window.Checklist) {
+    tools.checklist = {
+      class: window.Checklist,
+      inlineToolbar: true,
+    };
+  }
+  if (window.Quote) {
+    tools.quote = {
+      class: window.Quote,
+      inlineToolbar: true,
+      config: {
+        quotePlaceholder: '인용문을 입력하세요',
+        captionPlaceholder: '출처',
+      },
+    };
+  }
+  if (window.Delimiter) {
+    tools.delimiter = window.Delimiter;
+  }
   editor = new EditorJS({
     holder: editorJsContainer,
     placeholder: '내용을 입력하면 자동 저장됩니다',
@@ -847,6 +869,87 @@ async function buildBodyPayload() {
 function setStatus(el, message, isError = false) {
   el.textContent = message || '';
   el.classList.toggle('error', Boolean(isError));
+}
+
+function insertEditorBlock(tool, data = {}) {
+  if (!editor || !editorReady) {
+    setStatus(autosaveStatus, '에디터가 아직 준비되지 않았습니다.', true);
+    return;
+  }
+  editor.blocks.insert(tool, data);
+  handleAutosave();
+}
+
+function handleImageUpload(file) {
+  if (!file) return;
+  uploadImageAsset(file)
+    .then((url) => {
+      insertEditorBlock('image', { url });
+    })
+    .catch((error) => {
+      console.error('Image upload failed', error);
+      setStatus(autosaveStatus, `이미지 업로드 실패: ${error?.message || '다시 시도해 주세요.'}`, true);
+    })
+    .finally(() => {
+      if (imageUploadInput) {
+        imageUploadInput.value = '';
+      }
+    });
+}
+
+function initCustomToolbar() {
+  if (!customToolbar || !toolbarButtons.length) return;
+  toolbarButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const tool = button.dataset.tool;
+      if (!tool) return;
+      if (tool === 'header') {
+        const level = Number(button.dataset.level) || 2;
+        insertEditorBlock('header', { level });
+        return;
+      }
+      if (tool === 'list') {
+        insertEditorBlock('list', { style: 'unordered', items: [''] });
+        return;
+      }
+      if (tool === 'checklist') {
+        insertEditorBlock('checklist', { items: [{ text: '', checked: false }] });
+        return;
+      }
+      if (tool === 'quote') {
+        insertEditorBlock('quote', { text: '', caption: '' });
+        return;
+      }
+      if (tool === 'image') {
+        if (imageUploadInput) {
+          imageUploadInput.click();
+        }
+        return;
+      }
+      if (tool === 'table') {
+        insertEditorBlock('table', { withHeadings: true, content: [['']] });
+        return;
+      }
+      if (tool === 'code') {
+        insertEditorBlock('code', { code: '' });
+        return;
+      }
+      if (tool === 'warning') {
+        insertEditorBlock('warning', { title: '', message: '' });
+        return;
+      }
+      if (tool === 'delimiter') {
+        insertEditorBlock('delimiter', {});
+      }
+    });
+  });
+
+  if (imageUploadInput) {
+    imageUploadInput.addEventListener('change', () => {
+      const file = imageUploadInput.files?.[0];
+      handleImageUpload(file);
+    });
+  }
 }
 
 function buildUrl(path) {
@@ -1582,6 +1685,7 @@ if (postTypeSelect) {
 
 if (editorJsContainer) {
   initEditorJs();
+  initCustomToolbar();
 }
 
 manualSaveBtn.addEventListener('click', () => {
