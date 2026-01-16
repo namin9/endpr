@@ -102,7 +102,8 @@ const tenantSearchInput = document.getElementById('tenantSearchInput');
 const tenantSwitchList = document.getElementById('tenantSwitchList');
 const editorJsContainer = document.getElementById('editorjs');
 const categorySelect = document.getElementById('categorySelect');
-const postTypeSelect = document.getElementById('postTypeSelect');
+const postSlugField = document.getElementById('postSlugField');
+const postSlugInput = document.getElementById('postSlugInput');
 const categoryForm = document.getElementById('categoryForm');
 const categoryNameInput = document.getElementById('categoryNameInput');
 const categorySlugInput = document.getElementById('categorySlugInput');
@@ -294,6 +295,19 @@ let postsView = {
   totalPages: 1,
   serverMode: false,
 };
+const initialEditorType = (() => {
+  if (!isEditorPage) return null;
+  const params = new URLSearchParams(window.location.search);
+  const typeParam = params.get('type');
+  if (typeParam === 'page') return 'page';
+  if (currentDraft?.type === 'page') return 'page';
+  return null;
+})();
+if (initialEditorType === 'page') {
+  currentDraft.type = 'page';
+  postsView.type = 'page';
+  activeTabId = 'pages';
+}
 let selectedPostIds = new Set();
 let visiblePostIds = [];
 let autosaveState = {
@@ -398,13 +412,30 @@ function updatePostsViewLabels() {
   if (newPostBtn) newPostBtn.textContent = isPage ? '새 페이지' : '새 글';
 }
 
+function resolveActivePostType() {
+  if (isEditorPage) {
+    return currentDraft?.type === 'page' ? 'page' : 'post';
+  }
+  return postsView.type === 'page' ? 'page' : 'post';
+}
+
+function updatePostSlugFieldVisibility() {
+  if (!postSlugField) return;
+  const isPage = resolveActivePostType() === 'page';
+  postSlugField.classList.toggle('hidden', !isPage);
+}
+
 function setPostsViewType(type) {
   const nextType = type === 'page' ? 'page' : 'post';
   if (postsView.type !== nextType) {
     postsView.type = nextType;
     postsView.page = 1;
   }
+  if (isEditorPage) {
+    currentDraft.type = nextType;
+  }
   updatePostsViewLabels();
+  updatePostSlugFieldVisibility();
   if (currentSession) {
     fetchPosts();
   }
@@ -1872,6 +1903,7 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
     const payload = await buildBodyPayload();
     const postId = await ensurePostId(titleInput.value.trim() || '제목 없음', payload);
     const postType = getSelectedPostType();
+    const slugValue = getPostSlugForSave();
     const bodyPayload = payload.bodyJson
       ? { body_json: payload.bodyJson, body_md: payload.bodyMd }
       : { body_md: payload.bodyMd };
@@ -1882,6 +1914,7 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
       title: titleInput.value.trim() || '제목 없음',
       ...bodyPayload,
       category_slug: categorySelect?.value || undefined,
+      slug: slugValue || undefined,
       type: postType,
       status: 'scheduled',
       publish_at: publishAt,
@@ -1942,14 +1975,21 @@ async function cancelSchedule() {
 }
 
 function getSelectedPostType() {
-  const value = postTypeSelect?.value || currentDraft?.type || 'post';
+  const value = resolveActivePostType();
   return value === 'page' ? 'page' : 'post';
+}
+
+function getPostSlugForSave() {
+  if (getSelectedPostType() !== 'page') return undefined;
+  if (!postSlugInput) return undefined;
+  return postSlugInput.value.trim();
 }
 
 async function ensurePostId(title, payload = {}) {
   if (currentDraft?.id) return currentDraft.id;
   const categorySlug = categorySelect?.value || undefined;
   const postType = getSelectedPostType();
+  const slugValue = getPostSlugForSave();
   const bodyPayload = payload?.bodyJson
     ? { body_json: payload.bodyJson, body_md: payload?.bodyMd || '' }
     : { body_md: payload?.bodyMd || '' };
@@ -1960,11 +2000,16 @@ async function ensurePostId(title, payload = {}) {
     title: title || '제목 없음',
     ...bodyPayload,
     category_slug: categorySlug,
+    slug: slugValue || undefined,
     type: postType,
   });
-  const postId = created?.post?.id;
+  const createdPost = created?.post || created;
+  const postId = createdPost?.id;
   if (!postId) throw new Error('게시글 ID를 받을 수 없습니다.');
-  persistDraft({ id: postId, categorySlug: categorySlug || '', type: postType });
+  persistDraft({ id: postId, categorySlug: categorySlug || '', type: postType, slug: createdPost?.slug || null });
+  if (postSlugInput && createdPost?.slug) {
+    postSlugInput.value = createdPost.slug;
+  }
   return postId;
 }
 
@@ -1991,6 +2036,7 @@ async function saveDraftToApi(title) {
     const postId = await ensurePostId(title, payload);
     const categorySlug = categorySelect?.value || undefined;
     const postType = getSelectedPostType();
+    const slugValue = getPostSlugForSave();
     const bodyPayload = payload.bodyJson
       ? { body_json: payload.bodyJson, body_md: payload.bodyMd }
       : { body_md: payload.bodyMd };
@@ -2001,9 +2047,11 @@ async function saveDraftToApi(title) {
       title,
       ...bodyPayload,
       category_slug: categorySlug,
+      slug: slugValue || undefined,
       type: postType,
     });
     const savedAt = saved?.saved_at || saved?.post?.updated_at_iso || new Date().toISOString();
+    const savedPost = saved?.post || saved;
     persistDraft({
       id: postId,
       title,
@@ -2011,11 +2059,16 @@ async function saveDraftToApi(title) {
       bodyJson: payload.bodyJson || currentDraft.bodyJson || null,
       editorMode,
       savedAt,
-      status: saved?.post?.status,
+      status: savedPost?.status,
       categorySlug: categorySlug || '',
-      type: saved?.post?.type || postType,
-      publishAt: saved?.post?.publish_at ?? saved?.post?.publishAt ?? currentDraft.publishAt ?? null,
+      type: savedPost?.type || postType,
+      slug: savedPost?.slug ?? currentDraft.slug ?? null,
+      publicUrl: savedPost?.public_url || savedPost?.publicUrl || currentDraft.publicUrl || null,
+      publishAt: savedPost?.publish_at ?? savedPost?.publishAt ?? currentDraft.publishAt ?? null,
     });
+    if (postSlugInput && savedPost?.slug) {
+      postSlugInput.value = savedPost.slug;
+    }
     autosaveState = {
       dirty: false,
       saving: false,
@@ -2053,8 +2106,8 @@ bodyInput.addEventListener('input', handleAutosave);
 if (categorySelect) {
   categorySelect.addEventListener('change', handleAutosave);
 }
-if (postTypeSelect) {
-  postTypeSelect.addEventListener('change', handleAutosave);
+if (postSlugInput) {
+  postSlugInput.addEventListener('input', handleAutosave);
 }
 
 if (editorJsContainer) {
@@ -2094,7 +2147,8 @@ clearDraftBtn.addEventListener('click', () => {
   };
   titleInput.value = '';
   if (categorySelect) categorySelect.value = '';
-  if (postTypeSelect) postTypeSelect.value = 'post';
+  if (postSlugInput) postSlugInput.value = '';
+  updatePostSlugFieldVisibility();
   setBodyValue('');
   autosaveState = {
     dirty: false,
@@ -4141,9 +4195,9 @@ async function maybeOpenInitialPost() {
   const postId = params.get('postId');
   if (isNew) {
     const typeParam = params.get('type');
-    if (typeParam === 'page' && postTypeSelect) {
-      postTypeSelect.value = 'page';
+    if (typeParam === 'page') {
       currentDraft.type = 'page';
+      setActiveTab('pages');
     }
     await createNewPost();
     return;
@@ -4251,13 +4305,17 @@ async function selectPost(post) {
     categorySlug: next.categorySlug || '',
     publishAt: next.publishAt,
   });
+  if (isEditorPage) {
+    setActiveTab(next.type === 'page' ? 'pages' : 'content');
+  }
   titleInput.value = next.title || '';
   if (categorySelect) {
     categorySelect.value = next.categorySlug || '';
   }
-  if (postTypeSelect) {
-    postTypeSelect.value = next.type || 'post';
+  if (postSlugInput) {
+    postSlugInput.value = next.slug || '';
   }
+  updatePostSlugFieldVisibility();
   await setEditorContent({ bodyJson: next.bodyJson, bodyMd: next.body || '' });
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPosts();
@@ -4438,6 +4496,7 @@ async function createNewPost() {
   try {
     renderPostsState({ message: '새 글 생성 중...', isLoading: true });
     const postType = getSelectedPostType();
+    const slugValue = getPostSlugForSave();
     const emptyBodyJson = editorMode === 'rich' ? JSON.stringify({ blocks: [{ type: 'paragraph', data: { text: '' } }] }) : null;
     const bodyPayload = emptyBodyJson
       ? { body_json: emptyBodyJson, body_md: ' ' }
@@ -4446,6 +4505,7 @@ async function createNewPost() {
       title: '제목 없음',
       ...bodyPayload,
       category_slug: categorySelect?.value || undefined,
+      slug: slugValue || undefined,
       type: postType,
     });
     const newPost = normalizePost(created?.post || created);
@@ -4768,6 +4828,8 @@ publishBtn.addEventListener('click', async () => {
 
   const title = titleInput.value.trim() || '제목 없음';
   const categorySlug = categorySelect?.value || undefined;
+  const postType = getSelectedPostType();
+  const slugValue = getPostSlugForSave();
 
   try {
     setStatus(publishMessage, '발행 요청 중…');
@@ -4784,11 +4846,15 @@ publishBtn.addEventListener('click', async () => {
       title,
       ...bodyPayload,
       category_slug: categorySlug,
+      slug: slugValue || undefined,
+      type: postType,
     });
     const response = await apiPostWithFallback(`/cms/posts/${postId}/publish`, {
       title,
       ...bodyPayload,
       category_slug: categorySlug,
+      slug: slugValue || undefined,
+      type: postType,
     });
     const deployJob = response?.deploy_job;
     const jobId = deployJob?.id;
@@ -5435,9 +5501,10 @@ function hydrateFromStorage() {
   if (categorySelect) {
     categorySelect.value = currentDraft.categorySlug || '';
   }
-  if (postTypeSelect) {
-    postTypeSelect.value = currentDraft.type || 'post';
+  if (postSlugInput) {
+    postSlugInput.value = currentDraft.slug || '';
   }
+  updatePostSlugFieldVisibility();
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPreview();
   renderSelectedPostMeta();
