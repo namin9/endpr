@@ -636,44 +636,61 @@ function applyPreviewTheme(tokens) {
 
 function initEditorJs() {
   if (!window.EditorJS || !editorJsContainer) return;
+  const tools = {};
+  if (window.Header) {
+    tools.header = {
+      class: window.Header,
+      inlineToolbar: true,
+      config: {
+        levels: [1, 2, 3, 4, 5, 6],
+        defaultLevel: 2,
+      },
+    };
+  }
+  const listTool = window.List || window.EditorjsList;
+  if (listTool) {
+    tools.list = {
+      class: listTool,
+      inlineToolbar: true,
+    };
+  }
+  if (window.Table) {
+    tools.table = window.Table;
+  }
+  if (window.Embed) {
+    tools.embed = {
+      class: window.Embed,
+      config: {
+        services: { youtube: true, twitter: true, instagram: true },
+      },
+    };
+  }
+  if (window.Marker) {
+    tools.marker = window.Marker;
+  }
+  if (window.Warning) {
+    tools.warning = {
+      class: window.Warning,
+      inlineToolbar: true,
+      config: {
+        titlePlaceholder: '콜아웃 제목',
+        messagePlaceholder: '메시지를 입력하세요',
+      },
+    };
+  }
+  if (window.CodeTool) {
+    tools.code = window.CodeTool;
+  }
+  if (window.SimpleImage) {
+    tools.image = {
+      class: window.SimpleImage,
+      inlineToolbar: true,
+    };
+  }
   editor = new EditorJS({
     holder: editorJsContainer,
     placeholder: '내용을 입력하면 자동 저장됩니다',
-    tools: {
-      header: {
-        class: Header,
-        inlineToolbar: true,
-        config: {
-          levels: [1, 2, 3, 4, 5, 6],
-          defaultLevel: 2,
-        },
-      },
-      list: {
-        class: List,
-        inlineToolbar: true,
-      },
-      table: Table,
-      embed: {
-        class: Embed,
-        config: {
-          services: { youtube: true, twitter: true, instagram: true },
-        },
-      },
-      marker: Marker,
-      warning: {
-        class: Warning,
-        inlineToolbar: true,
-        config: {
-          titlePlaceholder: '콜아웃 제목',
-          messagePlaceholder: '메시지를 입력하세요',
-        },
-      },
-      code: CodeTool,
-      image: {
-        class: SimpleImage,
-        inlineToolbar: true,
-      },
-    },
+    tools,
     onReady: () => {
       editorReady = true;
     },
