@@ -589,6 +589,28 @@ async function generatePostPages(posts) {
   }
 }
 
+async function generateStaticPages(pages) {
+  for (const page of pages) {
+    assertSlugAllowed(page.slug, "page");
+    const html = layoutHtml({
+      title: page.title || page.slug,
+      description: page.excerpt || "",
+      content: `<article>
+  <h2>${escapeHtml(page.title || page.slug)}</h2>
+  ${renderPostBody(page)}
+</article>`,
+      scripts: buildViewTrackingScript({
+        apiBase: analyticsConfig.apiBase,
+        tenantSlug: analyticsConfig.tenantSlug,
+        pageKey: page.slug,
+      }),
+    });
+
+    const filePath = path.join(DIST_DIR, page.slug, "index.html");
+    await writeHtml(filePath, html);
+  }
+}
+
 async function generatePostListPages(posts) {
   const pages = paginate(posts, PAGE_SIZE);
   for (const page of pages) {
@@ -707,7 +729,7 @@ Sitemap: ${siteBaseUrl}/sitemap.xml
   await writeHtml(path.join(DIST_DIR, "robots.txt"), content);
 }
 
-async function generateSitemap(posts, categories) {
+async function generateSitemap(posts, categories, pages = []) {
   const urls = [];
   for (const post of posts) {
     const lastmodValue =
@@ -747,6 +769,12 @@ async function generateSitemap(posts, categories) {
         ),
       });
     }
+  }
+
+  for (const page of pages) {
+    urls.push({
+      loc: buildUrl(siteBaseUrl, `/${page.slug}/`),
+    });
   }
 
   const xmlEntries = urls
@@ -809,6 +837,10 @@ function sortPosts(posts) {
   });
 }
 
+function resolvePostType(post) {
+  return post?.type === "page" ? "page" : "post";
+}
+
 async function build() {
   const useMock = process.argv.includes("--mock") || !!process.env.MOCK_BUILD_DATA_PATH;
   const buildToken = process.env.BUILD_TOKEN;
@@ -860,14 +892,17 @@ async function build() {
   }
 
   const posts = sortPosts(rawPosts);
+  const postEntries = posts.filter((post) => resolvePostType(post) === "post");
+  const pageEntries = posts.filter((post) => resolvePostType(post) === "page");
 
   await resetDist();
-  await generateHomepage(posts);
-  await generatePostPages(posts);
-  await generatePostListPages(posts);
-  await generateCategoryPages(posts, categories);
-  await generateSitemap(posts, categories);
-  await generateFeed(posts);
+  await generateHomepage(postEntries);
+  await generatePostPages(postEntries);
+  await generatePostListPages(postEntries);
+  await generateCategoryPages(postEntries, categories);
+  await generateStaticPages(pageEntries);
+  await generateSitemap(postEntries, categories, pageEntries);
+  await generateFeed(postEntries);
   await generateRobots();
 }
 
