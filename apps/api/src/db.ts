@@ -95,6 +95,7 @@ export type SiteNavigationRow = {
   id: string;
   tenant_id: string;
   location: 'header' | 'footer';
+  parent_id: string | null;
   label: string;
   url: string;
   order_index: number;
@@ -878,10 +879,10 @@ async function supportsSiteConfigSearchEnabled(db: D1Database): Promise<boolean>
 export async function listSiteNavigations(db: D1Database, tenantId: string): Promise<SiteNavigationRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, tenant_id, location, label, url, order_index, created_at, updated_at
+      `SELECT id, tenant_id, location, parent_id, label, url, order_index, created_at, updated_at
        FROM site_navigations
        WHERE tenant_id = ?
-       ORDER BY location ASC, order_index ASC, created_at ASC`
+       ORDER BY location ASC, parent_id ASC, order_index ASC, created_at ASC`
     )
     .bind(tenantId)
     .all<SiteNavigationRow>();
@@ -891,7 +892,10 @@ export async function listSiteNavigations(db: D1Database, tenantId: string): Pro
 export async function createSiteNavigation(
   db: D1Database,
   tenantId: string,
-  input: Pick<SiteNavigationRow, 'location' | 'label' | 'url'> & { order_index?: number | null }
+  input: Pick<SiteNavigationRow, 'location' | 'label' | 'url'> & {
+    order_index?: number | null;
+    parent_id?: string | null;
+  }
 ): Promise<SiteNavigationRow> {
   const id = uuidv4();
   let orderIndex = input.order_index;
@@ -900,22 +904,22 @@ export async function createSiteNavigation(
       .prepare(
         `SELECT COALESCE(MAX(order_index), -1) AS max_order
          FROM site_navigations
-         WHERE tenant_id = ? AND location = ?`
+         WHERE tenant_id = ? AND location = ? AND parent_id IS ?`
       )
-      .bind(tenantId, input.location)
+      .bind(tenantId, input.location, input.parent_id ?? null)
       .first<{ max_order: number }>();
     orderIndex = (row?.max_order ?? -1) + 1;
   }
   await db
     .prepare(
-      `INSERT INTO site_navigations (id, tenant_id, location, label, url, order_index)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO site_navigations (id, tenant_id, location, parent_id, label, url, order_index)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
-    .bind(id, tenantId, input.location, input.label, input.url, orderIndex)
+    .bind(id, tenantId, input.location, input.parent_id ?? null, input.label, input.url, orderIndex)
     .run();
   const created = await db
     .prepare(
-      'SELECT id, tenant_id, location, label, url, order_index, created_at, updated_at FROM site_navigations WHERE id = ?'
+      'SELECT id, tenant_id, location, parent_id, label, url, order_index, created_at, updated_at FROM site_navigations WHERE id = ?'
     )
     .bind(id)
     .first<SiteNavigationRow>();
@@ -927,22 +931,31 @@ export async function updateSiteNavigation(
   db: D1Database,
   tenantId: string,
   id: string,
-  updates: Partial<Pick<SiteNavigationRow, 'location' | 'label' | 'url' | 'order_index'>>
+  updates: Partial<Pick<SiteNavigationRow, 'location' | 'label' | 'url' | 'order_index' | 'parent_id'>>
 ): Promise<SiteNavigationRow> {
   await db
     .prepare(
       `UPDATE site_navigations SET
         location = COALESCE(?, location),
+        parent_id = COALESCE(?, parent_id),
         label = COALESCE(?, label),
         url = COALESCE(?, url),
         order_index = COALESCE(?, order_index)
        WHERE id = ? AND tenant_id = ?`
     )
-    .bind(updates.location ?? null, updates.label ?? null, updates.url ?? null, updates.order_index ?? null, id, tenantId)
+    .bind(
+      updates.location ?? null,
+      updates.parent_id ?? null,
+      updates.label ?? null,
+      updates.url ?? null,
+      updates.order_index ?? null,
+      id,
+      tenantId
+    )
     .run();
   const updated = await db
     .prepare(
-      'SELECT id, tenant_id, location, label, url, order_index, created_at, updated_at FROM site_navigations WHERE id = ? AND tenant_id = ?'
+      'SELECT id, tenant_id, location, parent_id, label, url, order_index, created_at, updated_at FROM site_navigations WHERE id = ? AND tenant_id = ?'
     )
     .bind(id, tenantId)
     .first<SiteNavigationRow>();

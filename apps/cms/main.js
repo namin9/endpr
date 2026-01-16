@@ -157,6 +157,7 @@ const navForm = document.getElementById('navForm');
 const navLocationInput = document.getElementById('navLocationInput');
 const navLinkTypeSelect = document.getElementById('navLinkTypeSelect');
 const navLinkTargetSelect = document.getElementById('navLinkTargetSelect');
+const navParentSelect = document.getElementById('navParentSelect');
 const navLabelInput = document.getElementById('navLabelInput');
 const navUrlInput = document.getElementById('navUrlInput');
 const navStatus = document.getElementById('navStatus');
@@ -3075,7 +3076,7 @@ function createHomeSection(type) {
     limit: defaults.limit,
     order_by: defaults.order_by,
     enable_slider: defaults.enable_slider,
-    post_ids: type === 'pick' ? [] : undefined,
+    post_ids: ['hero', 'pick'].includes(type) ? [] : undefined,
   };
 }
 
@@ -3107,6 +3108,10 @@ function getNavLinkType() {
   return navLinkTypeSelect?.value || 'custom';
 }
 
+function getNavLocation() {
+  return navLocationInput?.value || 'header';
+}
+
 function renderNavTargetOptions() {
   if (!navLinkTargetSelect) return;
   const type = getNavLinkType();
@@ -3130,6 +3135,27 @@ function renderNavTargetOptions() {
     });
   }
   navLinkTargetSelect.disabled = type === 'custom';
+}
+
+function renderNavParentOptions(currentId = null) {
+  if (!navParentSelect) return;
+  const location = getNavLocation();
+  navParentSelect.innerHTML = '<option value="">상위 메뉴 없음</option>';
+  if (location !== 'header') {
+    navParentSelect.value = '';
+    navParentSelect.disabled = true;
+    return;
+  }
+  const parentOptions = siteNavigations.filter(
+    (item) => item.location === 'header' && !item.parent_id && item.id !== currentId
+  );
+  parentOptions.forEach((item) => {
+    const option = document.createElement('option');
+    option.value = item.id;
+    option.textContent = item.label || item.url || item.id;
+    navParentSelect.appendChild(option);
+  });
+  navParentSelect.disabled = false;
 }
 
 function applyNavTargetSelection(slug, type = getNavLinkType()) {
@@ -3198,17 +3224,38 @@ function renderSiteNavigations() {
   }
   const sorted = [...siteNavigations].sort((a, b) => {
     if (a.location !== b.location) return a.location.localeCompare(b.location);
+    const parentA = a.parent_id || '';
+    const parentB = b.parent_id || '';
+    if (parentA !== parentB) return parentA.localeCompare(parentB);
     if (a.order_index !== b.order_index) return a.order_index - b.order_index;
     return (a.created_at || 0) - (b.created_at || 0);
   });
+  const itemsByParent = new Map();
+  const itemById = new Map();
   sorted.forEach((item) => {
+    itemById.set(item.id, item);
+    const parentKey = item.parent_id || '';
+    if (!itemsByParent.has(parentKey)) {
+      itemsByParent.set(parentKey, []);
+    }
+    itemsByParent.get(parentKey).push(item);
+  });
+
+  const renderGroup = (parentId = '', depth = 0) => {
+    const items = itemsByParent.get(parentId) || [];
+    items.forEach((item) => {
     const container = document.createElement('div');
-    container.className = 'site-nav-item';
+    container.className = depth > 0 ? 'site-nav-item is-child' : 'site-nav-item';
     const meta = document.createElement('div');
     meta.className = 'site-nav-meta';
+    const parentLabel = item.parent_id ? itemById.get(item.parent_id)?.label : null;
     meta.innerHTML = `
       <strong>${item.label}</strong>
-      <span class="muted">${item.location === 'header' ? '헤더' : '푸터'} · 순서 ${item.order_index}</span>
+      <span class="muted">
+        ${item.location === 'header' ? '헤더' : '푸터'}
+        ${parentLabel ? `· 상위 ${parentLabel}` : ''}
+        · 순서 ${item.order_index}
+      </span>
     `;
     const urlEl = document.createElement('div');
     urlEl.className = 'muted';
@@ -3234,6 +3281,8 @@ function renderSiteNavigations() {
     editBtn.addEventListener('click', () => {
       editingNavId = item.id;
       if (navLocationInput) navLocationInput.value = item.location;
+      renderNavParentOptions(item.id);
+      if (navParentSelect) navParentSelect.value = item.parent_id || '';
       if (navLabelInput) navLabelInput.value = item.label;
       if (navUrlInput) navUrlInput.value = item.url;
       if (navLinkTypeSelect) {
@@ -3253,7 +3302,9 @@ function renderSiteNavigations() {
     });
 
     const moveItem = async (direction) => {
-      const siblings = sorted.filter((nav) => nav.location === item.location);
+      const siblings = (itemsByParent.get(item.parent_id || '') || []).filter(
+        (nav) => nav.location === item.location
+      );
       const index = siblings.findIndex((nav) => nav.id === item.id);
       const targetIndex = direction === 'up' ? index - 1 : index + 1;
       if (targetIndex < 0 || targetIndex >= siblings.length) return;
@@ -3277,7 +3328,11 @@ function renderSiteNavigations() {
 
     upBtn.addEventListener('click', () => moveItem('up'));
     downBtn.addEventListener('click', () => moveItem('down'));
+    renderGroup(item.id, depth + 1);
   });
+  };
+
+  renderGroup('', 0);
 }
 
 function renderHomeLayoutEditor() {
@@ -3383,52 +3438,18 @@ function renderHomeLayoutEditor() {
       fields.appendChild(titleField);
       fields.appendChild(limitField);
 
-      if (section.type === 'hero') {
-        const { field: orderField } = createSelectField(
-          '정렬',
-          section.order_by || 'latest',
-          [
-            { value: 'latest', label: '최신순' },
-            { value: 'popular', label: '인기순' },
-          ],
-          (value) => {
-            section.order_by = value;
-          }
-        );
-        const { field: sliderField, input: sliderInput } = createCheckboxField(
-          '슬라이드 사용',
-          Boolean(section.enable_slider),
-          (checked) => {
-            section.enable_slider = checked;
-          }
-        );
-        const updateSliderState = () => {
-          const count = Number(section.limit || 0);
-          const canSlide = Number.isFinite(count) && count > 1;
-          sliderInput.disabled = !canSlide;
-          if (!canSlide) {
-            sliderInput.checked = false;
-            section.enable_slider = false;
-          }
-        };
-        limitInput.addEventListener('input', updateSliderState);
-        updateSliderState();
-        fields.appendChild(orderField);
-        fields.appendChild(sliderField);
-      }
-
-      if (section.type === 'pick') {
+      const createPostPicker = (targetSection, labelText) => {
         const picksWrapper = document.createElement('div');
         picksWrapper.className = 'site-layout-picks';
         const pickLabel = document.createElement('span');
         pickLabel.className = 'muted';
-        pickLabel.textContent = 'Pick 게시글 선택';
+        pickLabel.textContent = labelText;
         const pickSearch = document.createElement('input');
         pickSearch.type = 'search';
         pickSearch.placeholder = '게시글 검색';
         const pickList = document.createElement('div');
         pickList.className = 'pick-list';
-        const selectedIds = new Set(Array.isArray(section.post_ids) ? section.post_ids : []);
+        const selectedIds = new Set(Array.isArray(targetSection.post_ids) ? targetSection.post_ids : []);
         const posts = allPosts.filter((post) => (post.type || 'post') === 'post');
         const toTimestamp = (value) => {
           if (!value) return 0;
@@ -3469,7 +3490,7 @@ function renderHomeLayoutEditor() {
               } else {
                 selectedIds.delete(post.id);
               }
-              section.post_ids = Array.from(selectedIds);
+              targetSection.post_ids = Array.from(selectedIds);
             });
             const title = document.createElement('span');
             title.textContent = post.title || post.slug || '제목 없음';
@@ -3487,7 +3508,52 @@ function renderHomeLayoutEditor() {
         picksWrapper.appendChild(pickLabel);
         picksWrapper.appendChild(pickSearch);
         picksWrapper.appendChild(pickList);
-        fields.appendChild(picksWrapper);
+        return picksWrapper;
+      };
+
+      if (section.type === 'hero') {
+        const { field: orderField } = createSelectField(
+          '정렬',
+          section.order_by || 'latest',
+          [
+            { value: 'latest', label: '최신순' },
+            { value: 'popular', label: '인기순' },
+            { value: 'manual', label: '직접 선택' },
+          ],
+          (value) => {
+            section.order_by = value;
+            renderHomeLayoutEditor();
+          }
+        );
+        const { field: sliderField, input: sliderInput } = createCheckboxField(
+          '슬라이드 사용',
+          Boolean(section.enable_slider),
+          (checked) => {
+            section.enable_slider = checked;
+          }
+        );
+        const updateSliderState = () => {
+          const count = Number(section.limit || 0);
+          const canSlide = Number.isFinite(count) && count > 1;
+          sliderInput.disabled = !canSlide;
+          if (!canSlide) {
+            sliderInput.checked = false;
+            section.enable_slider = false;
+          }
+        };
+        limitInput.addEventListener('input', updateSliderState);
+        updateSliderState();
+        fields.appendChild(orderField);
+        fields.appendChild(sliderField);
+        if (section.order_by === 'manual') {
+          if (!Array.isArray(section.post_ids)) section.post_ids = [];
+          fields.appendChild(createPostPicker(section, 'Hero 게시글 선택'));
+        }
+      }
+
+      if (section.type === 'pick') {
+        if (!Array.isArray(section.post_ids)) section.post_ids = [];
+        fields.appendChild(createPostPicker(section, 'Pick 게시글 선택'));
       }
     } else if (section.type === 'banner') {
       const { field: titleField } = createInputField('제목', section.title || '', (value) => {
@@ -3700,6 +3766,7 @@ async function fetchSiteNavigations() {
     siteNavigations = data?.items || [];
     renderSiteNavigations();
     renderNavTargetOptions();
+    renderNavParentOptions();
     setStatus(navStatus, '');
   } catch (error) {
     setStatus(navStatus, formatError(error), true);
@@ -3720,6 +3787,7 @@ async function saveNavigationItem(payload) {
       if (navStatus) setStatus(navStatus, '추가 완료');
     }
     renderSiteNavigations();
+    renderNavParentOptions();
   } catch (error) {
     if (navStatus) setStatus(navStatus, formatError(error), true);
   }
@@ -5339,6 +5407,12 @@ if (refreshNavBtn) {
   });
 }
 
+if (navLocationInput) {
+  navLocationInput.addEventListener('change', () => {
+    renderNavParentOptions(editingNavId);
+  });
+}
+
 if (navLinkTypeSelect) {
   navLinkTypeSelect.addEventListener('change', () => {
     renderNavTargetOptions();
@@ -5360,6 +5434,7 @@ if (navForm) {
   navForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const location = navLocationInput?.value || 'header';
+    const parentId = navParentSelect?.value || '';
     const label = navLabelInput?.value.trim();
     const url = navUrlInput?.value.trim();
     const linkType = getNavLinkType();
@@ -5371,13 +5446,15 @@ if (navForm) {
       if (navStatus) setStatus(navStatus, '라벨과 URL을 입력하세요.', true);
       return;
     }
-    await saveNavigationItem({ location, label, url });
+    await saveNavigationItem({ location, label, url, parent_id: location === 'header' ? parentId : null });
     if (!editingNavId) {
       navLabelInput.value = '';
       navUrlInput.value = '';
       if (navLinkTypeSelect) navLinkTypeSelect.value = 'custom';
       if (navLinkTargetSelect) navLinkTargetSelect.value = '';
+      if (navParentSelect) navParentSelect.value = '';
       renderNavTargetOptions();
+      renderNavParentOptions();
     }
   });
 }

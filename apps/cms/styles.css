@@ -673,6 +673,11 @@ button:active {
   background: rgba(255, 255, 255, 0.03);
 }
 
+.site-nav-item.is-child {
+  margin-left: 20px;
+  border-left: 3px solid rgba(124, 58, 237, 0.4);
+}
+
 .site-nav-meta {
   display: flex;
   flex-direction: column;

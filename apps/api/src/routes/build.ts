@@ -24,7 +24,7 @@ type HomeSection = {
   type: 'hero' | 'latest' | 'popular' | 'pick' | 'banner' | 'features' | 'html';
   title?: string | null;
   limit?: number | null;
-  order_by?: 'latest' | 'popular' | null;
+  order_by?: 'latest' | 'popular' | 'manual' | null;
   enable_slider?: boolean | null;
   post_ids?: string[] | null;
   post_slugs?: string[] | null;
@@ -162,8 +162,18 @@ router.get('/build/home', async (c) => {
     const limit = section.limit && section.limit > 0 ? section.limit : section.type === 'hero' ? 1 : 6;
     let posts = [];
     if (section.type === 'hero') {
-      const source = section.order_by === 'popular' ? popularPosts : latestPosts;
-      posts = source.slice(0, limit);
+      if (section.order_by === 'manual') {
+        const ids = Array.isArray(section.post_ids) ? section.post_ids.filter(Boolean) : [];
+        const slugs = Array.isArray(section.post_slugs) ? section.post_slugs.filter(Boolean) : [];
+        if (ids.length) {
+          posts = await listPublishedPostsByIds(c.env.DB, tenant.id, ids);
+        } else if (slugs.length) {
+          posts = await listPublishedPostsBySlugs(c.env.DB, tenant.id, slugs);
+        }
+      } else {
+        const source = section.order_by === 'popular' ? popularPosts : latestPosts;
+        posts = source.slice(0, limit);
+      }
     } else if (section.type === 'latest') {
       posts = latestPosts.slice(0, limit);
     } else if (section.type === 'popular') {

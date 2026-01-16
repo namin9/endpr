@@ -383,9 +383,30 @@ function summarizeBodyFormat(post) {
 
 function renderNavItems(items = []) {
   if (!items.length) return "";
-  return items
-    .map((item) => `<a href="${escapeHtml(item.url)}">${escapeHtml(item.label)}</a>`)
-    .join("");
+  const sorted = [...items].sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+  const itemsByParent = new Map();
+  sorted.forEach((item) => {
+    const parentKey = item.parent_id || "";
+    if (!itemsByParent.has(parentKey)) {
+      itemsByParent.set(parentKey, []);
+    }
+    itemsByParent.get(parentKey).push(item);
+  });
+  const renderGroup = (parentId = "") => {
+    const groupItems = itemsByParent.get(parentId) || [];
+    return groupItems
+      .map((item) => {
+        const url = escapeHtml(item.url);
+        const label = escapeHtml(item.label);
+        const children = renderGroup(item.id);
+        if (children) {
+          return `<div class="nav-group"><a href="${url}">${label}</a><div class="nav-sub-links">${children}</div></div>`;
+        }
+        return `<a href="${url}">${label}</a>`;
+      })
+      .join("");
+  };
+  return renderGroup("");
 }
 
 function layoutHtml({ title, content, description = "", scripts = "" }) {
@@ -418,6 +439,8 @@ function layoutHtml({ title, content, description = "", scripts = "" }) {
     .overlay span { font-size: 12px; color: #ddd; }
     footer { margin-top: 32px; text-align: center; color: #aaa; font-size: 14px; }
     footer nav { margin-bottom: 8px; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
+    footer nav .nav-group { display: flex; flex-direction: column; gap: 4px; }
+    footer nav .nav-sub-links { display: grid; gap: 4px; padding-left: 12px; font-size: 13px; color: #bbb; }
     @media (max-width: 900px) { .masonry { column-count: 2; } }
     @media (max-width: 600px) { .masonry { column-count: 1; } }
   </style>

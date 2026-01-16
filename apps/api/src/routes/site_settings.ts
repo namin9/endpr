@@ -22,7 +22,7 @@ type HomeSection = {
   type: 'hero' | 'latest' | 'popular' | 'pick';
   title?: string | null;
   limit?: number | null;
-  order_by?: 'latest' | 'popular' | null;
+  order_by?: 'latest' | 'popular' | 'manual' | null;
   enable_slider?: boolean | null;
   post_ids?: string[] | null;
   post_slugs?: string[] | null;
@@ -126,6 +126,7 @@ router.post('/cms/site-navigations', async (c) => {
   const location = body?.location;
   const label = sanitizeString(body?.label);
   const url = sanitizeString(body?.url);
+  const parentId = sanitizeString(body?.parent_id);
   if (!location || !label || !url) {
     return c.json({ error: 'location, label, url are required' }, 400);
   }
@@ -135,6 +136,7 @@ router.post('/cms/site-navigations', async (c) => {
   const orderIndex = Number.isFinite(Number(body?.order_index)) ? Number(body.order_index) : null;
   const item = await createSiteNavigation(c.env.DB, tenant.id, {
     location,
+    parent_id: location === 'header' ? parentId : null,
     label,
     url,
     order_index: orderIndex,
@@ -146,8 +148,11 @@ router.patch('/cms/site-navigations/:id', async (c) => {
   const tenant = c.get('tenant');
   const id = c.req.param('id');
   const body = await c.req.json();
+  const location = ['header', 'footer'].includes(body?.location) ? body.location : undefined;
+  const parentId = body?.parent_id !== undefined ? sanitizeString(body.parent_id) : undefined;
   const updates = {
-    location: ['header', 'footer'].includes(body?.location) ? body.location : undefined,
+    location,
+    parent_id: location === 'footer' ? null : parentId,
     label: body?.label !== undefined ? sanitizeString(body.label) : undefined,
     url: body?.url !== undefined ? sanitizeString(body.url) : undefined,
     order_index: Number.isFinite(Number(body?.order_index)) ? Number(body.order_index) : undefined,

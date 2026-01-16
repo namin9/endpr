@@ -528,6 +528,38 @@ function renderHeaderMinimal({ title, navLinks, logoUrl }) {
   </header>`;
 }
 
+function renderNavLinks(items = []) {
+  if (!items.length) {
+    return `<a href="/posts/page/1/">Posts</a>`;
+  }
+  const sorted = [...items].sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+  const itemsByParent = new Map();
+  sorted.forEach((item) => {
+    const parentKey = item.parent_id || "";
+    if (!itemsByParent.has(parentKey)) {
+      itemsByParent.set(parentKey, []);
+    }
+    itemsByParent.get(parentKey).push(item);
+  });
+  const renderGroup = (parentId = "") => {
+    const groupItems = itemsByParent.get(parentId) || [];
+    return groupItems
+      .map((item) => {
+        const url = sanitizeUrl(item.url || "");
+        if (!url) return "";
+        const label = escapeHtml(item.label || item.url || "");
+        const children = renderGroup(item.id);
+        if (children) {
+          return `<div class="nav-group"><a href="${escapeHtml(url)}">${label}</a><div class="nav-sub-links">${children}</div></div>`;
+        }
+        return `<a href="${escapeHtml(url)}">${label}</a>`;
+      })
+      .filter(Boolean)
+      .join("\n      ");
+  };
+  return renderGroup("");
+}
+
 function renderLayout({ title, content, navLinks, logoUrl, footerText, layoutType, postNav }) {
   const type = layoutType || "portal";
   const header =
@@ -567,17 +599,7 @@ function layoutHtml({
         .filter((item) => item.location === "header")
         .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
     : [];
-  const navLinks = headerNav.length
-    ? headerNav
-        .map((item) => {
-          const url = sanitizeUrl(item.url || "");
-          if (!url) return "";
-          const label = escapeHtml(item.label || item.url || "");
-          return `<a href="${escapeHtml(url)}">${label}</a>`;
-        })
-        .filter(Boolean)
-        .join("\n      ")
-    : `<a href="/posts/page/1/">Posts</a>`;
+  const navLinks = renderNavLinks(headerNav);
   const logoUrl = siteConfig?.config?.logo_url ? sanitizeUrl(siteConfig.config.logo_url) : null;
   const footerText = siteConfig?.config?.footer_text ? escapeHtml(siteConfig.config.footer_text) : "";
   const resolvedOgImage = ogImage || logoUrl || null;
@@ -599,6 +621,8 @@ function layoutHtml({
   .brand-logo img { max-height: 40px; }
   .nav-links { display: flex; gap: 16px; flex-wrap: wrap; }
   .nav-links a { text-decoration: none; color: inherit; font-weight: 500; }
+  .nav-group { display: flex; flex-direction: column; gap: 6px; }
+  .nav-sub-links { display: grid; gap: 4px; padding-left: 12px; font-size: 14px; color: #6b7280; }
   .site-main { flex: 1; padding: 32px 0 48px; }
   .site-footer { padding: 32px 0; border-top: 1px solid var(--border, #e5e7eb); text-align: center; }
   .search-shell { display: flex; align-items: center; gap: 8px; position: relative; }
