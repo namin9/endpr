@@ -3026,7 +3026,7 @@ async function deleteBanner(id) {
 function getHomeSectionDefaults(type) {
   switch (type) {
     case 'hero':
-      return { title: '주요 뉴스', limit: 1 };
+      return { title: '주요 뉴스', limit: 1, order_by: 'latest', enable_slider: false };
     case 'latest':
       return { title: '최신글', limit: 6 };
     case 'popular':
@@ -3073,6 +3073,8 @@ function createHomeSection(type) {
     items: defaults.items,
     raw_content: defaults.raw_content,
     limit: defaults.limit,
+    order_by: defaults.order_by,
+    enable_slider: defaults.enable_slider,
     post_ids: type === 'pick' ? [] : undefined,
   };
 }
@@ -3347,6 +3349,24 @@ function renderHomeLayoutEditor() {
       return { field, select };
     };
 
+    const createCheckboxField = (labelText, checked, onChange) => {
+      const field = document.createElement('label');
+      field.className = 'field';
+      const wrap = document.createElement('div');
+      wrap.className = 'checkbox-row';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = Boolean(checked);
+      input.addEventListener('change', () => onChange(input.checked));
+      const label = document.createElement('span');
+      label.className = 'muted';
+      label.textContent = labelText;
+      wrap.appendChild(input);
+      wrap.appendChild(label);
+      field.appendChild(wrap);
+      return { field, input };
+    };
+
     if (['hero', 'latest', 'popular', 'pick'].includes(section.type)) {
       const { field: titleField } = createInputField('섹션 타이틀', section.title || '', (value) => {
         section.title = value;
@@ -3363,28 +3383,110 @@ function renderHomeLayoutEditor() {
       fields.appendChild(titleField);
       fields.appendChild(limitField);
 
+      if (section.type === 'hero') {
+        const { field: orderField } = createSelectField(
+          '정렬',
+          section.order_by || 'latest',
+          [
+            { value: 'latest', label: '최신순' },
+            { value: 'popular', label: '인기순' },
+          ],
+          (value) => {
+            section.order_by = value;
+          }
+        );
+        const { field: sliderField, input: sliderInput } = createCheckboxField(
+          '슬라이드 사용',
+          Boolean(section.enable_slider),
+          (checked) => {
+            section.enable_slider = checked;
+          }
+        );
+        const updateSliderState = () => {
+          const count = Number(section.limit || 0);
+          const canSlide = Number.isFinite(count) && count > 1;
+          sliderInput.disabled = !canSlide;
+          if (!canSlide) {
+            sliderInput.checked = false;
+            section.enable_slider = false;
+          }
+        };
+        limitInput.addEventListener('input', updateSliderState);
+        updateSliderState();
+        fields.appendChild(orderField);
+        fields.appendChild(sliderField);
+      }
+
       if (section.type === 'pick') {
         const picksWrapper = document.createElement('div');
         picksWrapper.className = 'site-layout-picks';
         const pickLabel = document.createElement('span');
         pickLabel.className = 'muted';
         pickLabel.textContent = 'Pick 게시글 선택';
-        const select = document.createElement('select');
-        select.multiple = true;
-        allPosts.forEach((post) => {
-          const option = document.createElement('option');
-          option.value = post.id;
-          option.textContent = post.title || post.slug;
-          if (Array.isArray(section.post_ids) && section.post_ids.includes(post.id)) {
-            option.selected = true;
+        const pickSearch = document.createElement('input');
+        pickSearch.type = 'search';
+        pickSearch.placeholder = '게시글 검색';
+        const pickList = document.createElement('div');
+        pickList.className = 'pick-list';
+        const selectedIds = new Set(Array.isArray(section.post_ids) ? section.post_ids : []);
+        const posts = allPosts.filter((post) => (post.type || 'post') === 'post');
+        const toTimestamp = (value) => {
+          if (!value) return 0;
+          const date = new Date(value);
+          return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+        };
+        const sortedPosts = posts.slice().sort((a, b) => {
+          const aDate = toTimestamp(a.publishedAt || a.updatedAt);
+          const bDate = toTimestamp(b.publishedAt || b.updatedAt);
+          return bDate - aDate;
+        });
+        const renderPickList = () => {
+          const query = pickSearch.value.trim().toLowerCase();
+          pickList.innerHTML = '';
+          const filtered = query
+            ? sortedPosts.filter((post) => {
+                const title = (post.title || '').toLowerCase();
+                const slug = (post.slug || '').toLowerCase();
+                return title.includes(query) || slug.includes(query);
+              })
+            : sortedPosts;
+          if (!filtered.length) {
+            const empty = document.createElement('div');
+            empty.className = 'muted';
+            empty.textContent = '검색 결과가 없습니다.';
+            pickList.appendChild(empty);
+            return;
           }
-          select.appendChild(option);
-        });
-        select.addEventListener('change', () => {
-          section.post_ids = Array.from(select.selectedOptions).map((option) => option.value);
-        });
+          filtered.forEach((post) => {
+            const row = document.createElement('label');
+            row.className = 'pick-option';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = selectedIds.has(post.id);
+            checkbox.addEventListener('change', () => {
+              if (checkbox.checked) {
+                selectedIds.add(post.id);
+              } else {
+                selectedIds.delete(post.id);
+              }
+              section.post_ids = Array.from(selectedIds);
+            });
+            const title = document.createElement('span');
+            title.textContent = post.title || post.slug || '제목 없음';
+            const slug = document.createElement('span');
+            slug.className = 'muted';
+            slug.textContent = post.slug || '';
+            row.appendChild(checkbox);
+            row.appendChild(title);
+            row.appendChild(slug);
+            pickList.appendChild(row);
+          });
+        };
+        pickSearch.addEventListener('input', renderPickList);
+        renderPickList();
         picksWrapper.appendChild(pickLabel);
-        picksWrapper.appendChild(select);
+        picksWrapper.appendChild(pickSearch);
+        picksWrapper.appendChild(pickList);
         fields.appendChild(picksWrapper);
       }
     } else if (section.type === 'banner') {
