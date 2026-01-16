@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 
-export type Role = 'editor' | 'admin' | 'super';
+export type Role = 'editor' | 'tenant_admin' | 'super_admin';
 
 export type TenantRow = {
   id: string;
@@ -32,6 +32,7 @@ export type TenantAdminRow = {
 export type PostRow = {
   id: string;
   tenant_id: string;
+  type: 'post' | 'page';
   title: string;
   slug: string;
   excerpt: string | null;
@@ -42,6 +43,22 @@ export type PostRow = {
   published_at: number | null;
   created_at: number;
   updated_at: number;
+};
+
+export type InquiryRow = {
+  id: string;
+  tenant_id: string;
+  type: string;
+  data: string;
+  is_read: number;
+  created_at: number;
+};
+
+export type SubscriberRow = {
+  id: string;
+  tenant_id: string;
+  email: string;
+  created_at: number;
 };
 
 export type DeployJobRow = {
@@ -62,6 +79,47 @@ export type CategoryRow = {
   name: string;
   enabled: number;
   order_index: number;
+};
+
+export type SiteConfigRow = {
+  tenant_id: string;
+  logo_url: string | null;
+  footer_text: string | null;
+  home_layout: string | null;
+  updated_at: number;
+};
+
+export type SiteNavigationRow = {
+  id: string;
+  tenant_id: string;
+  location: 'header' | 'footer';
+  label: string;
+  url: string;
+  order_index: number;
+  created_at: number;
+  updated_at: number;
+};
+
+export type PopupRow = {
+  id: string;
+  tenant_id: string;
+  title: string;
+  content: string;
+  type: 'modal' | 'topbar' | 'bottombar';
+  start_at: number | null;
+  end_at: number | null;
+  is_active: number;
+  created_at: number;
+};
+
+export type BannerRow = {
+  id: string;
+  tenant_id: string;
+  location: 'home_top' | 'sidebar' | 'post_bottom';
+  image_url: string;
+  link_url: string;
+  order_index: number;
+  is_active: number;
 };
 
 export type PrCampaignRow = {
@@ -276,12 +334,13 @@ export async function createPost(db: D1Database, tenantId: string, input: Partia
   const now = Math.floor(Date.now() / 1000);
   await db
     .prepare(
-      `INSERT INTO posts (id, tenant_id, title, slug, excerpt, body_md, category_slug, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`
+      `INSERT INTO posts (id, tenant_id, type, title, slug, excerpt, body_md, category_slug, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`
     )
     .bind(
       id,
       tenantId,
+      input.type ?? 'post',
       input.title,
       input.slug,
       input.excerpt ?? null,
@@ -297,7 +356,8 @@ export async function createPost(db: D1Database, tenantId: string, input: Partia
   return created;
 }
 
-export async function listPosts(db: D1Database, tenantId: string): Promise<PostRow[]> {
+export async function listPosts(db: D1Database, tenantId: string, type?: 'post' | 'page'): Promise<PostRow[]> {
+  const typeFilter = type ? 'AND posts.type = ?' : '';
   const { results } = await db
     .prepare(
       `SELECT posts.*,
@@ -307,10 +367,11 @@ export async function listPosts(db: D1Database, tenantId: string): Promise<PostR
          ON page_views_daily.tenant_id = posts.tenant_id
         AND page_views_daily.page_key = posts.slug
        WHERE posts.tenant_id = ?
+       ${typeFilter}
        GROUP BY posts.id
        ORDER BY posts.created_at DESC`
     )
-    .bind(tenantId)
+    .bind(...(type ? [tenantId, type] : [tenantId]))
     .all<PostRow>();
   return (results ?? []) as PostRow[];
 }
@@ -324,7 +385,7 @@ type ViewRangeOptions = {
 export async function listPostsWithViews(
   db: D1Database,
   tenantId: string,
-  { startDay = null, endDay = null, orderByViews = false }: ViewRangeOptions = {}
+  { startDay = null, endDay = null, orderByViews = false, type = null }: ViewRangeOptions & { type?: 'post' | 'page' | null } = {}
 ): Promise<PostRow[]> {
   const hasRange = Boolean(startDay && endDay);
   const joinClause = hasRange
@@ -338,18 +399,23 @@ export async function listPostsWithViews(
   const orderClause = orderByViews
     ? 'ORDER BY view_count DESC, posts.created_at DESC'
     : 'ORDER BY posts.created_at DESC';
+  const typeClause = type ? 'AND posts.type = ?' : '';
   const sql = `SELECT posts.*,
         COALESCE(SUM(page_views_daily.views), 0) AS view_count
       FROM posts
       ${joinClause}
       WHERE posts.tenant_id = ?
+      ${typeClause}
       GROUP BY posts.id
       ${orderClause}`;
 
   const statement = db.prepare(sql);
-  const bound = hasRange
-    ? statement.bind(startDay, endDay, tenantId)
-    : statement.bind(tenantId);
+  const bound = (() => {
+    if (hasRange && type) return statement.bind(startDay, endDay, tenantId, type);
+    if (hasRange) return statement.bind(startDay, endDay, tenantId);
+    if (type) return statement.bind(tenantId, type);
+    return statement.bind(tenantId);
+  })();
   const { results } = await bound.all<PostRow>();
   return (results ?? []) as PostRow[];
 }
@@ -371,6 +437,7 @@ export async function updatePost(db: D1Database, tenantId: string, id: string, u
   await db
     .prepare(
       `UPDATE posts SET
+        type = COALESCE(?, type),
         title = COALESCE(?, title),
         slug = COALESCE(?, slug),
         excerpt = COALESCE(?, excerpt),
@@ -381,6 +448,7 @@ export async function updatePost(db: D1Database, tenantId: string, id: string, u
        WHERE id = ? AND tenant_id = ?`
     )
     .bind(
+      updates.type ?? null,
       updates.title ?? null,
       updates.slug ?? null,
       updates.excerpt ?? null,
@@ -396,6 +464,78 @@ export async function updatePost(db: D1Database, tenantId: string, id: string, u
   const updated = await getPost(db, tenantId, id);
   if (!updated) throw new Error('Failed to load updated post');
   return updated;
+}
+
+export async function createInquiry(
+  db: D1Database,
+  tenantId: string,
+  input: { type: string; data: string }
+): Promise<InquiryRow> {
+  const id = uuidv4();
+  const now = Math.floor(Date.now() / 1000);
+  await db
+    .prepare(
+      `INSERT INTO inquiries (id, tenant_id, type, data, is_read, created_at)
+       VALUES (?, ?, ?, ?, 0, ?)`
+    )
+    .bind(id, tenantId, input.type, input.data, now)
+    .run();
+  const created = await db
+    .prepare('SELECT * FROM inquiries WHERE id = ? AND tenant_id = ?')
+    .bind(id, tenantId)
+    .first<InquiryRow>();
+  if (!created) throw new Error('Failed to create inquiry');
+  return created;
+}
+
+export async function listInquiries(db: D1Database, tenantId: string): Promise<InquiryRow[]> {
+  const { results } = await db
+    .prepare('SELECT * FROM inquiries WHERE tenant_id = ? ORDER BY created_at DESC')
+    .bind(tenantId)
+    .all<InquiryRow>();
+  return (results ?? []) as InquiryRow[];
+}
+
+export async function markInquiryRead(db: D1Database, tenantId: string, id: string): Promise<InquiryRow | null> {
+  await db
+    .prepare('UPDATE inquiries SET is_read = 1 WHERE id = ? AND tenant_id = ?')
+    .bind(id, tenantId)
+    .run();
+  const updated = await db
+    .prepare('SELECT * FROM inquiries WHERE id = ? AND tenant_id = ?')
+    .bind(id, tenantId)
+    .first<InquiryRow>();
+  return updated ?? null;
+}
+
+export async function createSubscriber(
+  db: D1Database,
+  tenantId: string,
+  email: string
+): Promise<SubscriberRow | null> {
+  const id = uuidv4();
+  const now = Math.floor(Date.now() / 1000);
+  await db
+    .prepare(
+      `INSERT INTO subscribers (id, tenant_id, email, created_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(tenant_id, email) DO NOTHING`
+    )
+    .bind(id, tenantId, email, now)
+    .run();
+  const created = await db
+    .prepare('SELECT * FROM subscribers WHERE tenant_id = ? AND email = ?')
+    .bind(tenantId, email)
+    .first<SubscriberRow>();
+  return created ?? null;
+}
+
+export async function listSubscribers(db: D1Database, tenantId: string): Promise<SubscriberRow[]> {
+  const { results } = await db
+    .prepare('SELECT * FROM subscribers WHERE tenant_id = ? ORDER BY created_at DESC')
+    .bind(tenantId)
+    .all<SubscriberRow>();
+  return (results ?? []) as SubscriberRow[];
 }
 
 export async function deletePost(db: D1Database, tenantId: string, id: string): Promise<void> {
@@ -564,6 +704,81 @@ export async function listPublishedPosts(db: D1Database, tenantId: string): Prom
   return (results ?? []) as PostRow[];
 }
 
+export async function listPublishedPostsWithViews(
+  db: D1Database,
+  tenantId: string,
+  { orderByViews = false }: { orderByViews?: boolean } = {}
+): Promise<PostRow[]> {
+  const orderClause = orderByViews
+    ? 'ORDER BY view_count DESC, posts.published_at DESC, posts.created_at DESC'
+    : 'ORDER BY posts.published_at DESC, posts.created_at DESC';
+  const { results } = await db
+    .prepare(
+      `SELECT posts.*,
+        COALESCE(SUM(page_views_daily.views), 0) AS view_count
+       FROM posts
+       LEFT JOIN page_views_daily
+         ON page_views_daily.tenant_id = posts.tenant_id
+        AND page_views_daily.page_key = posts.slug
+       WHERE posts.tenant_id = ? AND posts.status = 'published'
+       GROUP BY posts.id
+       ${orderClause}`
+    )
+    .bind(tenantId)
+    .all<PostRow>();
+  return (results ?? []) as PostRow[];
+}
+
+export async function listPublishedPostsByIds(
+  db: D1Database,
+  tenantId: string,
+  ids: string[]
+): Promise<PostRow[]> {
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => '?').join(', ');
+  const { results } = await db
+    .prepare(
+      `SELECT posts.*,
+        COALESCE(SUM(page_views_daily.views), 0) AS view_count
+       FROM posts
+       LEFT JOIN page_views_daily
+         ON page_views_daily.tenant_id = posts.tenant_id
+        AND page_views_daily.page_key = posts.slug
+       WHERE posts.tenant_id = ? AND posts.status = 'published' AND posts.id IN (${placeholders})
+       GROUP BY posts.id`
+    )
+    .bind(tenantId, ...ids)
+    .all<PostRow>();
+  const rows = (results ?? []) as PostRow[];
+  const map = new Map(rows.map((row) => [row.id, row]));
+  return ids.map((id) => map.get(id)).filter(Boolean) as PostRow[];
+}
+
+export async function listPublishedPostsBySlugs(
+  db: D1Database,
+  tenantId: string,
+  slugs: string[]
+): Promise<PostRow[]> {
+  if (!slugs.length) return [];
+  const placeholders = slugs.map(() => '?').join(', ');
+  const { results } = await db
+    .prepare(
+      `SELECT posts.*,
+        COALESCE(SUM(page_views_daily.views), 0) AS view_count
+       FROM posts
+       LEFT JOIN page_views_daily
+         ON page_views_daily.tenant_id = posts.tenant_id
+        AND page_views_daily.page_key = posts.slug
+       WHERE posts.tenant_id = ? AND posts.status = 'published' AND posts.slug IN (${placeholders})
+       GROUP BY posts.id`
+    )
+    .bind(tenantId, ...slugs)
+    .all<PostRow>();
+  const rows = (results ?? []) as PostRow[];
+  const map = new Map(rows.map((row) => [row.slug, row]));
+  return slugs.map((slug) => map.get(slug)).filter(Boolean) as PostRow[];
+}
+
 export async function listDueScheduledPosts(db: D1Database, nowSeconds: number): Promise<PostRow[]> {
   const { results } = await db
     .prepare(`SELECT * FROM posts WHERE status = 'scheduled' AND publish_at IS NOT NULL AND publish_at <= ? ORDER BY publish_at ASC`)
@@ -586,6 +801,289 @@ export async function listCategories(db: D1Database, tenantId: string): Promise<
     .bind(tenantId)
     .all<CategoryRow>();
   return (results ?? []) as CategoryRow[];
+}
+
+export async function getSiteConfig(db: D1Database, tenantId: string): Promise<SiteConfigRow | null> {
+  const config = await db
+    .prepare('SELECT tenant_id, logo_url, footer_text, home_layout, updated_at FROM site_configs WHERE tenant_id = ?')
+    .bind(tenantId)
+    .first<SiteConfigRow>();
+  return config ?? null;
+}
+
+export async function upsertSiteConfig(
+  db: D1Database,
+  tenantId: string,
+  updates: Partial<Pick<SiteConfigRow, 'logo_url' | 'footer_text' | 'home_layout'>>
+): Promise<SiteConfigRow> {
+  await db
+    .prepare(
+      `INSERT INTO site_configs (tenant_id, logo_url, footer_text, home_layout)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(tenant_id) DO UPDATE SET
+         logo_url = excluded.logo_url,
+         footer_text = excluded.footer_text,
+         home_layout = excluded.home_layout`
+    )
+    .bind(tenantId, updates.logo_url ?? null, updates.footer_text ?? null, updates.home_layout ?? null)
+    .run();
+  const config = await getSiteConfig(db, tenantId);
+  if (!config) throw new Error('Failed to update site config');
+  return config;
+}
+
+export async function listSiteNavigations(db: D1Database, tenantId: string): Promise<SiteNavigationRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, tenant_id, location, label, url, order_index, created_at, updated_at
+       FROM site_navigations
+       WHERE tenant_id = ?
+       ORDER BY location ASC, order_index ASC, created_at ASC`
+    )
+    .bind(tenantId)
+    .all<SiteNavigationRow>();
+  return (results ?? []) as SiteNavigationRow[];
+}
+
+export async function createSiteNavigation(
+  db: D1Database,
+  tenantId: string,
+  input: Pick<SiteNavigationRow, 'location' | 'label' | 'url'> & { order_index?: number | null }
+): Promise<SiteNavigationRow> {
+  const id = uuidv4();
+  let orderIndex = input.order_index;
+  if (orderIndex === null || orderIndex === undefined) {
+    const row = await db
+      .prepare(
+        `SELECT COALESCE(MAX(order_index), -1) AS max_order
+         FROM site_navigations
+         WHERE tenant_id = ? AND location = ?`
+      )
+      .bind(tenantId, input.location)
+      .first<{ max_order: number }>();
+    orderIndex = (row?.max_order ?? -1) + 1;
+  }
+  await db
+    .prepare(
+      `INSERT INTO site_navigations (id, tenant_id, location, label, url, order_index)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .bind(id, tenantId, input.location, input.label, input.url, orderIndex)
+    .run();
+  const created = await db
+    .prepare(
+      'SELECT id, tenant_id, location, label, url, order_index, created_at, updated_at FROM site_navigations WHERE id = ?'
+    )
+    .bind(id)
+    .first<SiteNavigationRow>();
+  if (!created) throw new Error('Failed to create site navigation');
+  return created;
+}
+
+export async function updateSiteNavigation(
+  db: D1Database,
+  tenantId: string,
+  id: string,
+  updates: Partial<Pick<SiteNavigationRow, 'location' | 'label' | 'url' | 'order_index'>>
+): Promise<SiteNavigationRow> {
+  await db
+    .prepare(
+      `UPDATE site_navigations SET
+        location = COALESCE(?, location),
+        label = COALESCE(?, label),
+        url = COALESCE(?, url),
+        order_index = COALESCE(?, order_index)
+       WHERE id = ? AND tenant_id = ?`
+    )
+    .bind(updates.location ?? null, updates.label ?? null, updates.url ?? null, updates.order_index ?? null, id, tenantId)
+    .run();
+  const updated = await db
+    .prepare(
+      'SELECT id, tenant_id, location, label, url, order_index, created_at, updated_at FROM site_navigations WHERE id = ? AND tenant_id = ?'
+    )
+    .bind(id, tenantId)
+    .first<SiteNavigationRow>();
+  if (!updated) throw new Error('Failed to update site navigation');
+  return updated;
+}
+
+export async function deleteSiteNavigation(db: D1Database, tenantId: string, id: string): Promise<void> {
+  await db.prepare('DELETE FROM site_navigations WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+}
+
+export async function listPopups(db: D1Database, tenantId: string): Promise<PopupRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, tenant_id, title, content, type, start_at, end_at, is_active, created_at
+       FROM popups
+       WHERE tenant_id = ?
+       ORDER BY created_at DESC`
+    )
+    .bind(tenantId)
+    .all<PopupRow>();
+  return (results ?? []) as PopupRow[];
+}
+
+export async function createPopup(
+  db: D1Database,
+  tenantId: string,
+  input: Pick<PopupRow, 'title' | 'content' | 'type' | 'start_at' | 'end_at' | 'is_active'>
+): Promise<PopupRow> {
+  const id = uuidv4();
+  await db
+    .prepare(
+      `INSERT INTO popups (id, tenant_id, title, content, type, start_at, end_at, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(id, tenantId, input.title, input.content, input.type, input.start_at ?? null, input.end_at ?? null, input.is_active)
+    .run();
+  const created = await db
+    .prepare(
+      'SELECT id, tenant_id, title, content, type, start_at, end_at, is_active, created_at FROM popups WHERE id = ? AND tenant_id = ?'
+    )
+    .bind(id, tenantId)
+    .first<PopupRow>();
+  if (!created) throw new Error('Failed to create popup');
+  return created;
+}
+
+export async function updatePopup(
+  db: D1Database,
+  tenantId: string,
+  id: string,
+  updates: Partial<Pick<PopupRow, 'title' | 'content' | 'type' | 'start_at' | 'end_at' | 'is_active'>>
+): Promise<PopupRow> {
+  await db
+    .prepare(
+      `UPDATE popups SET
+        title = COALESCE(?, title),
+        content = COALESCE(?, content),
+        type = COALESCE(?, type),
+        start_at = COALESCE(?, start_at),
+        end_at = COALESCE(?, end_at),
+        is_active = COALESCE(?, is_active)
+       WHERE id = ? AND tenant_id = ?`
+    )
+    .bind(
+      updates.title ?? null,
+      updates.content ?? null,
+      updates.type ?? null,
+      updates.start_at ?? null,
+      updates.end_at ?? null,
+      updates.is_active ?? null,
+      id,
+      tenantId
+    )
+    .run();
+  const updated = await db
+    .prepare(
+      'SELECT id, tenant_id, title, content, type, start_at, end_at, is_active, created_at FROM popups WHERE id = ? AND tenant_id = ?'
+    )
+    .bind(id, tenantId)
+    .first<PopupRow>();
+  if (!updated) throw new Error('Failed to update popup');
+  return updated;
+}
+
+export async function deletePopup(db: D1Database, tenantId: string, id: string): Promise<void> {
+  await db.prepare('DELETE FROM popups WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+}
+
+export async function listBanners(db: D1Database, tenantId: string, location?: BannerRow['location']): Promise<BannerRow[]> {
+  const query = location
+    ? db
+        .prepare(
+          `SELECT id, tenant_id, location, image_url, link_url, order_index, is_active
+           FROM banners
+           WHERE tenant_id = ? AND location = ?
+           ORDER BY order_index ASC, id ASC`
+        )
+        .bind(tenantId, location)
+    : db
+        .prepare(
+          `SELECT id, tenant_id, location, image_url, link_url, order_index, is_active
+           FROM banners
+           WHERE tenant_id = ?
+           ORDER BY location ASC, order_index ASC, id ASC`
+        )
+        .bind(tenantId);
+  const { results } = await query.all<BannerRow>();
+  return (results ?? []) as BannerRow[];
+}
+
+export async function createBanner(
+  db: D1Database,
+  tenantId: string,
+  input: Pick<BannerRow, 'location' | 'image_url' | 'link_url' | 'is_active'> & { order_index?: number | null }
+): Promise<BannerRow> {
+  const id = uuidv4();
+  let orderIndex = input.order_index;
+  if (orderIndex === null || orderIndex === undefined) {
+    const row = await db
+      .prepare(
+        `SELECT COALESCE(MAX(order_index), -1) AS max_order
+         FROM banners
+         WHERE tenant_id = ? AND location = ?`
+      )
+      .bind(tenantId, input.location)
+      .first<{ max_order: number }>();
+    orderIndex = (row?.max_order ?? -1) + 1;
+  }
+  await db
+    .prepare(
+      `INSERT INTO banners (id, tenant_id, location, image_url, link_url, order_index, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(id, tenantId, input.location, input.image_url, input.link_url, orderIndex, input.is_active)
+    .run();
+  const created = await db
+    .prepare(
+      'SELECT id, tenant_id, location, image_url, link_url, order_index, is_active FROM banners WHERE id = ? AND tenant_id = ?'
+    )
+    .bind(id, tenantId)
+    .first<BannerRow>();
+  if (!created) throw new Error('Failed to create banner');
+  return created;
+}
+
+export async function updateBanner(
+  db: D1Database,
+  tenantId: string,
+  id: string,
+  updates: Partial<Pick<BannerRow, 'location' | 'image_url' | 'link_url' | 'order_index' | 'is_active'>>
+): Promise<BannerRow> {
+  await db
+    .prepare(
+      `UPDATE banners SET
+        location = COALESCE(?, location),
+        image_url = COALESCE(?, image_url),
+        link_url = COALESCE(?, link_url),
+        order_index = COALESCE(?, order_index),
+        is_active = COALESCE(?, is_active)
+       WHERE id = ? AND tenant_id = ?`
+    )
+    .bind(
+      updates.location ?? null,
+      updates.image_url ?? null,
+      updates.link_url ?? null,
+      updates.order_index ?? null,
+      updates.is_active ?? null,
+      id,
+      tenantId
+    )
+    .run();
+  const updated = await db
+    .prepare(
+      'SELECT id, tenant_id, location, image_url, link_url, order_index, is_active FROM banners WHERE id = ? AND tenant_id = ?'
+    )
+    .bind(id, tenantId)
+    .first<BannerRow>();
+  if (!updated) throw new Error('Failed to update banner');
+  return updated;
+}
+
+export async function deleteBanner(db: D1Database, tenantId: string, id: string): Promise<void> {
+  await db.prepare('DELETE FROM banners WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
 }
 
 export async function createCategory(
@@ -849,6 +1347,7 @@ export function mapPost(row: PostRow) {
   const viewCount = toNumber((row as any).view_count ?? 0) ?? 0;
   return {
     id: row.id,
+    type: (row as any).type ?? 'post',
     title: row.title,
     slug: row.slug,
     excerpt: row.excerpt,
@@ -862,6 +1361,23 @@ export function mapPost(row: PostRow) {
     updated_at: updatedAt ?? undefined,
     published_at_iso: toIso(publishedAt),
     updated_at_iso: toIso(updatedAt),
+  };
+}
+
+export function mapInquiry(row: InquiryRow) {
+  let data = row.data;
+  try {
+    data = JSON.parse(row.data);
+  } catch {
+    data = row.data;
+  }
+  return {
+    id: row.id,
+    type: row.type,
+    data,
+    is_read: Boolean(row.is_read),
+    created_at: toNumber(row.created_at) ?? undefined,
+    created_at_iso: toIso(toNumber(row.created_at)),
   };
 }
 

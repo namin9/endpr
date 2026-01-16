@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { requireRole, sessionMiddleware } from '../middleware/rbac';
+import { hasRole, sessionMiddleware } from '../middleware/rbac';
 import { SessionData } from '../session';
 import {
   getDeployJob,
@@ -67,7 +67,7 @@ router.post('/cms/deploy-jobs/:id/cancel', async (c) => {
   const tenant = c.get('tenant');
   const id = c.req.param('id');
 
-  if (!requireRole(session, ['admin', 'super'])) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasRole(session, ['tenant_admin', 'super_admin'])) return c.json({ error: 'Forbidden' }, 403);
 
   const job = await getDeployJob(c.env.DB, tenant.id, id);
   if (!job) return c.json({ error: 'Deploy job not found' }, 404);

@@ -14,9 +14,26 @@
         <h1 class="topbar-title">CMS</h1>
         <div class="tab-bar" role="tablist" aria-label="CMS Navigation">
           <button type="button" class="tab-button is-active" data-tab-target="content" role="tab">콘텐츠</button>
+          <button type="button" class="tab-button" data-tab-target="pages" role="tab">페이지</button>
+          <button type="button" class="tab-button" data-tab-target="subscribers" role="tab">구독자</button>
+          <button type="button" class="tab-button" data-tab-target="inquiries" role="tab">문의함</button>
           <button type="button" class="tab-button" data-tab-target="theme" role="tab">테마</button>
+          <button type="button" class="tab-button" data-tab-target="site" role="tab">사이트 설정</button>
           <button type="button" class="tab-button" data-tab-target="admin" role="tab" data-admin-tab>관리</button>
           <button type="button" class="tab-button" data-tab-target="pr" role="tab">PR</button>
+        </div>
+        <div class="tenant-switcher" data-tenant-switcher>
+          <button type="button" id="tenantSwitchBtn" class="ghost" aria-haspopup="true" aria-expanded="false">
+            <span id="tenantSwitchLabel">테넌트 선택</span>
+            <span aria-hidden="true">▾</span>
+          </button>
+          <div id="tenantSwitchMenu" class="tenant-switcher-menu hidden" role="menu">
+            <label class="field">
+              <span>검색</span>
+              <input id="tenantSearchInput" type="search" placeholder="테넌트 이름 또는 슬러그" />
+            </label>
+            <div id="tenantSwitchList" class="tenant-switcher-list"></div>
+          </div>
         </div>
       </div>
       <div class="topbar-right">
@@ -93,6 +110,7 @@
                   <input type="checkbox" id="postsSelectAll" aria-label="현재 목록 전체 선택" />
                 </div>
                 <div class="posts-cell">제목</div>
+                <div class="posts-cell">상태</div>
                 <div class="posts-cell">발행일</div>
                 <div class="posts-cell">조회수</div>
                 <div class="posts-cell">작업</div>
@@ -120,6 +138,117 @@
             <div class="row gap">
               <button type="button" id="themeSaveBtn" class="primary">테마 저장</button>
               <span id="themeSaveStatus" class="muted"></span>
+            </div>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="inquiries" role="tabpanel">
+          <section class="card" aria-labelledby="inquiries-heading">
+            <div class="card-header">
+              <h2 id="inquiries-heading">문의함</h2>
+              <button type="button" id="refreshInquiriesBtn" class="ghost">새로고침</button>
+            </div>
+            <p id="inquiriesStatus" class="muted">로딩 전</p>
+            <div id="inquiriesList" class="inquiry-list"></div>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="subscribers" role="tabpanel">
+          <section class="card" aria-labelledby="subscribers-heading">
+            <div class="card-header">
+              <h2 id="subscribers-heading">구독자</h2>
+              <button type="button" id="exportSubscribersBtn" class="primary">엑셀로 다운로드(CSV)</button>
+            </div>
+            <p class="muted">CSV 파일로 구독자 목록을 내려받을 수 있습니다.</p>
+            <div id="subscribersStatus" class="muted"></div>
+          </section>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="site" role="tabpanel">
+          <section class="card" aria-labelledby="site-config-heading">
+            <div class="card-header">
+              <h2 id="site-config-heading">기본 정보</h2>
+              <button type="button" id="refreshSiteConfigBtn" class="ghost">새로고침</button>
+            </div>
+            <p id="siteConfigStatus" class="muted">로딩 전</p>
+            <form id="siteConfigForm" class="stack">
+              <label class="field">
+                <span>로고 URL</span>
+                <input id="siteLogoInput" placeholder="https://..." />
+              </label>
+              <label class="field">
+                <span>카피라이트 텍스트</span>
+                <textarea id="siteFooterInput" rows="2" placeholder="© 2025 Company"></textarea>
+              </label>
+              <div class="row gap">
+                <button type="submit" id="siteConfigSaveBtn" class="primary">저장</button>
+                <span id="siteConfigSaveStatus" class="muted"></span>
+              </div>
+            </form>
+          </section>
+
+          <section class="card" aria-labelledby="site-nav-heading">
+            <div class="card-header">
+              <h2 id="site-nav-heading">메뉴 관리</h2>
+              <button type="button" id="refreshNavBtn" class="ghost">새로고침</button>
+            </div>
+            <form id="navForm" class="stack">
+              <div class="site-nav-grid">
+                <label class="field">
+                  <span>위치</span>
+                  <select id="navLocationInput">
+                    <option value="header">헤더</option>
+                    <option value="footer">푸터</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>카테고리</span>
+                  <select id="navCategorySelect">
+                    <option value="">직접 입력</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>라벨</span>
+                  <input id="navLabelInput" placeholder="예: 뉴스" />
+                </label>
+                <label class="field">
+                  <span>URL</span>
+                  <input id="navUrlInput" placeholder="/category/news/" />
+                </label>
+              </div>
+              <div class="row gap">
+                <button type="submit" class="primary">메뉴 추가</button>
+                <span id="navStatus" class="muted"></span>
+              </div>
+            </form>
+            <div id="navList" class="site-nav-list"></div>
+          </section>
+
+          <section class="card" aria-labelledby="home-layout-heading">
+            <div class="card-header">
+              <h2 id="home-layout-heading">메인 페이지 에디터</h2>
+              <button type="button" id="refreshHomeLayoutBtn" class="ghost">새로고침</button>
+            </div>
+            <div class="row gap wrap">
+              <label class="field inline">
+                <span>섹션 종류</span>
+                <select id="homeLayoutTypeSelect">
+                  <option value="banner">배너</option>
+                  <option value="features">특징 그리드</option>
+                  <option value="html">HTML/임베드</option>
+                  <option value="hero">히어로(게시글)</option>
+                  <option value="latest">최신글</option>
+                  <option value="popular">인기글</option>
+                  <option value="pick">직접 선택</option>
+                </select>
+              </label>
+              <button type="button" id="addSectionBtn" class="ghost">섹션 추가</button>
+            </div>
+            <p id="homeLayoutStatus" class="muted">로딩 전</p>
+            <div id="homeLayoutList" class="site-layout-list"></div>
+            <div class="row gap">
+              <button type="button" id="homeLayoutSaveBtn" class="primary">홈 레이아웃 저장</button>
+              <span id="homeLayoutSaveStatus" class="muted"></span>
             </div>
           </section>
         </div>
@@ -343,6 +472,13 @@
             <span>카테고리</span>
             <select id="categorySelect">
               <option value="">선택 안 함</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>글 유형</span>
+            <select id="postTypeSelect">
+              <option value="post">Post</option>
+              <option value="page">Page</option>
             </select>
           </label>
           <div class="editor-split">
