@@ -87,6 +87,12 @@ const previewModalContent = document.getElementById('previewModalContent');
 const viewModeButtons = Array.from(document.querySelectorAll('[data-view-mode]'));
 const viewOnBlogBtn = document.getElementById('viewOnBlogBtn');
 const viewOnBlogHint = document.getElementById('viewOnBlogHint');
+const editorModeToggle = document.getElementById('editorModeToggle');
+const customToolbar = document.getElementById('custom-toolbar');
+const toolbarButtons = customToolbar ? Array.from(customToolbar.querySelectorAll('[data-tool]')) : [];
+const imageUploadInput = document.getElementById('imageUploadInput');
+const markdownToolbar = document.getElementById('markdown-toolbar');
+const markdownButtons = markdownToolbar ? Array.from(markdownToolbar.querySelectorAll('[data-md-action]')) : [];
 const deployJobsScope = document.getElementById('deployJobsScope');
 const tenantSwitcher = document.querySelector('[data-tenant-switcher]');
 const tenantSwitchBtn = document.getElementById('tenantSwitchBtn');
@@ -94,10 +100,10 @@ const tenantSwitchLabel = document.getElementById('tenantSwitchLabel');
 const tenantSwitchMenu = document.getElementById('tenantSwitchMenu');
 const tenantSearchInput = document.getElementById('tenantSearchInput');
 const tenantSwitchList = document.getElementById('tenantSwitchList');
-const quillEditorEl = document.getElementById('quillEditor');
-const editorToolbar = document.getElementById('editorToolbar');
+const editorJsContainer = document.getElementById('editorjs');
 const categorySelect = document.getElementById('categorySelect');
-const postTypeSelect = document.getElementById('postTypeSelect');
+const postSlugField = document.getElementById('postSlugField');
+const postSlugInput = document.getElementById('postSlugInput');
 const categoryForm = document.getElementById('categoryForm');
 const categoryNameInput = document.getElementById('categoryNameInput');
 const categorySlugInput = document.getElementById('categorySlugInput');
@@ -143,12 +149,15 @@ const siteConfigStatus = document.getElementById('siteConfigStatus');
 const siteConfigForm = document.getElementById('siteConfigForm');
 const siteLogoInput = document.getElementById('siteLogoInput');
 const siteFooterInput = document.getElementById('siteFooterInput');
+const siteSearchEnabledInput = document.getElementById('siteSearchEnabledInput');
 const siteConfigSaveBtn = document.getElementById('siteConfigSaveBtn');
 const siteConfigSaveStatus = document.getElementById('siteConfigSaveStatus');
 const refreshSiteConfigBtn = document.getElementById('refreshSiteConfigBtn');
 const navForm = document.getElementById('navForm');
 const navLocationInput = document.getElementById('navLocationInput');
-const navCategorySelect = document.getElementById('navCategorySelect');
+const navLinkTypeSelect = document.getElementById('navLinkTypeSelect');
+const navLinkTargetSelect = document.getElementById('navLinkTargetSelect');
+const navParentSelect = document.getElementById('navParentSelect');
 const navLabelInput = document.getElementById('navLabelInput');
 const navUrlInput = document.getElementById('navUrlInput');
 const navStatus = document.getElementById('navStatus');
@@ -228,6 +237,8 @@ let currentDraft = load(DRAFT_KEY, {
   id: null,
   title: '',
   body: '',
+  bodyJson: null,
+  editorMode: 'markdown',
   savedAt: null,
   status: null,
   categorySlug: '',
@@ -239,11 +250,15 @@ let currentDraft = load(DRAFT_KEY, {
 if (!currentDraft?.type) {
   currentDraft.type = 'post';
 }
+if (!currentDraft?.editorMode) {
+  currentDraft.editorMode = currentDraft?.bodyJson ? 'rich' : 'markdown';
+}
 let currentSession = load(SESSION_KEY, null);
 let currentPosts = [];
 let allPosts = [];
 let currentJobs = load(JOB_KEY, []);
 let currentCategories = [];
+let currentPages = [];
 let currentPrCampaigns = [];
 let currentPrMentions = [];
 let currentPrReports = [];
@@ -256,7 +271,7 @@ let currentThemeConfig = { presetId: 'minimal-clean', updatedAt: null };
 let selectedThemePresetId = null;
 let currentThemeTokens = null;
 let themeIsSuperAdmin = false;
-let siteConfig = { logo_url: '', footer_text: '', home_layout: [] };
+let siteConfig = { logo_url: '', footer_text: '', home_layout: [], search_enabled: true };
 let siteNavigations = [];
 let editingNavId = null;
 let currentTenants = [];
@@ -264,8 +279,12 @@ let activeTenantId = load(ACTIVE_TENANT_KEY, null);
 let currentUsers = [];
 let selectedTenantId = null;
 let activeTabId = 'content';
-let quill = null;
-let suppressQuillChange = false;
+let editor = null;
+let editorReady = false;
+let editorDataCache = null;
+let editorChangeTimer = null;
+let editorToolsAvailable = new Set();
+let editorMode = 'rich';
 let initialPostRequestHandled = false;
 let postsView = {
   search: '',
@@ -280,6 +299,19 @@ let postsView = {
   totalPages: 1,
   serverMode: false,
 };
+const initialEditorType = (() => {
+  if (!isEditorPage) return null;
+  const params = new URLSearchParams(window.location.search);
+  const typeParam = params.get('type');
+  if (typeParam === 'page') return 'page';
+  if (currentDraft?.type === 'page') return 'page';
+  return null;
+})();
+if (initialEditorType === 'page') {
+  currentDraft.type = 'page';
+  postsView.type = 'page';
+  activeTabId = 'pages';
+}
 let selectedPostIds = new Set();
 let visiblePostIds = [];
 let autosaveState = {
@@ -384,13 +416,30 @@ function updatePostsViewLabels() {
   if (newPostBtn) newPostBtn.textContent = isPage ? '새 페이지' : '새 글';
 }
 
+function resolveActivePostType() {
+  if (isEditorPage) {
+    return currentDraft?.type === 'page' ? 'page' : 'post';
+  }
+  return postsView.type === 'page' ? 'page' : 'post';
+}
+
+function updatePostSlugFieldVisibility() {
+  if (!postSlugField) return;
+  const isPage = resolveActivePostType() === 'page';
+  postSlugField.classList.toggle('hidden', !isPage);
+}
+
 function setPostsViewType(type) {
   const nextType = type === 'page' ? 'page' : 'post';
   if (postsView.type !== nextType) {
     postsView.type = nextType;
     postsView.page = 1;
   }
+  if (isEditorPage) {
+    currentDraft.type = nextType;
+  }
   updatePostsViewLabels();
+  updatePostSlugFieldVisibility();
   if (currentSession) {
     fetchPosts();
   }
@@ -632,185 +681,367 @@ function applyPreviewTheme(tokens) {
   styleEl.textContent = buildThemeStyle(tokens, '.preview-scope');
 }
 
-function initQuillEditor() {
-  if (!window.Quill || !quillEditorEl) return;
-
-  const Font = Quill.import('formats/font');
-  Font.whitelist = ['inter', 'serif', 'monospace'];
-  Quill.register(Font, true);
-
-  const SizeStyle = Quill.import('attributors/style/size');
-  SizeStyle.whitelist = ['12px', '14px', '16px', '18px', '24px', '32px'];
-  Quill.register(SizeStyle, true);
-
-  quill = new Quill(quillEditorEl, {
-    theme: 'snow',
-    modules: {
-      toolbar: editorToolbar,
+function initEditorJs() {
+  if (!window.EditorJS || !editorJsContainer) return;
+  const tools = {};
+  if (window.Header) {
+    tools.header = {
+      class: window.Header,
+      inlineToolbar: true,
+      config: {
+        levels: [1, 2, 3, 4, 5, 6],
+        defaultLevel: 2,
+      },
+    };
+  }
+  const listTool = window.List || window.EditorjsList;
+  if (listTool) {
+    tools.list = {
+      class: listTool,
+      inlineToolbar: true,
+    };
+  }
+  if (window.Table) {
+    tools.table = window.Table;
+  }
+  if (window.Embed) {
+    tools.embed = {
+      class: window.Embed,
+      config: {
+        services: { youtube: true, twitter: true, instagram: true },
+      },
+    };
+  }
+  if (window.Marker) {
+    tools.marker = window.Marker;
+  }
+  if (window.Warning) {
+    tools.warning = {
+      class: window.Warning,
+      inlineToolbar: true,
+      config: {
+        titlePlaceholder: '콜아웃 제목',
+        messagePlaceholder: '메시지를 입력하세요',
+      },
+    };
+  }
+  if (window.CodeTool) {
+    tools.code = window.CodeTool;
+  }
+  if (window.SimpleImage) {
+    tools.image = {
+      class: window.SimpleImage,
+      inlineToolbar: true,
+    };
+  }
+  if (window.Checklist) {
+    tools.checklist = {
+      class: window.Checklist,
+      inlineToolbar: true,
+    };
+  }
+  if (window.Quote) {
+    tools.quote = {
+      class: window.Quote,
+      inlineToolbar: true,
+      config: {
+        quotePlaceholder: '인용문을 입력하세요',
+        captionPlaceholder: '출처',
+      },
+    };
+  }
+  if (window.Delimiter) {
+    tools.delimiter = window.Delimiter;
+  }
+  editorToolsAvailable = new Set(Object.keys(tools));
+  editor = new EditorJS({
+    holder: editorJsContainer,
+    placeholder: '내용을 입력하면 자동 저장됩니다',
+    tools,
+    onReady: () => {
+      editorReady = true;
+    },
+    onChange: () => {
+      scheduleEditorCacheUpdate();
+      handleAutosave();
     },
   });
+}
 
-  document.querySelectorAll('.ql-toolbar button').forEach((button) => {
-    button.setAttribute('type', 'button');
-  });
-
-  const toolbar = quill.getModule('toolbar');
-  if (toolbar) {
-    const imageInput = document.createElement('input');
-    imageInput.type = 'file';
-    imageInput.accept = 'image/*';
-    imageInput.className = 'editor-textarea--hidden';
-    document.body.appendChild(imageInput);
-
-    const uploadImage = async (file) => {
-      const formData = new FormData();
-      formData.append('file', file);
-      const response = await fetch(buildUrl('/cms/uploads'), {
-        method: 'POST',
-        credentials: 'include',
-        body: formData,
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok || !data?.ok || !data?.url) {
-        const message = data?.error || `Upload failed (${response.status})`;
-        throw new Error(message);
+function normalizeEditorData(data) {
+  if (!data || !Array.isArray(data.blocks)) return { blocks: [] };
+  const normalizedBlocks = data.blocks
+    .map((block) => {
+      if (!block || typeof block !== 'object') return null;
+      const type = block.type;
+      const raw = block.data || {};
+      if (type === 'paragraph') {
+        return { ...block, data: { text: typeof raw.text === 'string' ? raw.text : '' } };
       }
-      return data.url;
-    };
-
-    toolbar.addHandler('image', () => {
-      imageInput.value = '';
-      imageInput.click();
-    });
-
-    imageInput.addEventListener('change', async () => {
-      const file = imageInput.files && imageInput.files[0];
-      if (!file) return;
-      try {
-        const url = await uploadImage(file);
-        const range = quill.getSelection(true);
-        const index = range ? range.index : quill.getLength();
-        quill.insertEmbed(index, 'image', url, 'user');
-        quill.setSelection(index + 1, 0);
-      } catch (error) {
-        console.error('Image upload failed', error);
-        setStatus(autosaveStatus, `이미지 업로드 실패: ${error?.message || '다시 시도해 주세요.'}`, true);
+      if (type === 'header') {
+        return {
+          ...block,
+          data: {
+            text: typeof raw.text === 'string' ? raw.text : '',
+            level: Math.min(Math.max(Number(raw.level) || 2, 1), 6),
+          },
+        };
       }
-    });
-  }
+      if (type === 'list') {
+        const items = Array.isArray(raw.items) ? raw.items : [''];
+        return { ...block, data: { style: raw.style === 'ordered' ? 'ordered' : 'unordered', items } };
+      }
+      if (type === 'checklist') {
+        const items = Array.isArray(raw.items) && raw.items.length
+          ? raw.items.map((item) => ({
+              text: typeof item?.text === 'string' ? item.text : '',
+              checked: Boolean(item?.checked),
+            }))
+          : [{ text: '', checked: false }];
+        return { ...block, data: { items } };
+      }
+      if (type === 'quote') {
+        return {
+          ...block,
+          data: {
+            text: typeof raw.text === 'string' ? raw.text : '',
+            caption: typeof raw.caption === 'string' ? raw.caption : '',
+          },
+        };
+      }
+      if (type === 'table') {
+        const content = Array.isArray(raw.content) ? raw.content : [['']];
+        return { ...block, data: { withHeadings: Boolean(raw.withHeadings), content } };
+      }
+      if (type === 'code') {
+        return { ...block, data: { code: typeof raw.code === 'string' ? raw.code : '' } };
+      }
+      if (type === 'warning') {
+        return {
+          ...block,
+          data: {
+            title: typeof raw.title === 'string' ? raw.title : '',
+            message: typeof raw.message === 'string' ? raw.message : '',
+          },
+        };
+      }
+      if (type === 'delimiter') {
+        return { ...block, data: {} };
+      }
+      if (type === 'image') {
+        const url = raw.url || raw.file?.url;
+        if (!url) return null;
+        return { ...block, data: { ...raw, url, file: raw.file } };
+      }
+      if (type === 'embed') {
+        const embed = raw.embed || raw.source;
+        if (!embed) return null;
+        return { ...block, data: { ...raw, embed } };
+      }
+      if (type === 'marker') {
+        return { ...block, data: { text: typeof raw.text === 'string' ? raw.text : '' } };
+      }
+      return block;
+    })
+    .filter(Boolean);
+  return { ...data, blocks: normalizedBlocks };
 }
 
-function pickBlockAttributes(attributes = {}) {
-  const blockAttributes = {};
-  ['header', 'list', 'blockquote', 'code-block'].forEach((key) => {
-    if (attributes[key]) {
-      blockAttributes[key] = attributes[key];
-    }
-  });
-  return blockAttributes;
+function sanitizeEditorInline(html = '') {
+  return `${html}`.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
 }
 
-function formatInlineMarkdown(text, attributes = {}) {
-  if (!text) return '';
-  let output = text;
-  if (attributes.code) {
-    return `\`${output.replace(/`/g, '\\`')}\``;
-  }
-  if (attributes.bold && attributes.italic) {
-    output = `***${output}***`;
-  } else if (attributes.bold) {
-    output = `**${output}**`;
-  } else if (attributes.italic) {
-    output = `*${output}*`;
-  }
-  if (attributes.link) {
-    output = `[${output}](${attributes.link})`;
-  }
-  return output;
-}
-
-function quillDeltaToMarkdown(delta) {
-  const lines = [];
-  let currentLine = [];
-
-  const pushLine = (attributes = {}) => {
-    lines.push({
-      segments: currentLine.slice(),
-      attrs: pickBlockAttributes(attributes),
-    });
-    currentLine = [];
+function buildEditorDataFromMarkdown(markdown = '') {
+  if (!markdown) return { blocks: [] };
+  const paragraphs = `${markdown}`.split(/\n{2,}/).filter(Boolean);
+  return {
+    blocks: paragraphs.map((paragraph) => ({
+      type: 'paragraph',
+      data: { text: escapeHtml(paragraph).replace(/\n/g, '<br />') },
+    })),
   };
+}
 
-  (delta?.ops || []).forEach((op) => {
-    if (typeof op.insert === 'string') {
-      const parts = op.insert.split('\n');
-      const attributes = op.attributes || {};
-      const inlineAttributes = { ...attributes };
-      delete inlineAttributes.header;
-      delete inlineAttributes.list;
-      delete inlineAttributes.blockquote;
-      delete inlineAttributes['code-block'];
-      parts.forEach((part, index) => {
-        if (part) {
-          currentLine.push({ text: part, attrs: inlineAttributes });
+function stripInlineHtml(text = '') {
+  return `${text}`.replace(/<[^>]+>/g, '');
+}
+
+function editorDataToMarkdown(data) {
+  const blocks = data?.blocks || [];
+  return blocks
+    .map((block) => {
+      const payload = block?.data || {};
+      switch (block?.type) {
+        case 'header': {
+          const level = Math.min(Math.max(Number(payload.level) || 2, 1), 6);
+          const text = stripInlineHtml(payload.text || '');
+          return `${'#'.repeat(level)} ${text}`.trim();
         }
-        if (index < parts.length - 1) {
-          pushLine(attributes);
+        case 'paragraph':
+          return stripInlineHtml(payload.text || '');
+        case 'list': {
+          const style = payload.style === 'ordered' ? 'ordered' : 'unordered';
+          const items = Array.isArray(payload.items) ? payload.items : [];
+          return items
+            .map((item, index) => {
+              const content = stripInlineHtml(item || '');
+              return style === 'ordered' ? `${index + 1}. ${content}` : `- ${content}`;
+            })
+            .join('\n');
         }
-      });
-    } else if (op.insert?.image) {
-      currentLine.push({ text: `![image](${op.insert.image})`, attrs: {} });
-    }
-  });
-
-  if (currentLine.length) {
-    pushLine();
-  }
-
-  const output = [];
-  let inCodeBlock = false;
-
-  lines.forEach((line) => {
-    const text = line.segments.map((segment) => formatInlineMarkdown(segment.text, segment.attrs)).join('');
-    if (line.attrs['code-block']) {
-      if (!inCodeBlock) {
-        output.push('```');
-        inCodeBlock = true;
+        case 'checklist': {
+          const items = Array.isArray(payload.items) ? payload.items : [];
+          return items
+            .map((item) => {
+              const content = stripInlineHtml(item?.text || '');
+              return `- [${item?.checked ? 'x' : ' '}] ${content}`;
+            })
+            .join('\n');
+        }
+        case 'quote': {
+          const text = stripInlineHtml(payload.text || '');
+          const caption = stripInlineHtml(payload.caption || '');
+          return `> ${text}${caption ? `\n> — ${caption}` : ''}`;
+        }
+        case 'code':
+          return `\`\`\`\n${payload.code || ''}\n\`\`\``;
+        case 'warning': {
+          const title = stripInlineHtml(payload.title || '');
+          const message = stripInlineHtml(payload.message || '');
+          return `> **${title}**\n> ${message}`.trim();
+        }
+        case 'delimiter':
+          return '---';
+        case 'image': {
+          const url = payload.url || payload.file?.url;
+          return url ? `![](${url})` : '';
+        }
+        case 'table': {
+          const rows = Array.isArray(payload.content) ? payload.content : [];
+          if (!rows.length) return '';
+          const header = rows[0].map((cell) => stripInlineHtml(cell || '')).join(' | ');
+          const divider = rows[0].map(() => '---').join(' | ');
+          const body = rows
+            .slice(1)
+            .map((row) => row.map((cell) => stripInlineHtml(cell || '')).join(' | '))
+            .join('\n');
+          return `${header}\n${divider}${body ? `\n${body}` : ''}`;
+        }
+        case 'embed': {
+          const url = payload.source || payload.embed;
+          return url ? `${url}` : '';
+        }
+        default:
+          return '';
       }
-      output.push(line.segments.map((segment) => segment.text).join(''));
-      return;
-    }
-    if (inCodeBlock) {
-      output.push('```');
-      inCodeBlock = false;
-    }
-    if (line.attrs.header) {
-      output.push(`${'#'.repeat(line.attrs.header)} ${text}`);
-      return;
-    }
-    if (line.attrs.list) {
-      const bullet = line.attrs.list === 'ordered' ? '1.' : '-';
-      output.push(`${bullet} ${text}`);
-      return;
-    }
-    if (line.attrs.blockquote) {
-      output.push(`> ${text}`);
-      return;
-    }
-    output.push(text);
-  });
+    })
+    .filter(Boolean)
+    .join('\n\n');
+}
 
-  if (inCodeBlock) {
-    output.push('```');
+async function setEditorContent({ bodyJson, bodyMd }) {
+  const nextBodyMd = bodyMd || '';
+  bodyInput.value = nextBodyMd;
+  if (!editor) return;
+  const parsed = (() => {
+    if (bodyJson) {
+      try {
+        return normalizeEditorData(JSON.parse(bodyJson));
+      } catch (error) {
+        console.warn('Failed to parse body_json', error);
+      }
+    }
+    return buildEditorDataFromMarkdown(nextBodyMd);
+  })();
+  editorDataCache = parsed;
+  await editor.isReady;
+  await editor.render(parsed);
+}
+
+async function getEditorPayload() {
+  if (!editor) {
+    return { bodyJson: null, data: null };
   }
+  const data = await editor.save();
+  const normalized = normalizeEditorData(data);
+  editorDataCache = normalized;
+  return { bodyJson: JSON.stringify(normalized), data: normalized };
+}
 
-  return output.join('\n');
+function renderEditorList(items = [], style = 'unordered') {
+  const tag = style === 'ordered' ? 'ol' : 'ul';
+  const rendered = items
+    .map((item) => {
+      if (typeof item === 'string') {
+        return `<li>${sanitizeEditorInline(item)}</li>`;
+      }
+      if (item && typeof item === 'object') {
+        const content = sanitizeEditorInline(item.content || '');
+        const nested = Array.isArray(item.items) && item.items.length ? renderEditorList(item.items, style) : '';
+        return `<li>${content}${nested}</li>`;
+      }
+      return '';
+    })
+    .join('');
+  return `<${tag}>${rendered}</${tag}>`;
+}
+
+function renderEditorBlocks(data) {
+  const blocks = data?.blocks || [];
+  return blocks
+    .map((block) => {
+      const payload = block?.data || {};
+      switch (block.type) {
+        case 'header': {
+          const level = Math.min(Math.max(Number(payload.level) || 2, 1), 6);
+          return `<h${level}>${sanitizeEditorInline(payload.text || '')}</h${level}>`;
+        }
+        case 'paragraph':
+          return `<p>${sanitizeEditorInline(payload.text || '')}</p>`;
+        case 'list':
+          return renderEditorList(payload.items || [], payload.style);
+        case 'table': {
+          const rows = Array.isArray(payload.content) ? payload.content : [];
+          const body = rows
+            .map((row) => {
+              const cells = Array.isArray(row)
+                ? row.map((cell) => `<td>${sanitizeEditorInline(cell || '')}</td>`).join('')
+                : '';
+              return `<tr>${cells}</tr>`;
+            })
+            .join('');
+          return `<table><tbody>${body}</tbody></table>`;
+        }
+        case 'embed': {
+          const src = sanitizeLink(payload.embed || payload.source || '');
+          if (!src || src === '#') {
+            return payload.source ? `<a href="${sanitizeLink(payload.source)}">${escapeHtml(payload.source)}</a>` : '';
+          }
+          return `<div class="embed"><iframe src="${src}" allowfullscreen loading="lazy"></iframe></div>`;
+        }
+        case 'image': {
+          const url = sanitizeLink(payload.url || payload.file?.url || '');
+          if (!url || url === '#') return '';
+          const caption = payload.caption ? `<figcaption>${sanitizeEditorInline(payload.caption)}</figcaption>` : '';
+          return `<figure><img src="${url}" alt="" />${caption}</figure>`;
+        }
+        case 'warning': {
+          const title = payload.title ? `<div class="callout-title">${sanitizeEditorInline(payload.title)}</div>` : '';
+          const message = payload.message ? `<div class="callout-body">${sanitizeEditorInline(payload.message)}</div>` : '';
+          return `<div class="callout callout-warning">${title}${message}</div>`;
+        }
+        case 'code':
+          return `<pre><code>${escapeHtml(payload.code || '')}</code></pre>`;
+        case 'marker':
+          return `<p><mark>${sanitizeEditorInline(payload.text || '')}</mark></p>`;
+        default:
+          return '';
+      }
+    })
+    .join('');
 }
 
 function getBodyValue() {
-  if (quill) {
-    return quillDeltaToMarkdown(quill.getContents());
-  }
   return bodyInput.value || '';
 }
 
@@ -819,23 +1050,274 @@ function isHtmlContent(value) {
 }
 
 function setBodyValue(value) {
-  const nextValue = value || '';
-  bodyInput.value = nextValue;
-  if (!quill) return;
-  suppressQuillChange = true;
-  if (!nextValue) {
-    quill.setText('');
-    suppressQuillChange = false;
+  if (editorMode === 'markdown') {
+    bodyInput.value = value || '';
     return;
   }
-  const html = isHtmlContent(nextValue) ? nextValue : renderMarkdown(nextValue);
-  quill.clipboard.dangerouslyPasteHTML(html);
-  suppressQuillChange = false;
+  setEditorContent({ bodyJson: null, bodyMd: value || '' });
+}
+
+async function buildBodyPayload() {
+  const bodyMd = getBodyValue();
+  if (editorMode === 'markdown') {
+    return { bodyJson: null, bodyMd };
+  }
+  if (!editor || !editorReady) {
+    return { bodyJson: null, bodyMd };
+  }
+  const { bodyJson } = await getEditorPayload();
+  const nextMd = bodyMd || editorDataToMarkdown(editorDataCache);
+  return { bodyJson, bodyMd: nextMd };
 }
 
 function setStatus(el, message, isError = false) {
   el.textContent = message || '';
   el.classList.toggle('error', Boolean(isError));
+}
+
+function insertEditorBlock(tool, data = {}) {
+  if (!editor || !editorReady) {
+    setStatus(autosaveStatus, '에디터가 아직 준비되지 않았습니다.', true);
+    return;
+  }
+  if (!editorToolsAvailable.has(tool)) {
+    setStatus(autosaveStatus, '해당 블록 도구를 불러올 수 없습니다.', true);
+    return;
+  }
+  const index = editor.blocks.getCurrentBlockIndex();
+  editor.blocks.insert(tool, data);
+  if (typeof index === 'number' && editor.caret?.setToBlock) {
+    editor.caret.setToBlock(index + 1, 'end');
+  }
+  handleAutosave();
+}
+
+function convertOrInsertBlock(tool, data = {}) {
+  if (!editor || !editorReady) {
+    setStatus(autosaveStatus, '에디터가 아직 준비되지 않았습니다.', true);
+    return;
+  }
+  if (!editorToolsAvailable.has(tool)) {
+    setStatus(autosaveStatus, '해당 블록 도구를 불러올 수 없습니다.', true);
+    return;
+  }
+  const index = editor.blocks.getCurrentBlockIndex();
+  const block = typeof index === 'number' ? editor.blocks.getBlockByIndex(index) : null;
+  if (editor.blocks.convert && block) {
+    const blockText = typeof block?.data?.text === 'string' ? block.data.text : '';
+    const payload = { ...data };
+    if (tool === 'header' || tool === 'quote') {
+      payload.text = payload.text ?? blockText;
+    }
+    if (tool === 'list') {
+      payload.items = payload.items?.length ? payload.items : [blockText || ''];
+    }
+    if (tool === 'checklist') {
+      payload.items = payload.items?.length ? payload.items : [{ text: blockText || '', checked: false }];
+    }
+    editor.blocks.convert(tool, payload);
+    handleAutosave();
+    return;
+  }
+  insertEditorBlock(tool, data);
+}
+
+function handleImageUpload(file) {
+  if (!file) return;
+  uploadImageAsset(file)
+    .then((url) => {
+      insertEditorBlock('image', { url });
+    })
+    .catch((error) => {
+      console.error('Image upload failed', error);
+      setStatus(autosaveStatus, `이미지 업로드 실패: ${error?.message || '다시 시도해 주세요.'}`, true);
+    })
+    .finally(() => {
+      if (imageUploadInput) {
+        imageUploadInput.value = '';
+      }
+    });
+}
+
+function initCustomToolbar() {
+  if (!customToolbar || !toolbarButtons.length) return;
+  customToolbar.classList.toggle('is-hidden', editorMode === 'markdown');
+  toolbarButtons.forEach((button) => {
+    const tool = button.dataset.tool;
+    if (tool) {
+      button.disabled = !editorToolsAvailable.has(tool);
+    }
+    button.addEventListener('click', () => {
+      const selectedTool = button.dataset.tool;
+      if (!selectedTool) return;
+      if (!editorToolsAvailable.has(selectedTool)) {
+        setStatus(autosaveStatus, '해당 블록 도구를 불러올 수 없습니다.', true);
+        return;
+      }
+      if (selectedTool === 'header') {
+        const level = Number(button.dataset.level) || 2;
+        convertOrInsertBlock('header', { level, text: '' });
+        return;
+      }
+      if (selectedTool === 'list') {
+        convertOrInsertBlock('list', { style: 'unordered', items: [''] });
+        return;
+      }
+      if (selectedTool === 'checklist') {
+        convertOrInsertBlock('checklist', { items: [{ text: '', checked: false }] });
+        return;
+      }
+      if (selectedTool === 'quote') {
+        convertOrInsertBlock('quote', { text: '', caption: '' });
+        return;
+      }
+      if (selectedTool === 'image') {
+        if (imageUploadInput) {
+          imageUploadInput.click();
+        }
+        return;
+      }
+      if (selectedTool === 'table') {
+        insertEditorBlock('table', { withHeadings: true, content: [['']] });
+        return;
+      }
+      if (selectedTool === 'code') {
+        insertEditorBlock('code', { code: '' });
+        return;
+      }
+      if (selectedTool === 'warning') {
+        insertEditorBlock('warning', { title: '', message: '' });
+        return;
+      }
+      if (selectedTool === 'delimiter') {
+        insertEditorBlock('delimiter', {});
+      }
+    });
+  });
+
+  if (imageUploadInput) {
+    imageUploadInput.addEventListener('change', () => {
+      const file = imageUploadInput.files?.[0];
+      handleImageUpload(file);
+    });
+  }
+}
+
+function wrapSelection(prefix, suffix = '') {
+  const start = bodyInput.selectionStart ?? 0;
+  const end = bodyInput.selectionEnd ?? 0;
+  const value = bodyInput.value || '';
+  const before = value.slice(0, start);
+  const selected = value.slice(start, end);
+  const after = value.slice(end);
+  const next = `${before}${prefix}${selected}${suffix}${after}`;
+  bodyInput.value = next;
+  const cursor = start + prefix.length + (selected ? selected.length : 0);
+  bodyInput.focus();
+  bodyInput.setSelectionRange(cursor, cursor);
+}
+
+function prefixLine(prefix) {
+  const start = bodyInput.selectionStart ?? 0;
+  const end = bodyInput.selectionEnd ?? 0;
+  const value = bodyInput.value || '';
+  const before = value.slice(0, start);
+  const selected = value.slice(start, end) || '';
+  const after = value.slice(end);
+  const lines = (selected || '내용을 입력하세요').split('\n').map((line) => `${prefix}${line}`);
+  const block = lines.join('\n');
+  bodyInput.value = `${before}${block}${after}`;
+  const cursor = before.length + block.length;
+  bodyInput.focus();
+  bodyInput.setSelectionRange(cursor, cursor);
+}
+
+function insertAtCursor(text) {
+  const start = bodyInput.selectionStart ?? 0;
+  const end = bodyInput.selectionEnd ?? 0;
+  const value = bodyInput.value || '';
+  bodyInput.value = `${value.slice(0, start)}${text}${value.slice(end)}`;
+  const cursor = start + text.length;
+  bodyInput.focus();
+  bodyInput.setSelectionRange(cursor, cursor);
+}
+
+function insertMarkdownTable() {
+  const table = '\n| 제목 | 내용 |\n| --- | --- |\n| 값 | 값 |\n';
+  insertAtCursor(table);
+}
+
+function initMarkdownToolbar() {
+  if (!markdownToolbar || !markdownButtons.length || !bodyInput) return;
+  markdownToolbar.classList.toggle('is-hidden', editorMode !== 'markdown');
+  markdownButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const action = button.dataset.mdAction;
+      if (!action) return;
+      if (action === 'bold') {
+        wrapSelection('**', '**');
+      } else if (action === 'italic') {
+        wrapSelection('*', '*');
+      } else if (action === 'link') {
+        wrapSelection('[', '](https://)');
+      } else if (action === 'strike') {
+        wrapSelection('~~', '~~');
+      } else if (action === 'code') {
+        wrapSelection('`', '`');
+      } else if (action === 'h1') {
+        prefixLine('# ');
+      } else if (action === 'h2') {
+        prefixLine('## ');
+      } else if (action === 'h3') {
+        prefixLine('### ');
+      } else if (action === 'ul') {
+        prefixLine('- ');
+      } else if (action === 'ol') {
+        prefixLine('1. ');
+      } else if (action === 'quote') {
+        prefixLine('> ');
+      } else if (action === 'image') {
+        wrapSelection('![](', ')');
+      } else if (action === 'table') {
+        insertMarkdownTable();
+      } else if (action === 'divider') {
+        insertAtCursor('\n---\n');
+      }
+      handleAutosave();
+    });
+  });
+}
+
+async function setEditorMode(mode) {
+  editorMode = mode === 'markdown' ? 'markdown' : 'rich';
+  if (editorModeToggle) {
+    editorModeToggle.textContent = editorMode === 'markdown' ? '노션 에디터' : '기본 에디터';
+  }
+  if (customToolbar) {
+    customToolbar.classList.toggle('is-hidden', editorMode === 'markdown');
+  }
+  if (markdownToolbar) {
+    markdownToolbar.classList.toggle('is-hidden', editorMode !== 'markdown');
+  }
+  if (editorJsContainer) {
+    editorJsContainer.classList.toggle('is-hidden', editorMode === 'markdown');
+  }
+  if (editorMode === 'markdown') {
+    bodyInput.classList.remove('editor-textarea--hidden');
+    if (editor && editorReady) {
+      try {
+        const data = await editor.save();
+        const normalized = normalizeEditorData(data);
+        editorDataCache = normalized;
+        bodyInput.value = editorDataToMarkdown(normalized);
+      } catch (error) {
+        console.warn('Failed to extract editor data for markdown', error);
+      }
+    }
+  } else {
+    bodyInput.classList.add('editor-textarea--hidden');
+    await setEditorContent({ bodyJson: currentDraft?.bodyJson, bodyMd: bodyInput.value || currentDraft?.body || '' });
+  }
 }
 
 function buildUrl(path) {
@@ -887,6 +1369,27 @@ async function apiFetch(path, options = {}) {
   return data;
 }
 
+async function apiPostWithFallback(path, payload) {
+  try {
+    return await apiFetch(path, { method: 'POST', body: payload });
+  } catch (error) {
+    if (payload?.body_json && error?.status === 500) {
+      const fallback = { ...payload };
+      delete fallback.body_json;
+      if (fallback.body_md === undefined) {
+        fallback.body_md = currentDraft?.body || '';
+      }
+      return apiFetch(path, { method: 'POST', body: fallback });
+    }
+    if (error?.status === 500 && payload?.body_md !== undefined) {
+      const fallback = { ...payload };
+      fallback.body_md = fallback.body_md?.trim() ? fallback.body_md : ' ';
+      return apiFetch(path, { method: 'POST', body: fallback });
+    }
+    throw error;
+  }
+}
+
 async function uploadImageAsset(file) {
   const formData = new FormData();
   formData.append('file', file);
@@ -911,6 +1414,15 @@ function formatError(error) {
 function isReservedSlug(value) {
   if (!value) return false;
   return RESERVED_SLUGS.has(value.toLowerCase());
+}
+
+function validateReservedSlug(value, onError) {
+  if (!value) return true;
+  if (!isReservedSlug(value)) return true;
+  if (typeof onError === 'function') {
+    onError('예약어 slug는 사용할 수 없습니다.');
+  }
+  return false;
 }
 
 function persistSession(session) {
@@ -1036,21 +1548,48 @@ logoutBtn.addEventListener('click', async () => {
   renderThemePresets();
 });
 
-function renderPreview() {
-  const draft = currentDraft || { title: '', body: '' };
+async function renderPreview() {
+  const draft = currentDraft || { title: '', body: '', bodyJson: null };
+  const title = draft.title || '제목 없음';
   const body = draft.body || '';
-  if (!draft.title && !body) {
+  const hasEditorData = Boolean(editor && (editorDataCache || draft.bodyJson));
+  if (!title && !body && !hasEditorData) {
+    previewPane.innerHTML = '<div class="preview-scope muted">작성된 내용이 없습니다.</div>';
+    return;
+  }
+
+  if (hasEditorData) {
+    let data = editorDataCache;
+    if (!data && draft.bodyJson) {
+      try {
+        data = normalizeEditorData(JSON.parse(draft.bodyJson));
+      } catch (error) {
+        console.warn('Failed to parse draft body_json', error);
+      }
+    }
+    if (!data && editor) {
+      try {
+        const saved = await editor.save();
+        data = normalizeEditorData(saved);
+        editorDataCache = data;
+      } catch (error) {
+        console.warn('Failed to save editor data for preview', error);
+      }
+    }
+    const content = data ? renderEditorBlocks(data) : '';
+    previewPane.innerHTML = `<div class="preview-scope"><h1>${escapeHtml(title)}</h1>${content}</div>`;
+    previewStatus.textContent = '실시간';
+    return;
+  }
+
+  if (!title && !body) {
     previewPane.innerHTML = '<div class="preview-scope muted">작성된 내용이 없습니다.</div>';
     return;
   }
   const hasHtml = isHtmlContent(body);
-  let content = '';
-  if (hasHtml) {
-    content = body;
-  } else {
-    const markdown = `# ${draft.title || '제목 없음'}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
-    content = renderMarkdown(markdown);
-  }
+  const content = hasHtml
+    ? body
+    : renderMarkdown(`# ${title}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`);
   previewPane.innerHTML = `<div class="preview-scope">${content}</div>`;
   previewStatus.textContent = '실시간';
 }
@@ -1195,20 +1734,25 @@ function renderMarkdown(markdown) {
   return html;
 }
 
+function scheduleEditorCacheUpdate() {
+  if (!editor || !editorReady) return;
+  if (editorChangeTimer) clearTimeout(editorChangeTimer);
+  editorChangeTimer = setTimeout(async () => {
+    try {
+      const data = await editor.save();
+      editorDataCache = normalizeEditorData(data);
+      persistDraft({ bodyJson: JSON.stringify(editorDataCache) });
+    } catch (error) {
+      console.warn('Failed to cache editor data', error);
+    }
+  }, 400);
+}
+
 function schedulePreviewUpdate() {
   if (previewTimer) clearTimeout(previewTimer);
   previewStatus.textContent = '갱신 중...';
   previewTimer = setTimeout(() => {
-    const title = titleInput.value || '제목 없음';
-    const body = getBodyValue();
-    const hasHtml = isHtmlContent(body);
-    if (hasHtml) {
-      previewPane.innerHTML = body;
-    } else {
-      const markdown = `# ${title}\n\n${body || '본문을 입력하면 미리보기가 표시됩니다.'}`;
-      previewPane.innerHTML = renderMarkdown(markdown);
-    }
-    previewStatus.textContent = '실시간';
+    void renderPreview();
   }, 220);
 }
 
@@ -1217,6 +1761,9 @@ function persistDraft(partial) {
     ...currentDraft,
     ...partial,
   };
+  if (currentDraft?.editorMode) {
+    editorMode = currentDraft.editorMode;
+  }
   save(DRAFT_KEY, currentDraft);
   renderPreview();
   renderSelectedPostMeta();
@@ -1363,27 +1910,37 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
     setStatus(statusEl, '예약 시간을 먼저 설정하세요.', true);
     return;
   }
+  const slugValue = getPostSlugForSave();
+  if (!validateReservedSlug(slugValue, (message) => setStatus(statusEl, message, true))) {
+    return;
+  }
   try {
     setStatus(statusEl, '예약 저장 중...');
     setGlobalLoading(true, '예약 발행 저장 중...');
-    const postId = await ensurePostId(titleInput.value.trim() || '제목 없음', getBodyValue());
+    const payload = await buildBodyPayload();
+    const postId = await ensurePostId(titleInput.value.trim() || '제목 없음', payload);
     const postType = getSelectedPostType();
-    const response = await apiFetch(`/cms/posts/${postId}/autosave`, {
-      method: 'POST',
-      body: {
-        title: titleInput.value.trim() || '제목 없음',
-        body_md: getBodyValue(),
-        category_slug: categorySelect?.value || undefined,
-        type: postType,
-        status: 'scheduled',
-        publish_at: publishAt,
-      },
+    const bodyPayload = payload.bodyJson
+      ? { body_json: payload.bodyJson, body_md: payload.bodyMd }
+      : { body_md: payload.bodyMd };
+    if (bodyPayload.body_md !== undefined && !bodyPayload.body_md.trim()) {
+      bodyPayload.body_md = ' ';
+    }
+    const response = await apiPostWithFallback(`/cms/posts/${postId}/autosave`, {
+      title: titleInput.value.trim() || '제목 없음',
+      ...bodyPayload,
+      category_slug: categorySelect?.value || undefined,
+      slug: slugValue || undefined,
+      type: postType,
+      status: 'scheduled',
+      publish_at: publishAt,
     });
     const updated = normalizePost(response?.post || response);
     persistDraft({
       id: postId,
       title: updated.title,
       body: updated.body || '',
+      bodyJson: updated.bodyJson || payload.bodyJson || null,
       savedAt: updated.updatedAt || currentDraft.savedAt,
       status: updated.status,
       type: updated.type || postType,
@@ -1434,25 +1991,45 @@ async function cancelSchedule() {
 }
 
 function getSelectedPostType() {
-  const value = postTypeSelect?.value || currentDraft?.type || 'post';
+  const value = resolveActivePostType();
   return value === 'page' ? 'page' : 'post';
 }
 
-async function ensurePostId(title, body) {
+function getPostSlugForSave() {
+  if (getSelectedPostType() !== 'page') return undefined;
+  if (!postSlugInput) return undefined;
+  return postSlugInput.value.trim();
+}
+
+async function ensurePostId(title, payload = {}) {
   if (currentDraft?.id) return currentDraft.id;
   const categorySlug = categorySelect?.value || undefined;
   const postType = getSelectedPostType();
-  const created = await apiFetch('/cms/posts', {
-    method: 'POST',
-    body: { title: title || '제목 없음', body_md: body, category_slug: categorySlug, type: postType },
+  const slugValue = getPostSlugForSave();
+  const bodyPayload = payload?.bodyJson
+    ? { body_json: payload.bodyJson, body_md: payload?.bodyMd || '' }
+    : { body_md: payload?.bodyMd || '' };
+  if (bodyPayload.body_md !== undefined && !bodyPayload.body_md.trim()) {
+    bodyPayload.body_md = ' ';
+  }
+  const created = await apiPostWithFallback('/cms/posts', {
+    title: title || '제목 없음',
+    ...bodyPayload,
+    category_slug: categorySlug,
+    slug: slugValue || undefined,
+    type: postType,
   });
-  const postId = created?.post?.id;
+  const createdPost = created?.post || created;
+  const postId = createdPost?.id;
   if (!postId) throw new Error('게시글 ID를 받을 수 없습니다.');
-  persistDraft({ id: postId, categorySlug: categorySlug || '', type: postType });
+  persistDraft({ id: postId, categorySlug: categorySlug || '', type: postType, slug: createdPost?.slug || null });
+  if (postSlugInput && createdPost?.slug) {
+    postSlugInput.value = createdPost.slug;
+  }
   return postId;
 }
 
-async function saveDraftToApi(title, body) {
+async function saveDraftToApi(title) {
   if (!currentSession) {
     autosaveState = {
       ...autosaveState,
@@ -1464,6 +2041,19 @@ async function saveDraftToApi(title, body) {
     return;
   }
 
+  const slugValue = getPostSlugForSave();
+  if (!validateReservedSlug(slugValue, (message) => {
+    autosaveState = {
+      ...autosaveState,
+      saving: false,
+      error: message,
+      dirty: true,
+    };
+    updateAutosaveStatus();
+  })) {
+    return;
+  }
+
   try {
     autosaveState = {
       ...autosaveState,
@@ -1471,24 +2061,42 @@ async function saveDraftToApi(title, body) {
       error: null,
     };
     updateAutosaveStatus();
-    const postId = await ensurePostId(title, body);
+    const payload = await buildBodyPayload();
+    const postId = await ensurePostId(title, payload);
     const categorySlug = categorySelect?.value || undefined;
     const postType = getSelectedPostType();
-    const saved = await apiFetch(`/cms/posts/${postId}/autosave`, {
-      method: 'POST',
-      body: { title, body_md: body, category_slug: categorySlug, type: postType },
+    const bodyPayload = payload.bodyJson
+      ? { body_json: payload.bodyJson, body_md: payload.bodyMd }
+      : { body_md: payload.bodyMd };
+    if (bodyPayload.body_md !== undefined && !bodyPayload.body_md.trim()) {
+      bodyPayload.body_md = ' ';
+    }
+    const saved = await apiPostWithFallback(`/cms/posts/${postId}/autosave`, {
+      title,
+      ...bodyPayload,
+      category_slug: categorySlug,
+      slug: slugValue || undefined,
+      type: postType,
     });
     const savedAt = saved?.saved_at || saved?.post?.updated_at_iso || new Date().toISOString();
+    const savedPost = saved?.post || saved;
     persistDraft({
       id: postId,
       title,
-      body,
+      body: payload.bodyMd || currentDraft.body || '',
+      bodyJson: payload.bodyJson || currentDraft.bodyJson || null,
+      editorMode,
       savedAt,
-      status: saved?.post?.status,
+      status: savedPost?.status,
       categorySlug: categorySlug || '',
-      type: saved?.post?.type || postType,
-      publishAt: saved?.post?.publish_at ?? saved?.post?.publishAt ?? currentDraft.publishAt ?? null,
+      type: savedPost?.type || postType,
+      slug: savedPost?.slug ?? currentDraft.slug ?? null,
+      publicUrl: savedPost?.public_url || savedPost?.publicUrl || currentDraft.publicUrl || null,
+      publishAt: savedPost?.publish_at ?? savedPost?.publishAt ?? currentDraft.publishAt ?? null,
     });
+    if (postSlugInput && savedPost?.slug) {
+      postSlugInput.value = savedPost.slug;
+    }
     autosaveState = {
       dirty: false,
       saving: false,
@@ -1509,8 +2117,6 @@ async function saveDraftToApi(title, body) {
 
 function handleAutosave() {
   if (autosaveTimer) clearTimeout(autosaveTimer);
-  const title = titleInput.value;
-  const body = getBodyValue();
   autosaveState = {
     ...autosaveState,
     dirty: true,
@@ -1519,7 +2125,7 @@ function handleAutosave() {
   updateAutosaveStatus();
   schedulePreviewUpdate();
   autosaveTimer = setTimeout(() => {
-    saveDraftToApi(title, body);
+    saveDraftToApi(titleInput.value);
   }, 15000);
 }
 
@@ -1528,27 +2134,29 @@ bodyInput.addEventListener('input', handleAutosave);
 if (categorySelect) {
   categorySelect.addEventListener('change', handleAutosave);
 }
-if (postTypeSelect) {
-  postTypeSelect.addEventListener('change', handleAutosave);
+if (postSlugInput) {
+  postSlugInput.addEventListener('input', handleAutosave);
 }
 
-if (quillEditorEl) {
-  initQuillEditor();
-  if (quill) {
-    quill.on('text-change', () => {
-      if (suppressQuillChange) return;
-      bodyInput.value = getBodyValue();
-      handleAutosave();
-    });
-  }
+if (editorJsContainer) {
+  initEditorJs();
+  initCustomToolbar();
+}
+initMarkdownToolbar();
+if (editorModeToggle) {
+  editorModeToggle.addEventListener('click', async () => {
+    const nextMode = editorMode === 'markdown' ? 'rich' : 'markdown';
+    await setEditorMode(nextMode);
+    handleAutosave();
+  });
 }
 
 manualSaveBtn.addEventListener('click', () => {
-  saveDraftToApi(titleInput.value, getBodyValue());
+  saveDraftToApi(titleInput.value);
 });
 
 retrySaveBtn.addEventListener('click', () => {
-  saveDraftToApi(titleInput.value, getBodyValue());
+  saveDraftToApi(titleInput.value);
 });
 
 clearDraftBtn.addEventListener('click', () => {
@@ -1557,6 +2165,7 @@ clearDraftBtn.addEventListener('click', () => {
     id: null,
     title: '',
     body: '',
+    bodyJson: null,
     savedAt: null,
     status: null,
     categorySlug: '',
@@ -1566,7 +2175,8 @@ clearDraftBtn.addEventListener('click', () => {
   };
   titleInput.value = '';
   if (categorySelect) categorySelect.value = '';
-  if (postTypeSelect) postTypeSelect.value = 'post';
+  if (postSlugInput) postSlugInput.value = '';
+  updatePostSlugFieldVisibility();
   setBodyValue('');
   autosaveState = {
     dirty: false,
@@ -1591,6 +2201,7 @@ function normalizePost(rawPost) {
     slug: rawPost?.slug || rawPost?.slug_id || rawPost?.slugId || null,
     publicUrl: rawPost?.public_url || rawPost?.publicUrl || null,
     body: rawPost?.body_md || rawPost?.body || '',
+    bodyJson: rawPost?.body_json || rawPost?.bodyJson || null,
     categorySlug: rawPost?.category_slug || rawPost?.categorySlug || '',
     viewCount: Number(rawPost?.view_count ?? rawPost?.viewCount ?? 0) || 0,
   };
@@ -1744,9 +2355,22 @@ async function fetchCategories() {
     currentCategories = categories.map(normalizeCategory);
     renderCategories();
     renderPostsCategoryFilter();
-    renderNavCategoryOptions();
+    renderNavTargetOptions();
   } catch (error) {
     setStatus(categoriesStatus, formatError(error), true);
+  }
+}
+
+async function fetchPagesForNav() {
+  if (!navLinkTargetSelect) return;
+  if (!currentSession || isEditorSession()) return;
+  try {
+    const data = await apiFetch('/cms/posts?type=page');
+    const posts = data?.posts || data?.items || [];
+    currentPages = posts.map(normalizePost).filter((post) => post.type === 'page');
+    renderNavTargetOptions();
+  } catch (error) {
+    if (navStatus) setStatus(navStatus, formatError(error), true);
   }
 }
 
@@ -2427,7 +3051,7 @@ async function deleteBanner(id) {
 function getHomeSectionDefaults(type) {
   switch (type) {
     case 'hero':
-      return { title: '주요 뉴스', limit: 1 };
+      return { title: '주요 뉴스', limit: 1, order_by: 'latest', enable_slider: false };
     case 'latest':
       return { title: '최신글', limit: 6 };
     case 'popular':
@@ -2474,7 +3098,9 @@ function createHomeSection(type) {
     items: defaults.items,
     raw_content: defaults.raw_content,
     limit: defaults.limit,
-    post_ids: type === 'pick' ? [] : undefined,
+    order_by: defaults.order_by,
+    enable_slider: defaults.enable_slider,
+    post_ids: ['hero', 'pick'].includes(type) ? [] : undefined,
   };
 }
 
@@ -2491,17 +3117,123 @@ function renderSiteConfigForm() {
   if (!siteLogoInput || !siteFooterInput) return;
   siteLogoInput.value = siteConfig.logo_url || '';
   siteFooterInput.value = siteConfig.footer_text || '';
+  if (siteSearchEnabledInput) {
+    siteSearchEnabledInput.checked = resolveSearchEnabled(siteConfig.search_enabled);
+  }
 }
 
-function renderNavCategoryOptions() {
-  if (!navCategorySelect) return;
-  navCategorySelect.innerHTML = '<option value="">직접 입력</option>';
-  currentCategories.forEach((category) => {
+function resolveSearchEnabled(value) {
+  if (value === false || value === 0 || value === '0') return false;
+  if (value === true || value === 1 || value === '1') return true;
+  return true;
+}
+
+function getNavLinkType() {
+  return navLinkTypeSelect?.value || 'custom';
+}
+
+function getNavLocation() {
+  return navLocationInput?.value || 'header';
+}
+
+function renderNavTargetOptions() {
+  if (!navLinkTargetSelect) return;
+  const type = getNavLinkType();
+  navLinkTargetSelect.innerHTML = '<option value="">선택하세요</option>';
+  if (type === 'category') {
+    currentCategories.forEach((category) => {
+      if (!category.slug) return;
+      const option = document.createElement('option');
+      option.value = category.slug;
+      option.textContent = category.name || category.slug;
+      navLinkTargetSelect.appendChild(option);
+    });
+  }
+  if (type === 'page') {
+    currentPages.forEach((page) => {
+      if (!page.slug) return;
+      const option = document.createElement('option');
+      option.value = page.slug;
+      option.textContent = page.title || page.slug || '제목 없음';
+      navLinkTargetSelect.appendChild(option);
+    });
+  }
+  navLinkTargetSelect.disabled = type === 'custom';
+}
+
+function renderNavParentOptions(currentId = null) {
+  if (!navParentSelect) return;
+  const location = getNavLocation();
+  navParentSelect.innerHTML = '<option value="">상위 메뉴 없음</option>';
+  if (location !== 'header') {
+    navParentSelect.value = '';
+    navParentSelect.disabled = true;
+    return;
+  }
+  const parentOptions = siteNavigations.filter(
+    (item) => item.location === 'header' && !item.parent_id && item.id !== currentId
+  );
+  parentOptions.forEach((item) => {
     const option = document.createElement('option');
-    option.value = category.slug;
-    option.textContent = category.name || category.slug;
-    navCategorySelect.appendChild(option);
+    option.value = item.id;
+    option.textContent = item.label || item.url || item.id;
+    navParentSelect.appendChild(option);
   });
+  navParentSelect.disabled = false;
+}
+
+function applyNavTargetSelection(slug, type = getNavLinkType()) {
+  if (!slug) return;
+  if (navUrlInput) {
+    navUrlInput.value = type === 'category' ? `/category/${slug}/` : `/${slug}/`;
+  }
+  if (navLabelInput && !navLabelInput.value.trim()) {
+    if (type === 'category') {
+      const category = currentCategories.find((item) => item.slug === slug);
+      if (category) navLabelInput.value = category.name || category.slug;
+    }
+    if (type === 'page') {
+      const page = currentPages.find((item) => item.slug === slug);
+      if (page) navLabelInput.value = page.title || page.slug;
+    }
+  }
+}
+
+function syncNavTargetSelection() {
+  if (!navLinkTargetSelect) return;
+  const slug = navLinkTargetSelect.value;
+  if (!slug) return;
+  applyNavTargetSelection(slug, getNavLinkType());
+}
+
+function inferNavLinkType(url) {
+  if (!url) return { type: 'custom', slug: null };
+  if (/^https?:\/\//i.test(url)) return { type: 'custom', slug: null };
+  const categoryMatch = url.match(/^\/category\/([^/]+)\/?$/);
+  if (categoryMatch) {
+    const slug = categoryMatch[1];
+    if (currentCategories.some((item) => item.slug === slug)) {
+      return { type: 'category', slug };
+    }
+  }
+  const pageMatch = url.match(/^\/([^/]+)\/?$/);
+  if (pageMatch) {
+    const slug = pageMatch[1];
+    if (currentPages.some((item) => item.slug === slug)) {
+      return { type: 'page', slug };
+    }
+  }
+  return { type: 'custom', slug: null };
+}
+
+function syncNavTypeAndTarget(url) {
+  if (!navLinkTypeSelect) return;
+  const { type, slug } = inferNavLinkType(url);
+  navLinkTypeSelect.value = type;
+  renderNavTargetOptions();
+  if (navLinkTargetSelect) {
+    navLinkTargetSelect.value = slug || '';
+  }
 }
 
 function renderSiteNavigations() {
@@ -2516,17 +3248,38 @@ function renderSiteNavigations() {
   }
   const sorted = [...siteNavigations].sort((a, b) => {
     if (a.location !== b.location) return a.location.localeCompare(b.location);
+    const parentA = a.parent_id || '';
+    const parentB = b.parent_id || '';
+    if (parentA !== parentB) return parentA.localeCompare(parentB);
     if (a.order_index !== b.order_index) return a.order_index - b.order_index;
     return (a.created_at || 0) - (b.created_at || 0);
   });
+  const itemsByParent = new Map();
+  const itemById = new Map();
   sorted.forEach((item) => {
+    itemById.set(item.id, item);
+    const parentKey = item.parent_id || '';
+    if (!itemsByParent.has(parentKey)) {
+      itemsByParent.set(parentKey, []);
+    }
+    itemsByParent.get(parentKey).push(item);
+  });
+
+  const renderGroup = (parentId = '', depth = 0) => {
+    const items = itemsByParent.get(parentId) || [];
+    items.forEach((item) => {
     const container = document.createElement('div');
-    container.className = 'site-nav-item';
+    container.className = depth > 0 ? 'site-nav-item is-child' : 'site-nav-item';
     const meta = document.createElement('div');
     meta.className = 'site-nav-meta';
+    const parentLabel = item.parent_id ? itemById.get(item.parent_id)?.label : null;
     meta.innerHTML = `
       <strong>${item.label}</strong>
-      <span class="muted">${item.location === 'header' ? '헤더' : '푸터'} · 순서 ${item.order_index}</span>
+      <span class="muted">
+        ${item.location === 'header' ? '헤더' : '푸터'}
+        ${parentLabel ? `· 상위 ${parentLabel}` : ''}
+        · 순서 ${item.order_index}
+      </span>
     `;
     const urlEl = document.createElement('div');
     urlEl.className = 'muted';
@@ -2552,8 +3305,13 @@ function renderSiteNavigations() {
     editBtn.addEventListener('click', () => {
       editingNavId = item.id;
       if (navLocationInput) navLocationInput.value = item.location;
+      renderNavParentOptions(item.id);
+      if (navParentSelect) navParentSelect.value = item.parent_id || '';
       if (navLabelInput) navLabelInput.value = item.label;
       if (navUrlInput) navUrlInput.value = item.url;
+      if (navLinkTypeSelect) {
+        syncNavTypeAndTarget(item.url);
+      }
       if (navStatus) setStatus(navStatus, '편집 모드입니다. 저장하면 기존 메뉴가 수정됩니다.');
     });
 
@@ -2568,7 +3326,9 @@ function renderSiteNavigations() {
     });
 
     const moveItem = async (direction) => {
-      const siblings = sorted.filter((nav) => nav.location === item.location);
+      const siblings = (itemsByParent.get(item.parent_id || '') || []).filter(
+        (nav) => nav.location === item.location
+      );
       const index = siblings.findIndex((nav) => nav.id === item.id);
       const targetIndex = direction === 'up' ? index - 1 : index + 1;
       if (targetIndex < 0 || targetIndex >= siblings.length) return;
@@ -2592,7 +3352,11 @@ function renderSiteNavigations() {
 
     upBtn.addEventListener('click', () => moveItem('up'));
     downBtn.addEventListener('click', () => moveItem('down'));
+    renderGroup(item.id, depth + 1);
   });
+  };
+
+  renderGroup('', 0);
 }
 
 function renderHomeLayoutEditor() {
@@ -2664,6 +3428,24 @@ function renderHomeLayoutEditor() {
       return { field, select };
     };
 
+    const createCheckboxField = (labelText, checked, onChange) => {
+      const field = document.createElement('label');
+      field.className = 'field';
+      const wrap = document.createElement('div');
+      wrap.className = 'checkbox-row';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = Boolean(checked);
+      input.addEventListener('change', () => onChange(input.checked));
+      const label = document.createElement('span');
+      label.className = 'muted';
+      label.textContent = labelText;
+      wrap.appendChild(input);
+      wrap.appendChild(label);
+      field.appendChild(wrap);
+      return { field, input };
+    };
+
     if (['hero', 'latest', 'popular', 'pick'].includes(section.type)) {
       const { field: titleField } = createInputField('섹션 타이틀', section.title || '', (value) => {
         section.title = value;
@@ -2680,29 +3462,122 @@ function renderHomeLayoutEditor() {
       fields.appendChild(titleField);
       fields.appendChild(limitField);
 
-      if (section.type === 'pick') {
+      const createPostPicker = (targetSection, labelText) => {
         const picksWrapper = document.createElement('div');
         picksWrapper.className = 'site-layout-picks';
         const pickLabel = document.createElement('span');
         pickLabel.className = 'muted';
-        pickLabel.textContent = 'Pick 게시글 선택';
-        const select = document.createElement('select');
-        select.multiple = true;
-        allPosts.forEach((post) => {
-          const option = document.createElement('option');
-          option.value = post.id;
-          option.textContent = post.title || post.slug;
-          if (Array.isArray(section.post_ids) && section.post_ids.includes(post.id)) {
-            option.selected = true;
+        pickLabel.textContent = labelText;
+        const pickSearch = document.createElement('input');
+        pickSearch.type = 'search';
+        pickSearch.placeholder = '게시글 검색';
+        const pickList = document.createElement('div');
+        pickList.className = 'pick-list';
+        const selectedIds = new Set(Array.isArray(targetSection.post_ids) ? targetSection.post_ids : []);
+        const posts = allPosts.filter((post) => (post.type || 'post') === 'post');
+        const toTimestamp = (value) => {
+          if (!value) return 0;
+          const date = new Date(value);
+          return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+        };
+        const sortedPosts = posts.slice().sort((a, b) => {
+          const aDate = toTimestamp(a.publishedAt || a.updatedAt);
+          const bDate = toTimestamp(b.publishedAt || b.updatedAt);
+          return bDate - aDate;
+        });
+        const renderPickList = () => {
+          const query = pickSearch.value.trim().toLowerCase();
+          pickList.innerHTML = '';
+          const filtered = query
+            ? sortedPosts.filter((post) => {
+                const title = (post.title || '').toLowerCase();
+                const slug = (post.slug || '').toLowerCase();
+                return title.includes(query) || slug.includes(query);
+              })
+            : sortedPosts;
+          if (!filtered.length) {
+            const empty = document.createElement('div');
+            empty.className = 'muted';
+            empty.textContent = '검색 결과가 없습니다.';
+            pickList.appendChild(empty);
+            return;
           }
-          select.appendChild(option);
-        });
-        select.addEventListener('change', () => {
-          section.post_ids = Array.from(select.selectedOptions).map((option) => option.value);
-        });
+          filtered.forEach((post) => {
+            const row = document.createElement('label');
+            row.className = 'pick-option';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = selectedIds.has(post.id);
+            checkbox.addEventListener('change', () => {
+              if (checkbox.checked) {
+                selectedIds.add(post.id);
+              } else {
+                selectedIds.delete(post.id);
+              }
+              targetSection.post_ids = Array.from(selectedIds);
+            });
+            const title = document.createElement('span');
+            title.textContent = post.title || post.slug || '제목 없음';
+            const slug = document.createElement('span');
+            slug.className = 'muted';
+            slug.textContent = post.slug || '';
+            row.appendChild(checkbox);
+            row.appendChild(title);
+            row.appendChild(slug);
+            pickList.appendChild(row);
+          });
+        };
+        pickSearch.addEventListener('input', renderPickList);
+        renderPickList();
         picksWrapper.appendChild(pickLabel);
-        picksWrapper.appendChild(select);
-        fields.appendChild(picksWrapper);
+        picksWrapper.appendChild(pickSearch);
+        picksWrapper.appendChild(pickList);
+        return picksWrapper;
+      };
+
+      if (section.type === 'hero') {
+        const { field: orderField } = createSelectField(
+          '정렬',
+          section.order_by || 'latest',
+          [
+            { value: 'latest', label: '최신순' },
+            { value: 'popular', label: '인기순' },
+            { value: 'manual', label: '직접 선택' },
+          ],
+          (value) => {
+            section.order_by = value;
+            renderHomeLayoutEditor();
+          }
+        );
+        const { field: sliderField, input: sliderInput } = createCheckboxField(
+          '슬라이드 사용',
+          Boolean(section.enable_slider),
+          (checked) => {
+            section.enable_slider = checked;
+          }
+        );
+        const updateSliderState = () => {
+          const count = Number(section.limit || 0);
+          const canSlide = Number.isFinite(count) && count > 1;
+          sliderInput.disabled = !canSlide;
+          if (!canSlide) {
+            sliderInput.checked = false;
+            section.enable_slider = false;
+          }
+        };
+        limitInput.addEventListener('input', updateSliderState);
+        updateSliderState();
+        fields.appendChild(orderField);
+        fields.appendChild(sliderField);
+        if (section.order_by === 'manual') {
+          if (!Array.isArray(section.post_ids)) section.post_ids = [];
+          fields.appendChild(createPostPicker(section, 'Hero 게시글 선택'));
+        }
+      }
+
+      if (section.type === 'pick') {
+        if (!Array.isArray(section.post_ids)) section.post_ids = [];
+        fields.appendChild(createPostPicker(section, 'Pick 게시글 선택'));
       }
     } else if (section.type === 'banner') {
       const { field: titleField } = createInputField('제목', section.title || '', (value) => {
@@ -2867,6 +3742,7 @@ async function fetchSiteConfig() {
       logo_url: data?.config?.logo_url || '',
       footer_text: data?.config?.footer_text || '',
       home_layout: ensureHomeLayoutIds(Array.isArray(data?.config?.home_layout) ? data.config.home_layout : []),
+      search_enabled: resolveSearchEnabled(data?.config?.search_enabled),
     };
     renderSiteConfigForm();
     renderHomeLayoutEditor();
@@ -2887,6 +3763,7 @@ async function saveSiteConfig(payloadOverrides = {}, statusEl = siteConfigSaveSt
       logo_url: siteLogoInput ? siteLogoInput.value.trim() : siteConfig.logo_url,
       footer_text: siteFooterInput ? siteFooterInput.value.trim() : siteConfig.footer_text,
       home_layout: ensureHomeLayoutIds(siteConfig.home_layout),
+      search_enabled: siteSearchEnabledInput ? siteSearchEnabledInput.checked : siteConfig.search_enabled,
       ...payloadOverrides,
     };
     const data = await apiFetch('/cms/site-config', { method: 'PUT', body: payload });
@@ -2894,6 +3771,7 @@ async function saveSiteConfig(payloadOverrides = {}, statusEl = siteConfigSaveSt
       logo_url: data?.config?.logo_url || '',
       footer_text: data?.config?.footer_text || '',
       home_layout: ensureHomeLayoutIds(Array.isArray(data?.config?.home_layout) ? data.config.home_layout : []),
+      search_enabled: resolveSearchEnabled(data?.config?.search_enabled),
     };
     renderSiteConfigForm();
     renderHomeLayoutEditor();
@@ -2911,6 +3789,8 @@ async function fetchSiteNavigations() {
     const data = await apiFetch('/cms/site-navigations');
     siteNavigations = data?.items || [];
     renderSiteNavigations();
+    renderNavTargetOptions();
+    renderNavParentOptions();
     setStatus(navStatus, '');
   } catch (error) {
     setStatus(navStatus, formatError(error), true);
@@ -2931,6 +3811,7 @@ async function saveNavigationItem(payload) {
       if (navStatus) setStatus(navStatus, '추가 완료');
     }
     renderSiteNavigations();
+    renderNavParentOptions();
   } catch (error) {
     if (navStatus) setStatus(navStatus, formatError(error), true);
   }
@@ -3612,9 +4493,9 @@ async function maybeOpenInitialPost() {
   const postId = params.get('postId');
   if (isNew) {
     const typeParam = params.get('type');
-    if (typeParam === 'page' && postTypeSelect) {
-      postTypeSelect.value = 'page';
+    if (typeParam === 'page') {
       currentDraft.type = 'page';
+      setActiveTab('pages');
     }
     await createNewPost();
     return;
@@ -3682,6 +4563,10 @@ async function fetchPosts() {
 
     syncSelectedPosts();
     currentPosts = allPosts.slice();
+    if (postsView.type === 'page') {
+      currentPages = allPosts.filter((post) => (post.type || 'post') === 'page');
+      renderNavTargetOptions();
+    }
     renderPosts();
     updatePostFilterButtons();
     renderHomeLayoutEditor();
@@ -3712,6 +4597,8 @@ async function selectPost(post) {
     id: next.id,
     title: next.title,
     body: next.body || '',
+    bodyJson: next.bodyJson || null,
+    editorMode: next.bodyJson ? 'rich' : 'markdown',
     savedAt: next.updatedAt || currentDraft.savedAt,
     status: next.status,
     type: next.type || 'post',
@@ -3720,14 +4607,18 @@ async function selectPost(post) {
     categorySlug: next.categorySlug || '',
     publishAt: next.publishAt,
   });
+  if (isEditorPage) {
+    setActiveTab(next.type === 'page' ? 'pages' : 'content');
+  }
   titleInput.value = next.title || '';
   if (categorySelect) {
     categorySelect.value = next.categorySlug || '';
   }
-  if (postTypeSelect) {
-    postTypeSelect.value = next.type || 'post';
+  if (postSlugInput) {
+    postSlugInput.value = next.slug || '';
   }
-  setBodyValue(next.body || '');
+  updatePostSlugFieldVisibility();
+  await setEditorContent({ bodyJson: next.bodyJson, bodyMd: next.body || '' });
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPosts();
 }
@@ -3907,14 +4798,20 @@ async function createNewPost() {
   try {
     renderPostsState({ message: '새 글 생성 중...', isLoading: true });
     const postType = getSelectedPostType();
-    const created = await apiFetch('/cms/posts', {
-      method: 'POST',
-      body: {
-        title: '제목 없음',
-        body_md: '',
-        category_slug: categorySelect?.value || undefined,
-        type: postType,
-      },
+    const slugValue = getPostSlugForSave();
+    if (!validateReservedSlug(slugValue, (message) => renderPostsState({ message, isError: true }))) {
+      return;
+    }
+    const emptyBodyJson = editorMode === 'rich' ? JSON.stringify({ blocks: [{ type: 'paragraph', data: { text: '' } }] }) : null;
+    const bodyPayload = emptyBodyJson
+      ? { body_json: emptyBodyJson, body_md: ' ' }
+      : { body_md: ' ' };
+    const created = await apiPostWithFallback('/cms/posts', {
+      title: '제목 없음',
+      ...bodyPayload,
+      category_slug: categorySelect?.value || undefined,
+      slug: slugValue || undefined,
+      type: postType,
     });
     const newPost = normalizePost(created?.post || created);
     if (!newPost?.id) throw new Error('게시글 ID를 받을 수 없습니다.');
@@ -4235,20 +5132,37 @@ publishBtn.addEventListener('click', async () => {
   }
 
   const title = titleInput.value.trim() || '제목 없음';
-  const body = getBodyValue();
   const categorySlug = categorySelect?.value || undefined;
+  const postType = getSelectedPostType();
+  const slugValue = getPostSlugForSave();
+  if (!validateReservedSlug(slugValue, (message) => setStatus(publishMessage, message, true))) {
+    return;
+  }
 
   try {
     setStatus(publishMessage, '발행 요청 중…');
     setGlobalLoading(true, '발행 중...');
-    const postId = await ensurePostId(title, body);
-    await apiFetch(`/cms/posts/${postId}/autosave`, {
-      method: 'POST',
-      body: { title, body_md: body, category_slug: categorySlug },
+    const payload = await buildBodyPayload();
+    const bodyPayload = payload.bodyJson
+      ? { body_json: payload.bodyJson, body_md: payload.bodyMd }
+      : { body_md: payload.bodyMd };
+    if (bodyPayload.body_md !== undefined && !bodyPayload.body_md.trim()) {
+      bodyPayload.body_md = ' ';
+    }
+    const postId = await ensurePostId(title, payload);
+    await apiPostWithFallback(`/cms/posts/${postId}/autosave`, {
+      title,
+      ...bodyPayload,
+      category_slug: categorySlug,
+      slug: slugValue || undefined,
+      type: postType,
     });
-    const response = await apiFetch(`/cms/posts/${postId}/publish`, {
-      method: 'POST',
-      body: { title, body_md: body, category_slug: categorySlug },
+    const response = await apiPostWithFallback(`/cms/posts/${postId}/publish`, {
+      title,
+      ...bodyPayload,
+      category_slug: categorySlug,
+      slug: slugValue || undefined,
+      type: postType,
     });
     const deployJob = response?.deploy_job;
     const jobId = deployJob?.id;
@@ -4523,15 +5437,26 @@ if (refreshNavBtn) {
   });
 }
 
-if (navCategorySelect) {
-  navCategorySelect.addEventListener('change', () => {
-    const slug = navCategorySelect.value;
-    if (!slug) return;
-    if (navUrlInput) navUrlInput.value = `/category/${slug}/`;
-    const category = currentCategories.find((item) => item.slug === slug);
-    if (category && navLabelInput && !navLabelInput.value.trim()) {
-      navLabelInput.value = category.name || category.slug;
+if (navLocationInput) {
+  navLocationInput.addEventListener('change', () => {
+    renderNavParentOptions(editingNavId);
+  });
+}
+
+if (navLinkTypeSelect) {
+  navLinkTypeSelect.addEventListener('change', () => {
+    renderNavTargetOptions();
+    if (navLinkTypeSelect.value === 'custom') {
+      if (navLinkTargetSelect) navLinkTargetSelect.value = '';
+      return;
     }
+    syncNavTargetSelection();
+  });
+}
+
+if (navLinkTargetSelect) {
+  navLinkTargetSelect.addEventListener('change', () => {
+    syncNavTargetSelection();
   });
 }
 
@@ -4539,17 +5464,27 @@ if (navForm) {
   navForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const location = navLocationInput?.value || 'header';
+    const parentId = navParentSelect?.value || '';
     const label = navLabelInput?.value.trim();
     const url = navUrlInput?.value.trim();
+    const linkType = getNavLinkType();
+    if (linkType !== 'custom' && navLinkTargetSelect && !navLinkTargetSelect.value) {
+      if (navStatus) setStatus(navStatus, '대상을 선택하세요.', true);
+      return;
+    }
     if (!label || !url) {
       if (navStatus) setStatus(navStatus, '라벨과 URL을 입력하세요.', true);
       return;
     }
-    await saveNavigationItem({ location, label, url });
+    await saveNavigationItem({ location, label, url, parent_id: location === 'header' ? parentId : null });
     if (!editingNavId) {
       navLabelInput.value = '';
       navUrlInput.value = '';
-      if (navCategorySelect) navCategorySelect.value = '';
+      if (navLinkTypeSelect) navLinkTypeSelect.value = 'custom';
+      if (navLinkTargetSelect) navLinkTargetSelect.value = '';
+      if (navParentSelect) navParentSelect.value = '';
+      renderNavTargetOptions();
+      renderNavParentOptions();
     }
   });
 }
@@ -4890,13 +5825,15 @@ if (printBtn) {
 
 function hydrateFromStorage() {
   titleInput.value = currentDraft.title || '';
-  setBodyValue(currentDraft.body || '');
+  void setEditorContent({ bodyJson: currentDraft.bodyJson, bodyMd: currentDraft.body || '' });
+  void setEditorMode(currentDraft?.editorMode || (currentDraft?.bodyJson ? 'rich' : 'markdown'));
   if (categorySelect) {
     categorySelect.value = currentDraft.categorySlug || '';
   }
-  if (postTypeSelect) {
-    postTypeSelect.value = currentDraft.type || 'post';
+  if (postSlugInput) {
+    postSlugInput.value = currentDraft.slug || '';
   }
+  updatePostSlugFieldVisibility();
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPreview();
   renderSelectedPostMeta();
@@ -4913,6 +5850,7 @@ fetchSession();
 fetchPosts();
 fetchDeployJobs();
 fetchCategories();
+fetchPagesForNav();
 fetchInquiries();
 fetchPrCampaigns();
 fetchSiteConfig();

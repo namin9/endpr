@@ -5,8 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow" />
     <title>CMS Editor</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" />
     <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/editorjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/header@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/list@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/table@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/embed@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/marker@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/warning@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/code@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/simple-image@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/checklist@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/quote@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/delimiter@latest"></script>
   </head>
   <body class="page-editor" data-page="editor">
     <header class="topbar">
@@ -180,12 +191,20 @@
                 <span>카피라이트 텍스트</span>
                 <textarea id="siteFooterInput" rows="2" placeholder="© 2025 Company"></textarea>
               </label>
+              <label class="field">
+                <span>검색창 표시</span>
+                <div class="checkbox-row">
+                  <input id="siteSearchEnabledInput" type="checkbox" />
+                  <span class="muted">헤더 검색창을 표시합니다.</span>
+                </div>
+              </label>
               <div class="row gap">
                 <button type="submit" id="siteConfigSaveBtn" class="primary">저장</button>
                 <span id="siteConfigSaveStatus" class="muted"></span>
               </div>
             </form>
           </section>
+
 
           <section class="card" aria-labelledby="site-nav-heading">
             <div class="card-header">
@@ -202,9 +221,17 @@
                   </select>
                 </label>
                 <label class="field">
-                  <span>카테고리</span>
-                  <select id="navCategorySelect">
-                    <option value="">직접 입력</option>
+                  <span>링크 유형</span>
+                  <select id="navLinkTypeSelect">
+                    <option value="custom">직접 입력</option>
+                    <option value="category">카테고리</option>
+                    <option value="page">페이지</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>대상</span>
+                  <select id="navLinkTargetSelect" disabled>
+                    <option value="">선택하세요</option>
                   </select>
                 </label>
                 <label class="field">
@@ -213,7 +240,7 @@
                 </label>
                 <label class="field">
                   <span>URL</span>
-                  <input id="navUrlInput" placeholder="/category/news/" />
+                  <input id="navUrlInput" placeholder="https://www.naver.com 또는 /category/news/" />
                 </label>
               </div>
               <div class="row gap">
@@ -456,6 +483,7 @@
                 <button type="button" class="ghost" data-view-mode="edit">Edit Only</button>
                 <button type="button" class="ghost" data-view-mode="preview">Preview Only</button>
               </div>
+              <button type="button" id="editorModeToggle" class="ghost">에디터 전환</button>
               <button type="button" id="previewToggleBtn" class="ghost">미리보기</button>
               <button type="button" id="scheduleBtn" class="ghost">예약 발행</button>
               <button type="button" id="cancelScheduleBtn" class="ghost">예약 취소</button>
@@ -474,47 +502,59 @@
               <option value="">선택 안 함</option>
             </select>
           </label>
-          <label class="field">
-            <span>글 유형</span>
-            <select id="postTypeSelect">
-              <option value="post">Post</option>
-              <option value="page">Page</option>
-            </select>
+          <label class="field hidden" id="postSlugField">
+            <span>페이지 슬러그</span>
+            <input id="postSlugInput" placeholder="예: about-us" />
           </label>
           <div class="editor-split">
             <div class="field editor-pane">
               <span>본문</span>
-              <div class="quill-wrapper">
-                <div id="editorToolbar" class="quill-toolbar">
-                  <span class="ql-formats">
-                    <select class="ql-font">
-                      <option selected></option>
-                      <option value="inter">Inter</option>
-                      <option value="serif">Serif</option>
-                      <option value="monospace">Monospace</option>
-                    </select>
-                    <select class="ql-size">
-                      <option value="12px">12</option>
-                      <option value="14px">14</option>
-                      <option value="16px" selected>16</option>
-                      <option value="18px">18</option>
-                      <option value="24px">24</option>
-                      <option value="32px">32</option>
-                    </select>
-                  </span>
-                  <span class="ql-formats">
-                    <select class="ql-color"></select>
-                    <select class="ql-align"></select>
-                  </span>
-                  <span class="ql-formats">
-                    <button class="ql-bold"></button>
-                    <button class="ql-italic"></button>
-                    <button class="ql-underline"></button>
-                    <button class="ql-link"></button>
-                    <button class="ql-image"></button>
-                  </span>
+              <div id="editor-container" class="editor-container">
+                <div id="custom-toolbar" class="custom-toolbar" role="toolbar" aria-label="Editor toolbar">
+                  <div class="toolbar-group" aria-label="Text blocks">
+                    <button type="button" class="toolbar-btn" data-tool="header" data-level="1">H1</button>
+                    <button type="button" class="toolbar-btn" data-tool="header" data-level="2">H2</button>
+                    <button type="button" class="toolbar-btn" data-tool="header" data-level="3">H3</button>
+                  </div>
+                  <div class="toolbar-group" aria-label="Structure blocks">
+                    <button type="button" class="toolbar-btn" data-tool="list">📋 목록</button>
+                    <button type="button" class="toolbar-btn" data-tool="checklist">✅ 체크</button>
+                    <button type="button" class="toolbar-btn" data-tool="quote">❝ 인용</button>
+                  </div>
+                  <div class="toolbar-group" aria-label="Insert blocks">
+                    <button type="button" class="toolbar-btn" data-tool="image">🖼️ 이미지</button>
+                    <button type="button" class="toolbar-btn" data-tool="table">📊 표</button>
+                    <button type="button" class="toolbar-btn" data-tool="code">💻 코드</button>
+                  </div>
+                  <div class="toolbar-group" aria-label="Emphasis blocks">
+                    <button type="button" class="toolbar-btn" data-tool="warning">⚠️ 콜아웃</button>
+                    <button type="button" class="toolbar-btn" data-tool="delimiter">➖ 구분선</button>
+                  </div>
                 </div>
-                <div id="quillEditor" class="quill-editor"></div>
+                <input id="imageUploadInput" type="file" accept="image/*" class="editor-textarea--hidden" />
+                <div id="editorjs" class="editorjs-container"></div>
+              </div>
+              <div id="markdown-toolbar" class="custom-toolbar markdown-toolbar" role="toolbar" aria-label="Markdown toolbar">
+                <div class="toolbar-group" aria-label="Text style">
+                  <button type="button" class="toolbar-btn" data-md-action="bold">굵게</button>
+                  <button type="button" class="toolbar-btn" data-md-action="italic">기울임</button>
+                  <button type="button" class="toolbar-btn" data-md-action="strike">취소선</button>
+                  <button type="button" class="toolbar-btn" data-md-action="link">링크</button>
+                  <button type="button" class="toolbar-btn" data-md-action="code">코드</button>
+                </div>
+                <div class="toolbar-group" aria-label="Headings">
+                  <button type="button" class="toolbar-btn" data-md-action="h1">H1</button>
+                  <button type="button" class="toolbar-btn" data-md-action="h2">H2</button>
+                  <button type="button" class="toolbar-btn" data-md-action="h3">H3</button>
+                </div>
+                <div class="toolbar-group" aria-label="Blocks">
+                  <button type="button" class="toolbar-btn" data-md-action="ul">목록</button>
+                  <button type="button" class="toolbar-btn" data-md-action="ol">번호 목록</button>
+                  <button type="button" class="toolbar-btn" data-md-action="quote">인용</button>
+                  <button type="button" class="toolbar-btn" data-md-action="image">이미지</button>
+                  <button type="button" class="toolbar-btn" data-md-action="table">표</button>
+                  <button type="button" class="toolbar-btn" data-md-action="divider">구분선</button>
+                </div>
               </div>
               <textarea
                 id="bodyInput"
@@ -645,7 +685,6 @@
       </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.min.js"></script>
     <script src="main.js"></script>
   </body>
 </html>

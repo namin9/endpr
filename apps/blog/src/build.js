@@ -30,6 +30,7 @@ function resolveSiteBaseUrl() {
 let siteBaseUrl = "";
 let themeStyle = "";
 let analyticsConfig = { apiBase: "", tenantSlug: "" };
+let searchEnabled = true;
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -67,7 +68,7 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
       categories: parsed.categories || [],
       theme: parsed.theme || null,
       meta: { tenantSlug: process.env.TENANT_SLUG || null },
-      siteConfig: parsed.siteConfig || { config: { logo_url: null, footer_text: null }, navigations: [] },
+      siteConfig: parsed.siteConfig || { config: { logo_url: null, footer_text: null, search_enabled: true }, navigations: [] },
       homeSections: parsed.homeSections || parsed.home_sections || [],
     };
   }
@@ -102,12 +103,13 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
   const metaResp = await fetchJson(`${apiBase}/build/meta`, buildToken);
   const metaTenant = metaResp?.tenant || {};
   const meta = { tenantSlug: metaTenant.slug || null };
-  let siteConfig = { config: { logo_url: null, footer_text: null }, navigations: [] };
+  let siteConfig = { config: { logo_url: null, footer_text: null, search_enabled: true }, navigations: [] };
   try {
     const siteResp = await fetchJson(`${apiBase}/build/site`, buildToken);
     const config = {
       logo_url: siteResp?.logo_url ?? null,
       footer_text: siteResp?.footer_text ?? null,
+      search_enabled: siteResp?.search_enabled ?? 1,
     };
     const navigations = [
       ...(siteResp?.navigations?.header || []),
@@ -340,14 +342,113 @@ function renderMarkdown(md = "") {
   return sanitizeHtmlBlock(html);
 }
 
-function renderPostBody(post) {
-  if (post.body_html) return post.body_html;
+function renderEditorList(items = [], style = "unordered") {
+  const tag = style === "ordered" ? "ol" : "ul";
+  const rendered = items
+    .map((item) => {
+      if (typeof item === "string") {
+        return `<li>${sanitizeHtmlBlock(item)}</li>`;
+      }
+      if (item && typeof item === "object") {
+        const content = sanitizeHtmlBlock(item.content || "");
+        const nested = Array.isArray(item.items) && item.items.length ? renderEditorList(item.items, style) : "";
+        return `<li>${content}${nested}</li>`;
+      }
+      return "";
+    })
+    .join("");
+  return `<${tag}>${rendered}</${tag}>`;
+}
+
+function renderEditorBlocks(blocks = []) {
+  return blocks
+    .map((block) => {
+      const data = block?.data || {};
+      switch (block.type) {
+        case "header": {
+          const level = Math.min(Math.max(Number(data.level) || 2, 1), 6);
+          return `<h${level}>${sanitizeHtmlBlock(data.text || "")}</h${level}>`;
+        }
+        case "paragraph":
+          return `<p>${sanitizeHtmlBlock(data.text || "")}</p>`;
+        case "list":
+          return renderEditorList(data.items || [], data.style);
+        case "image": {
+          const url = sanitizeUrl(data.file?.url || data.url || "", { allowDataImage: true });
+          if (!url) return "";
+          const caption = data.caption ? `<figcaption>${sanitizeHtmlBlock(data.caption)}</figcaption>` : "";
+          return `<figure><img src="${escapeHtml(url)}" alt="" />${caption}</figure>`;
+        }
+        case "table": {
+          const rows = Array.isArray(data.content) ? data.content : [];
+          const body = rows
+            .map((row) => {
+              const cells = Array.isArray(row)
+                ? row.map((cell) => `<td>${sanitizeHtmlBlock(cell || "")}</td>`).join("")
+                : "";
+              return `<tr>${cells}</tr>`;
+            })
+            .join("");
+          return `<table><tbody>${body}</tbody></table>`;
+        }
+        case "embed": {
+          const embedUrl = sanitizeUrl(data.embed || data.source || "");
+          if (!embedUrl) {
+            return data.source ? `<a href="${escapeHtml(data.source)}">${escapeHtml(data.source)}</a>` : "";
+          }
+          return `<div class="embed"><iframe src="${escapeHtml(embedUrl)}" allowfullscreen loading="lazy"></iframe></div>`;
+        }
+        case "warning": {
+          const title = data.title ? `<div class="callout-title">${sanitizeHtmlBlock(data.title)}</div>` : "";
+          const message = data.message ? `<div class="callout-body">${sanitizeHtmlBlock(data.message)}</div>` : "";
+          return `<div class="callout callout-warning">${title}${message}</div>`;
+        }
+        case "code":
+          return `<pre><code>${escapeHtml(data.code || "")}</code></pre>`;
+        default:
+          return "";
+      }
+    })
+    .join("");
+}
+
+function renderPostContent(post) {
+  if (post.body_json) {
+    try {
+      const parsed = JSON.parse(post.body_json);
+      if (Array.isArray(parsed?.blocks)) {
+        return renderEditorBlocks(parsed.blocks);
+      }
+    } catch (error) {
+      console.warn("Failed to parse body_json, falling back to markdown.", error);
+    }
+  }
   if (post.body_md) return renderMarkdown(post.body_md);
   if (post.body) return renderMarkdown(post.body);
   return "<p></p>";
 }
 
+function renderPostBody(post) {
+  if (post.body_html) return post.body_html;
+  return renderPostContent(post);
+}
+
 function extractFirstImageUrl(post) {
+  if (post.body_json) {
+    try {
+      const parsed = JSON.parse(post.body_json);
+      const blocks = Array.isArray(parsed?.blocks) ? parsed.blocks : [];
+      for (const block of blocks) {
+        if (block?.type === "image") {
+          const url = block?.data?.file?.url || block?.data?.url;
+          const sanitized = sanitizeUrl(url, { allowDataImage: true });
+          if (sanitized) return sanitized;
+        }
+      }
+    } catch {
+      // ignore parsing errors
+    }
+  }
   const sources = [post.body_html, post.body_md, post.body].filter(Boolean);
   const imgTagRegex = /<img[^>]*src=["']([^"']+)["']/i;
   const mdImgRegex = /!\[[^\]]*]\(([^)]+)\)/;
@@ -377,17 +478,19 @@ function getPostUrl(post) {
 
 function summarizeBodyFormat(post) {
   if (post.body_html) return "body_html";
+  if (post.body_json) return "body_json";
   if (post.body_md) return "body_md";
   if (post.body) return "body";
   return "empty";
 }
 
 function renderSearchShell() {
-  return `<div class="search-shell">
+  if (!searchEnabled) return "";
+  return `<form class="search-shell" action="/search/" method="get">
     <span aria-hidden="true">🔍</span>
-    <input type="search" placeholder="검색" data-search-input />
-    <div class="search-results hidden" data-search-results></div>
-  </div>`;
+    <input type="search" name="q" placeholder="검색" data-search-input />
+    <button type="submit">검색</button>
+  </form>`;
 }
 
 function renderBrandTitle(title, logoUrl) {
@@ -423,6 +526,38 @@ function renderHeaderMinimal({ title, navLinks, logoUrl }) {
     </div>
     <div class="container header-search">${renderSearchShell()}</div>
   </header>`;
+}
+
+function renderNavLinks(items = []) {
+  if (!items.length) {
+    return `<a href="/posts/page/1/">Posts</a>`;
+  }
+  const sorted = [...items].sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+  const itemsByParent = new Map();
+  sorted.forEach((item) => {
+    const parentKey = item.parent_id || "";
+    if (!itemsByParent.has(parentKey)) {
+      itemsByParent.set(parentKey, []);
+    }
+    itemsByParent.get(parentKey).push(item);
+  });
+  const renderGroup = (parentId = "") => {
+    const groupItems = itemsByParent.get(parentId) || [];
+    return groupItems
+      .map((item) => {
+        const url = sanitizeUrl(item.url || "");
+        if (!url) return "";
+        const label = escapeHtml(item.label || item.url || "");
+        const children = renderGroup(item.id);
+        if (children) {
+          return `<div class="nav-group"><a href="${escapeHtml(url)}">${label}</a><div class="nav-sub-links">${children}</div></div>`;
+        }
+        return `<a href="${escapeHtml(url)}">${label}</a>`;
+      })
+      .filter(Boolean)
+      .join("\n      ");
+  };
+  return renderGroup("");
 }
 
 function renderLayout({ title, content, navLinks, logoUrl, footerText, layoutType, postNav }) {
@@ -464,17 +599,7 @@ function layoutHtml({
         .filter((item) => item.location === "header")
         .sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
     : [];
-  const navLinks = headerNav.length
-    ? headerNav
-        .map((item) => {
-          const url = sanitizeUrl(item.url || "");
-          if (!url) return "";
-          const label = escapeHtml(item.label || item.url || "");
-          return `<a href="${escapeHtml(url)}">${label}</a>`;
-        })
-        .filter(Boolean)
-        .join("\n      ")
-    : `<a href="/posts/page/1/">Posts</a>`;
+  const navLinks = renderNavLinks(headerNav);
   const logoUrl = siteConfig?.config?.logo_url ? sanitizeUrl(siteConfig.config.logo_url) : null;
   const footerText = siteConfig?.config?.footer_text ? escapeHtml(siteConfig.config.footer_text) : "";
   const resolvedOgImage = ogImage || logoUrl || null;
@@ -496,19 +621,32 @@ function layoutHtml({
   .brand-logo img { max-height: 40px; }
   .nav-links { display: flex; gap: 16px; flex-wrap: wrap; }
   .nav-links a { text-decoration: none; color: inherit; font-weight: 500; }
+  .nav-group { display: flex; flex-direction: column; gap: 6px; }
+  .nav-sub-links { display: grid; gap: 4px; padding-left: 12px; font-size: 14px; color: #6b7280; }
   .site-main { flex: 1; padding: 32px 0 48px; }
   .site-footer { padding: 32px 0; border-top: 1px solid var(--border, #e5e7eb); text-align: center; }
   .search-shell { display: flex; align-items: center; gap: 8px; position: relative; }
   .search-shell input { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border, #e2e8f0); background: var(--bg, #fff); color: var(--fg, #111827); }
-  .search-results { position: absolute; top: 38px; left: 0; right: 0; background: var(--bg, #fff); border: 1px solid var(--border, #e2e8f0); border-radius: 8px; padding: 8px; display: grid; gap: 6px; z-index: 20; }
-  .search-results.hidden { display: none; }
-  .search-results a { text-decoration: none; color: inherit; padding: 4px 6px; border-radius: 6px; }
-  .search-results a:hover { background: rgba(148, 163, 184, 0.15); }
+  .search-shell button { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border, #e2e8f0); background: var(--bg, #fff); color: inherit; cursor: pointer; }
+  .search-shell button:hover { background: rgba(148, 163, 184, 0.12); }
+  .search-page { display: grid; gap: 16px; }
+  .search-results-page { display: grid; gap: 12px; }
+  .search-result-item { padding: 12px 0; border-bottom: 1px solid var(--border, #e5e7eb); }
+  .search-result-item:last-child { border-bottom: 0; }
+  .search-pagination { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .search-pagination a { text-decoration: none; }
   .callout { padding: 16px; border-radius: 12px; border-left: 4px solid; background: rgba(148, 163, 184, 0.15); margin: 16px 0; }
   .callout-info { border-color: #38bdf8; }
   .callout-warn { border-color: #f59e0b; }
   .callout-error { border-color: #ef4444; }
+  .callout-warning { border-color: #f59e0b; }
   .callout-title { font-weight: 700; margin-bottom: 6px; }
+  .post-body table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  .post-body th, .post-body td { border: 1px solid var(--border, #e5e7eb); padding: 8px 10px; text-align: left; }
+  .post-body figure { margin: 16px 0; }
+  .post-body figcaption { font-size: 0.85em; color: var(--muted, #6b7280); margin-top: 8px; }
+  .post-body .embed { position: relative; padding-top: 56.25%; margin: 16px 0; }
+  .post-body .embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   .grid { display: grid; gap: 16px; grid-template-columns: repeat(var(--columns, 2), minmax(0, 1fr)); }
   .card { border-radius: var(--radius, 14px); box-shadow: var(--card-shadow, 0 10px 24px rgba(15, 23, 42, 0.08)); padding: 16px; background: var(--bg, #fff); border: 1px solid var(--border, #e5e7eb); }
   .card-icon { font-size: 24px; }
@@ -560,7 +698,6 @@ function layoutHtml({
     .search-shell { width: 100%; }
   }
   </style>`;
-  const searchScript = `(function(){var input=document.querySelector('[data-search-input]');var results=document.querySelector('[data-search-results]');if(!input||!results){return;}var cache=null;function render(list){results.innerHTML='';if(!input.value.trim()){results.classList.add('hidden');return;}if(!list.length){results.innerHTML='<div class=\"muted\">검색 결과가 없습니다.</div>';results.classList.remove('hidden');return;}var items=list.map(function(item){return '<a href=\"/'+item.slug+'/\">'+(item.title||item.slug)+'</a>';}).join('');results.innerHTML=items;results.classList.remove('hidden');}function filter(){var q=input.value.trim().toLowerCase();if(!q){render([]);return;}if(!cache){fetch('/search.json').then(function(resp){return resp.ok?resp.json():[];}).then(function(data){cache=Array.isArray(data)?data:[];applyFilter();}).catch(function(){render([]);});return;}applyFilter();function applyFilter(){var filtered=cache.filter(function(item){return (item.title||'').toLowerCase().includes(q)||(item.slug||'').toLowerCase().includes(q)||(item.excerpt||'').toLowerCase().includes(q);}).slice(0,10);render(filtered);}}input.addEventListener('input',filter);})();`;
   const navigationLinks = [];
   if (prevPost) {
     navigationLinks.push(
@@ -604,7 +741,6 @@ function layoutHtml({
 <body>
   ${layoutMarkup}
   ${scripts}
-  <script>${searchScript}</script>
 </body>
 </html>`;
 }
@@ -944,7 +1080,9 @@ async function generatePostPages(posts, siteConfig, layoutType) {
       content: `<article>
   <h2>${escapeHtml(post.title || post.slug)}</h2>
   <p>${escapeHtml(post.excerpt || "")}</p>
-  ${renderPostBody(post)}
+  <div class="post-body">
+    ${renderPostBody(post)}
+  </div>
 </article>`,
       siteConfig,
       pagePath: `/${postSlug}/`,
@@ -973,7 +1111,9 @@ async function generateStaticPages(pages, siteConfig, layoutType) {
       description: page.excerpt || "",
       content: `<article>
   <h2>${escapeHtml(page.title || page.slug)}</h2>
-  ${renderPostBody(page)}
+  <div class="post-body">
+    ${renderPostBody(page)}
+  </div>
 </article>`,
       siteConfig,
       pagePath: `/${pageSlug}/`,
@@ -1119,6 +1259,25 @@ async function generateSearchIndex(posts) {
   await writeFile(path.join(DIST_DIR, "search.json"), JSON.stringify(items));
 }
 
+async function generateSearchPage(siteConfig, layoutType) {
+  const searchScript = `(function(){var input=document.querySelector('[data-search-input]');var status=document.querySelector('[data-search-status]');var list=document.querySelector('[data-search-results]');var pagination=document.querySelector('[data-search-pagination]');if(!status||!list||!pagination){return;}var params=new URLSearchParams(window.location.search);var query=(params.get('q')||'').trim();var pageNumber=parseInt(params.get('page')||'1',10);if(!Number.isFinite(pageNumber)||pageNumber<1){pageNumber=1;}if(input){input.value=query;}function escapeHtml(value){return String(value||'').replace(/[&<>\"']/g,function(match){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\\'':'&#39;'}[match];});}function renderEmpty(message){status.textContent=message;list.innerHTML='';pagination.innerHTML='';}if(!query){renderEmpty('검색어를 입력해 주세요.');return;}fetch('/search.json').then(function(resp){return resp.ok?resp.json():[];}).then(function(data){var items=Array.isArray(data)?data:[];var lowered=query.toLowerCase();var filtered=items.filter(function(item){var title=(item.title||'').toLowerCase();var slug=(item.slug||'').toLowerCase();var excerpt=(item.excerpt||'').toLowerCase();return title.includes(lowered)||slug.includes(lowered)||excerpt.includes(lowered);});var pageSize=10;var total=filtered.length;var totalPages=Math.max(1,Math.ceil(total/pageSize));if(pageNumber>totalPages){pageNumber=totalPages;}var start=(pageNumber-1)*pageSize;var pageItems=filtered.slice(start,start+pageSize);status.textContent='총 '+total+'개 결과';if(!pageItems.length){list.innerHTML='<p class=\"muted\">검색 결과가 없습니다.</p>';pagination.innerHTML='';return;}list.innerHTML=pageItems.map(function(item){var title=escapeHtml(item.title||item.slug||'');var excerpt=escapeHtml(item.excerpt||'');var slug=escapeHtml(item.slug||'');return '<article class=\"search-result-item\"><h3><a href=\"/'+slug+'/\">'+title+'</a></h3>'+(excerpt?'<p class=\"muted\">'+excerpt+'</p>':'')+'</article>';}).join('');var prevLink=pageNumber>1?'<a href=\"/search/?q='+encodeURIComponent(query)+'&page='+(pageNumber-1)+'\">이전</a>':'';var nextLink=pageNumber<totalPages?'<a href=\"/search/?q='+encodeURIComponent(query)+'&page='+(pageNumber+1)+'\">다음</a>':'';pagination.innerHTML='<span>페이지 '+pageNumber+' / '+totalPages+'</span>'+(prevLink?' '+prevLink:'')+(nextLink?' '+nextLink:'');}).catch(function(){renderEmpty('검색 데이터를 불러오지 못했습니다.');});})();`;
+  const html = layoutHtml({
+    title: "검색",
+    description: "검색 결과",
+    content: `<section class="search-page">
+  <h2>검색 결과</h2>
+  <p class="muted" data-search-status></p>
+  <div class="search-results-page" data-search-results></div>
+  <div class="search-pagination" data-search-pagination></div>
+</section>`,
+    siteConfig,
+    pagePath: "/search/",
+    layoutType,
+    scripts: `<script>${searchScript}</script>`,
+  });
+  await writeHtml(path.join(DIST_DIR, "search", "index.html"), html);
+}
+
 async function generateRobots() {
   const content = `User-agent: *
 Allow: /
@@ -1222,6 +1381,7 @@ async function build() {
     apiBase: analyticsBase || "",
     tenantSlug: meta?.tenantSlug || "",
   };
+  searchEnabled = siteConfig?.config?.search_enabled !== false && siteConfig?.config?.search_enabled !== 0;
 
   const layoutType = theme?.layout_type || "portal";
   if (theme?.tokens) {
@@ -1258,6 +1418,7 @@ async function build() {
   await generateStaticPages(pageEntries, siteConfig, layoutType);
   await generateSitemap(postEntries, categories, pageEntries);
   await generateSearchIndex(postEntries);
+  await generateSearchPage(siteConfig, layoutType);
   await generateRobots();
   await generate404Page(siteConfig, layoutType);
 }

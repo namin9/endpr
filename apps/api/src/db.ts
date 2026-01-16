@@ -37,6 +37,7 @@ export type PostRow = {
   slug: string;
   excerpt: string | null;
   body_md: string | null;
+  body_json: string | null;
   category_slug: string | null;
   status: string;
   publish_at: number | null;
@@ -86,6 +87,7 @@ export type SiteConfigRow = {
   logo_url: string | null;
   footer_text: string | null;
   home_layout: string | null;
+  search_enabled: number | null;
   updated_at: number;
 };
 
@@ -93,6 +95,7 @@ export type SiteNavigationRow = {
   id: string;
   tenant_id: string;
   location: 'header' | 'footer';
+  parent_id: string | null;
   label: string;
   url: string;
   order_index: number;
@@ -334,8 +337,8 @@ export async function createPost(db: D1Database, tenantId: string, input: Partia
   const now = Math.floor(Date.now() / 1000);
   await db
     .prepare(
-      `INSERT INTO posts (id, tenant_id, type, title, slug, excerpt, body_md, category_slug, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`
+      `INSERT INTO posts (id, tenant_id, type, title, slug, excerpt, body_md, body_json, category_slug, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`
     )
     .bind(
       id,
@@ -345,6 +348,7 @@ export async function createPost(db: D1Database, tenantId: string, input: Partia
       input.slug,
       input.excerpt ?? null,
       input.body_md ?? null,
+      input.body_json ?? null,
       input.category_slug ?? null,
       now,
       now
@@ -442,6 +446,7 @@ export async function updatePost(db: D1Database, tenantId: string, id: string, u
         slug = COALESCE(?, slug),
         excerpt = COALESCE(?, excerpt),
         body_md = COALESCE(?, body_md),
+        body_json = COALESCE(?, body_json),
         category_slug = COALESCE(?, category_slug),
         status = COALESCE(?, status),
         publish_at = COALESCE(?, publish_at)
@@ -453,6 +458,7 @@ export async function updatePost(db: D1Database, tenantId: string, id: string, u
       updates.slug ?? null,
       updates.excerpt ?? null,
       updates.body_md ?? null,
+      updates.body_json ?? null,
       updates.category_slug ?? null,
       updates.status ?? null,
       updates.publish_at ?? null,
@@ -804,41 +810,79 @@ export async function listCategories(db: D1Database, tenantId: string): Promise<
 }
 
 export async function getSiteConfig(db: D1Database, tenantId: string): Promise<SiteConfigRow | null> {
+  const hasSearchEnabled = await supportsSiteConfigSearchEnabled(db);
+  if (hasSearchEnabled) {
+    const config = await db
+      .prepare(
+        'SELECT tenant_id, logo_url, footer_text, home_layout, search_enabled, updated_at FROM site_configs WHERE tenant_id = ?'
+      )
+      .bind(tenantId)
+      .first<SiteConfigRow>();
+    return config ?? null;
+  }
   const config = await db
     .prepare('SELECT tenant_id, logo_url, footer_text, home_layout, updated_at FROM site_configs WHERE tenant_id = ?')
     .bind(tenantId)
     .first<SiteConfigRow>();
-  return config ?? null;
+  if (!config) return null;
+  return { ...config, search_enabled: null };
 }
 
 export async function upsertSiteConfig(
   db: D1Database,
   tenantId: string,
-  updates: Partial<Pick<SiteConfigRow, 'logo_url' | 'footer_text' | 'home_layout'>>
+  updates: Partial<Pick<SiteConfigRow, 'logo_url' | 'footer_text' | 'home_layout' | 'search_enabled'>>
 ): Promise<SiteConfigRow> {
-  await db
-    .prepare(
-      `INSERT INTO site_configs (tenant_id, logo_url, footer_text, home_layout)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(tenant_id) DO UPDATE SET
-         logo_url = excluded.logo_url,
-         footer_text = excluded.footer_text,
-         home_layout = excluded.home_layout`
-    )
-    .bind(tenantId, updates.logo_url ?? null, updates.footer_text ?? null, updates.home_layout ?? null)
-    .run();
+  const hasSearchEnabled = await supportsSiteConfigSearchEnabled(db);
+  if (hasSearchEnabled) {
+    await db
+      .prepare(
+        `INSERT INTO site_configs (tenant_id, logo_url, footer_text, home_layout, search_enabled)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(tenant_id) DO UPDATE SET
+           logo_url = excluded.logo_url,
+           footer_text = excluded.footer_text,
+           home_layout = excluded.home_layout,
+           search_enabled = excluded.search_enabled`
+      )
+      .bind(
+        tenantId,
+        updates.logo_url ?? null,
+        updates.footer_text ?? null,
+        updates.home_layout ?? null,
+        updates.search_enabled ?? null
+      )
+      .run();
+  } else {
+    await db
+      .prepare(
+        `INSERT INTO site_configs (tenant_id, logo_url, footer_text, home_layout)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(tenant_id) DO UPDATE SET
+           logo_url = excluded.logo_url,
+           footer_text = excluded.footer_text,
+           home_layout = excluded.home_layout`
+      )
+      .bind(tenantId, updates.logo_url ?? null, updates.footer_text ?? null, updates.home_layout ?? null)
+      .run();
+  }
   const config = await getSiteConfig(db, tenantId);
   if (!config) throw new Error('Failed to update site config');
   return config;
 }
 
+async function supportsSiteConfigSearchEnabled(db: D1Database): Promise<boolean> {
+  const { results } = await db.prepare("PRAGMA table_info('site_configs')").all<{ name: string }>();
+  return (results ?? []).some((row) => row.name === 'search_enabled');
+}
+
 export async function listSiteNavigations(db: D1Database, tenantId: string): Promise<SiteNavigationRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, tenant_id, location, label, url, order_index, created_at, updated_at
+      `SELECT id, tenant_id, location, parent_id, label, url, order_index, created_at, updated_at
        FROM site_navigations
        WHERE tenant_id = ?
-       ORDER BY location ASC, order_index ASC, created_at ASC`
+       ORDER BY location ASC, parent_id ASC, order_index ASC, created_at ASC`
     )
     .bind(tenantId)
     .all<SiteNavigationRow>();
@@ -848,7 +892,10 @@ export async function listSiteNavigations(db: D1Database, tenantId: string): Pro
 export async function createSiteNavigation(
   db: D1Database,
   tenantId: string,
-  input: Pick<SiteNavigationRow, 'location' | 'label' | 'url'> & { order_index?: number | null }
+  input: Pick<SiteNavigationRow, 'location' | 'label' | 'url'> & {
+    order_index?: number | null;
+    parent_id?: string | null;
+  }
 ): Promise<SiteNavigationRow> {
   const id = uuidv4();
   let orderIndex = input.order_index;
@@ -857,22 +904,22 @@ export async function createSiteNavigation(
       .prepare(
         `SELECT COALESCE(MAX(order_index), -1) AS max_order
          FROM site_navigations
-         WHERE tenant_id = ? AND location = ?`
+         WHERE tenant_id = ? AND location = ? AND parent_id IS ?`
       )
-      .bind(tenantId, input.location)
+      .bind(tenantId, input.location, input.parent_id ?? null)
       .first<{ max_order: number }>();
     orderIndex = (row?.max_order ?? -1) + 1;
   }
   await db
     .prepare(
-      `INSERT INTO site_navigations (id, tenant_id, location, label, url, order_index)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO site_navigations (id, tenant_id, location, parent_id, label, url, order_index)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
-    .bind(id, tenantId, input.location, input.label, input.url, orderIndex)
+    .bind(id, tenantId, input.location, input.parent_id ?? null, input.label, input.url, orderIndex)
     .run();
   const created = await db
     .prepare(
-      'SELECT id, tenant_id, location, label, url, order_index, created_at, updated_at FROM site_navigations WHERE id = ?'
+      'SELECT id, tenant_id, location, parent_id, label, url, order_index, created_at, updated_at FROM site_navigations WHERE id = ?'
     )
     .bind(id)
     .first<SiteNavigationRow>();
@@ -884,22 +931,31 @@ export async function updateSiteNavigation(
   db: D1Database,
   tenantId: string,
   id: string,
-  updates: Partial<Pick<SiteNavigationRow, 'location' | 'label' | 'url' | 'order_index'>>
+  updates: Partial<Pick<SiteNavigationRow, 'location' | 'label' | 'url' | 'order_index' | 'parent_id'>>
 ): Promise<SiteNavigationRow> {
   await db
     .prepare(
       `UPDATE site_navigations SET
         location = COALESCE(?, location),
+        parent_id = COALESCE(?, parent_id),
         label = COALESCE(?, label),
         url = COALESCE(?, url),
         order_index = COALESCE(?, order_index)
        WHERE id = ? AND tenant_id = ?`
     )
-    .bind(updates.location ?? null, updates.label ?? null, updates.url ?? null, updates.order_index ?? null, id, tenantId)
+    .bind(
+      updates.location ?? null,
+      updates.parent_id ?? null,
+      updates.label ?? null,
+      updates.url ?? null,
+      updates.order_index ?? null,
+      id,
+      tenantId
+    )
     .run();
   const updated = await db
     .prepare(
-      'SELECT id, tenant_id, location, label, url, order_index, created_at, updated_at FROM site_navigations WHERE id = ? AND tenant_id = ?'
+      'SELECT id, tenant_id, location, parent_id, label, url, order_index, created_at, updated_at FROM site_navigations WHERE id = ? AND tenant_id = ?'
     )
     .bind(id, tenantId)
     .first<SiteNavigationRow>();
@@ -1352,6 +1408,7 @@ export function mapPost(row: PostRow) {
     slug: row.slug,
     excerpt: row.excerpt,
     body_md: row.body_md,
+    body_json: row.body_json,
     category_slug: row.category_slug,
     status: row.status,
     view_count: viewCount,

@@ -14,7 +14,7 @@ import { THEME_PRESETS } from '../theme/presets';
 const router = new Hono();
 const DEFAULT_PRESET_ID = 'type-a-portal';
 const DEFAULT_HOME_LAYOUT = [
-  { type: 'hero', title: '주요 뉴스', limit: 1 },
+  { type: 'hero', title: '주요 뉴스', limit: 1, order_by: 'latest', enable_slider: false },
   { type: 'latest', title: '최신글', limit: 6 },
   { type: 'popular', title: '인기글', limit: 6 },
 ];
@@ -24,6 +24,8 @@ type HomeSection = {
   type: 'hero' | 'latest' | 'popular' | 'pick' | 'banner' | 'features' | 'html';
   title?: string | null;
   limit?: number | null;
+  order_by?: 'latest' | 'popular' | 'manual' | null;
+  enable_slider?: boolean | null;
   post_ids?: string[] | null;
   post_slugs?: string[] | null;
   subtitle?: string | null;
@@ -135,6 +137,7 @@ router.get('/build/site', async (c) => {
   return c.json({
     logo_url: config?.logo_url ?? null,
     footer_text: config?.footer_text ?? null,
+    search_enabled: config?.search_enabled ?? 1,
     navigations: { header, footer },
   });
 });
@@ -158,7 +161,20 @@ router.get('/build/home', async (c) => {
     }
     const limit = section.limit && section.limit > 0 ? section.limit : section.type === 'hero' ? 1 : 6;
     let posts = [];
-    if (section.type === 'hero' || section.type === 'latest') {
+    if (section.type === 'hero') {
+      if (section.order_by === 'manual') {
+        const ids = Array.isArray(section.post_ids) ? section.post_ids.filter(Boolean) : [];
+        const slugs = Array.isArray(section.post_slugs) ? section.post_slugs.filter(Boolean) : [];
+        if (ids.length) {
+          posts = await listPublishedPostsByIds(c.env.DB, tenant.id, ids);
+        } else if (slugs.length) {
+          posts = await listPublishedPostsBySlugs(c.env.DB, tenant.id, slugs);
+        }
+      } else {
+        const source = section.order_by === 'popular' ? popularPosts : latestPosts;
+        posts = source.slice(0, limit);
+      }
+    } else if (section.type === 'latest') {
       posts = latestPosts.slice(0, limit);
     } else if (section.type === 'popular') {
       posts = popularPosts.slice(0, limit);
