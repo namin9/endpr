@@ -487,6 +487,12 @@ body.page-editor .editor-card[data-view-mode='preview'] .editor-pane {
   gap: 8px;
 }
 
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 input,
 textarea,
 select,
@@ -667,6 +673,11 @@ button:active {
   background: rgba(255, 255, 255, 0.03);
 }
 
+.site-nav-item.is-child {
+  margin-left: 20px;
+  border-left: 3px solid rgba(124, 58, 237, 0.4);
+}
+
 .site-nav-meta {
   display: flex;
   flex-direction: column;
@@ -726,8 +737,31 @@ button:active {
   gap: 6px;
 }
 
-.site-layout-picks select {
-  min-height: 120px;
+.site-layout-picks input[type='search'] {
+  padding: 8px 10px;
+}
+
+.pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+}
+
+.pick-option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.pick-option .muted {
+  grid-column: 2 / -1;
+  font-size: 12px;
 }
 
 .site-layout-features {

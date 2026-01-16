@@ -102,7 +102,8 @@ const tenantSearchInput = document.getElementById('tenantSearchInput');
 const tenantSwitchList = document.getElementById('tenantSwitchList');
 const editorJsContainer = document.getElementById('editorjs');
 const categorySelect = document.getElementById('categorySelect');
-const postTypeSelect = document.getElementById('postTypeSelect');
+const postSlugField = document.getElementById('postSlugField');
+const postSlugInput = document.getElementById('postSlugInput');
 const categoryForm = document.getElementById('categoryForm');
 const categoryNameInput = document.getElementById('categoryNameInput');
 const categorySlugInput = document.getElementById('categorySlugInput');
@@ -148,12 +149,15 @@ const siteConfigStatus = document.getElementById('siteConfigStatus');
 const siteConfigForm = document.getElementById('siteConfigForm');
 const siteLogoInput = document.getElementById('siteLogoInput');
 const siteFooterInput = document.getElementById('siteFooterInput');
+const siteSearchEnabledInput = document.getElementById('siteSearchEnabledInput');
 const siteConfigSaveBtn = document.getElementById('siteConfigSaveBtn');
 const siteConfigSaveStatus = document.getElementById('siteConfigSaveStatus');
 const refreshSiteConfigBtn = document.getElementById('refreshSiteConfigBtn');
 const navForm = document.getElementById('navForm');
 const navLocationInput = document.getElementById('navLocationInput');
-const navCategorySelect = document.getElementById('navCategorySelect');
+const navLinkTypeSelect = document.getElementById('navLinkTypeSelect');
+const navLinkTargetSelect = document.getElementById('navLinkTargetSelect');
+const navParentSelect = document.getElementById('navParentSelect');
 const navLabelInput = document.getElementById('navLabelInput');
 const navUrlInput = document.getElementById('navUrlInput');
 const navStatus = document.getElementById('navStatus');
@@ -254,6 +258,7 @@ let currentPosts = [];
 let allPosts = [];
 let currentJobs = load(JOB_KEY, []);
 let currentCategories = [];
+let currentPages = [];
 let currentPrCampaigns = [];
 let currentPrMentions = [];
 let currentPrReports = [];
@@ -266,7 +271,7 @@ let currentThemeConfig = { presetId: 'minimal-clean', updatedAt: null };
 let selectedThemePresetId = null;
 let currentThemeTokens = null;
 let themeIsSuperAdmin = false;
-let siteConfig = { logo_url: '', footer_text: '', home_layout: [] };
+let siteConfig = { logo_url: '', footer_text: '', home_layout: [], search_enabled: true };
 let siteNavigations = [];
 let editingNavId = null;
 let currentTenants = [];
@@ -294,6 +299,19 @@ let postsView = {
   totalPages: 1,
   serverMode: false,
 };
+const initialEditorType = (() => {
+  if (!isEditorPage) return null;
+  const params = new URLSearchParams(window.location.search);
+  const typeParam = params.get('type');
+  if (typeParam === 'page') return 'page';
+  if (currentDraft?.type === 'page') return 'page';
+  return null;
+})();
+if (initialEditorType === 'page') {
+  currentDraft.type = 'page';
+  postsView.type = 'page';
+  activeTabId = 'pages';
+}
 let selectedPostIds = new Set();
 let visiblePostIds = [];
 let autosaveState = {
@@ -398,13 +416,30 @@ function updatePostsViewLabels() {
   if (newPostBtn) newPostBtn.textContent = isPage ? '새 페이지' : '새 글';
 }
 
+function resolveActivePostType() {
+  if (isEditorPage) {
+    return currentDraft?.type === 'page' ? 'page' : 'post';
+  }
+  return postsView.type === 'page' ? 'page' : 'post';
+}
+
+function updatePostSlugFieldVisibility() {
+  if (!postSlugField) return;
+  const isPage = resolveActivePostType() === 'page';
+  postSlugField.classList.toggle('hidden', !isPage);
+}
+
 function setPostsViewType(type) {
   const nextType = type === 'page' ? 'page' : 'post';
   if (postsView.type !== nextType) {
     postsView.type = nextType;
     postsView.page = 1;
   }
+  if (isEditorPage) {
+    currentDraft.type = nextType;
+  }
   updatePostsViewLabels();
+  updatePostSlugFieldVisibility();
   if (currentSession) {
     fetchPosts();
   }
@@ -1381,6 +1416,15 @@ function isReservedSlug(value) {
   return RESERVED_SLUGS.has(value.toLowerCase());
 }
 
+function validateReservedSlug(value, onError) {
+  if (!value) return true;
+  if (!isReservedSlug(value)) return true;
+  if (typeof onError === 'function') {
+    onError('예약어 slug는 사용할 수 없습니다.');
+  }
+  return false;
+}
+
 function persistSession(session) {
   currentSession = session;
   save(SESSION_KEY, session);
@@ -1866,6 +1910,10 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
     setStatus(statusEl, '예약 시간을 먼저 설정하세요.', true);
     return;
   }
+  const slugValue = getPostSlugForSave();
+  if (!validateReservedSlug(slugValue, (message) => setStatus(statusEl, message, true))) {
+    return;
+  }
   try {
     setStatus(statusEl, '예약 저장 중...');
     setGlobalLoading(true, '예약 발행 저장 중...');
@@ -1882,6 +1930,7 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
       title: titleInput.value.trim() || '제목 없음',
       ...bodyPayload,
       category_slug: categorySelect?.value || undefined,
+      slug: slugValue || undefined,
       type: postType,
       status: 'scheduled',
       publish_at: publishAt,
@@ -1942,14 +1991,21 @@ async function cancelSchedule() {
 }
 
 function getSelectedPostType() {
-  const value = postTypeSelect?.value || currentDraft?.type || 'post';
+  const value = resolveActivePostType();
   return value === 'page' ? 'page' : 'post';
+}
+
+function getPostSlugForSave() {
+  if (getSelectedPostType() !== 'page') return undefined;
+  if (!postSlugInput) return undefined;
+  return postSlugInput.value.trim();
 }
 
 async function ensurePostId(title, payload = {}) {
   if (currentDraft?.id) return currentDraft.id;
   const categorySlug = categorySelect?.value || undefined;
   const postType = getSelectedPostType();
+  const slugValue = getPostSlugForSave();
   const bodyPayload = payload?.bodyJson
     ? { body_json: payload.bodyJson, body_md: payload?.bodyMd || '' }
     : { body_md: payload?.bodyMd || '' };
@@ -1960,11 +2016,16 @@ async function ensurePostId(title, payload = {}) {
     title: title || '제목 없음',
     ...bodyPayload,
     category_slug: categorySlug,
+    slug: slugValue || undefined,
     type: postType,
   });
-  const postId = created?.post?.id;
+  const createdPost = created?.post || created;
+  const postId = createdPost?.id;
   if (!postId) throw new Error('게시글 ID를 받을 수 없습니다.');
-  persistDraft({ id: postId, categorySlug: categorySlug || '', type: postType });
+  persistDraft({ id: postId, categorySlug: categorySlug || '', type: postType, slug: createdPost?.slug || null });
+  if (postSlugInput && createdPost?.slug) {
+    postSlugInput.value = createdPost.slug;
+  }
   return postId;
 }
 
@@ -1977,6 +2038,19 @@ async function saveDraftToApi(title) {
       dirty: true,
     };
     updateAutosaveStatus();
+    return;
+  }
+
+  const slugValue = getPostSlugForSave();
+  if (!validateReservedSlug(slugValue, (message) => {
+    autosaveState = {
+      ...autosaveState,
+      saving: false,
+      error: message,
+      dirty: true,
+    };
+    updateAutosaveStatus();
+  })) {
     return;
   }
 
@@ -2001,9 +2075,11 @@ async function saveDraftToApi(title) {
       title,
       ...bodyPayload,
       category_slug: categorySlug,
+      slug: slugValue || undefined,
       type: postType,
     });
     const savedAt = saved?.saved_at || saved?.post?.updated_at_iso || new Date().toISOString();
+    const savedPost = saved?.post || saved;
     persistDraft({
       id: postId,
       title,
@@ -2011,11 +2087,16 @@ async function saveDraftToApi(title) {
       bodyJson: payload.bodyJson || currentDraft.bodyJson || null,
       editorMode,
       savedAt,
-      status: saved?.post?.status,
+      status: savedPost?.status,
       categorySlug: categorySlug || '',
-      type: saved?.post?.type || postType,
-      publishAt: saved?.post?.publish_at ?? saved?.post?.publishAt ?? currentDraft.publishAt ?? null,
+      type: savedPost?.type || postType,
+      slug: savedPost?.slug ?? currentDraft.slug ?? null,
+      publicUrl: savedPost?.public_url || savedPost?.publicUrl || currentDraft.publicUrl || null,
+      publishAt: savedPost?.publish_at ?? savedPost?.publishAt ?? currentDraft.publishAt ?? null,
     });
+    if (postSlugInput && savedPost?.slug) {
+      postSlugInput.value = savedPost.slug;
+    }
     autosaveState = {
       dirty: false,
       saving: false,
@@ -2053,8 +2134,8 @@ bodyInput.addEventListener('input', handleAutosave);
 if (categorySelect) {
   categorySelect.addEventListener('change', handleAutosave);
 }
-if (postTypeSelect) {
-  postTypeSelect.addEventListener('change', handleAutosave);
+if (postSlugInput) {
+  postSlugInput.addEventListener('input', handleAutosave);
 }
 
 if (editorJsContainer) {
@@ -2094,7 +2175,8 @@ clearDraftBtn.addEventListener('click', () => {
   };
   titleInput.value = '';
   if (categorySelect) categorySelect.value = '';
-  if (postTypeSelect) postTypeSelect.value = 'post';
+  if (postSlugInput) postSlugInput.value = '';
+  updatePostSlugFieldVisibility();
   setBodyValue('');
   autosaveState = {
     dirty: false,
@@ -2273,9 +2355,22 @@ async function fetchCategories() {
     currentCategories = categories.map(normalizeCategory);
     renderCategories();
     renderPostsCategoryFilter();
-    renderNavCategoryOptions();
+    renderNavTargetOptions();
   } catch (error) {
     setStatus(categoriesStatus, formatError(error), true);
+  }
+}
+
+async function fetchPagesForNav() {
+  if (!navLinkTargetSelect) return;
+  if (!currentSession || isEditorSession()) return;
+  try {
+    const data = await apiFetch('/cms/posts?type=page');
+    const posts = data?.posts || data?.items || [];
+    currentPages = posts.map(normalizePost).filter((post) => post.type === 'page');
+    renderNavTargetOptions();
+  } catch (error) {
+    if (navStatus) setStatus(navStatus, formatError(error), true);
   }
 }
 
@@ -2956,7 +3051,7 @@ async function deleteBanner(id) {
 function getHomeSectionDefaults(type) {
   switch (type) {
     case 'hero':
-      return { title: '주요 뉴스', limit: 1 };
+      return { title: '주요 뉴스', limit: 1, order_by: 'latest', enable_slider: false };
     case 'latest':
       return { title: '최신글', limit: 6 };
     case 'popular':
@@ -3003,7 +3098,9 @@ function createHomeSection(type) {
     items: defaults.items,
     raw_content: defaults.raw_content,
     limit: defaults.limit,
-    post_ids: type === 'pick' ? [] : undefined,
+    order_by: defaults.order_by,
+    enable_slider: defaults.enable_slider,
+    post_ids: ['hero', 'pick'].includes(type) ? [] : undefined,
   };
 }
 
@@ -3020,17 +3117,123 @@ function renderSiteConfigForm() {
   if (!siteLogoInput || !siteFooterInput) return;
   siteLogoInput.value = siteConfig.logo_url || '';
   siteFooterInput.value = siteConfig.footer_text || '';
+  if (siteSearchEnabledInput) {
+    siteSearchEnabledInput.checked = resolveSearchEnabled(siteConfig.search_enabled);
+  }
 }
 
-function renderNavCategoryOptions() {
-  if (!navCategorySelect) return;
-  navCategorySelect.innerHTML = '<option value="">직접 입력</option>';
-  currentCategories.forEach((category) => {
+function resolveSearchEnabled(value) {
+  if (value === false || value === 0 || value === '0') return false;
+  if (value === true || value === 1 || value === '1') return true;
+  return true;
+}
+
+function getNavLinkType() {
+  return navLinkTypeSelect?.value || 'custom';
+}
+
+function getNavLocation() {
+  return navLocationInput?.value || 'header';
+}
+
+function renderNavTargetOptions() {
+  if (!navLinkTargetSelect) return;
+  const type = getNavLinkType();
+  navLinkTargetSelect.innerHTML = '<option value="">선택하세요</option>';
+  if (type === 'category') {
+    currentCategories.forEach((category) => {
+      if (!category.slug) return;
+      const option = document.createElement('option');
+      option.value = category.slug;
+      option.textContent = category.name || category.slug;
+      navLinkTargetSelect.appendChild(option);
+    });
+  }
+  if (type === 'page') {
+    currentPages.forEach((page) => {
+      if (!page.slug) return;
+      const option = document.createElement('option');
+      option.value = page.slug;
+      option.textContent = page.title || page.slug || '제목 없음';
+      navLinkTargetSelect.appendChild(option);
+    });
+  }
+  navLinkTargetSelect.disabled = type === 'custom';
+}
+
+function renderNavParentOptions(currentId = null) {
+  if (!navParentSelect) return;
+  const location = getNavLocation();
+  navParentSelect.innerHTML = '<option value="">상위 메뉴 없음</option>';
+  if (location !== 'header') {
+    navParentSelect.value = '';
+    navParentSelect.disabled = true;
+    return;
+  }
+  const parentOptions = siteNavigations.filter(
+    (item) => item.location === 'header' && !item.parent_id && item.id !== currentId
+  );
+  parentOptions.forEach((item) => {
     const option = document.createElement('option');
-    option.value = category.slug;
-    option.textContent = category.name || category.slug;
-    navCategorySelect.appendChild(option);
+    option.value = item.id;
+    option.textContent = item.label || item.url || item.id;
+    navParentSelect.appendChild(option);
   });
+  navParentSelect.disabled = false;
+}
+
+function applyNavTargetSelection(slug, type = getNavLinkType()) {
+  if (!slug) return;
+  if (navUrlInput) {
+    navUrlInput.value = type === 'category' ? `/category/${slug}/` : `/${slug}/`;
+  }
+  if (navLabelInput && !navLabelInput.value.trim()) {
+    if (type === 'category') {
+      const category = currentCategories.find((item) => item.slug === slug);
+      if (category) navLabelInput.value = category.name || category.slug;
+    }
+    if (type === 'page') {
+      const page = currentPages.find((item) => item.slug === slug);
+      if (page) navLabelInput.value = page.title || page.slug;
+    }
+  }
+}
+
+function syncNavTargetSelection() {
+  if (!navLinkTargetSelect) return;
+  const slug = navLinkTargetSelect.value;
+  if (!slug) return;
+  applyNavTargetSelection(slug, getNavLinkType());
+}
+
+function inferNavLinkType(url) {
+  if (!url) return { type: 'custom', slug: null };
+  if (/^https?:\/\//i.test(url)) return { type: 'custom', slug: null };
+  const categoryMatch = url.match(/^\/category\/([^/]+)\/?$/);
+  if (categoryMatch) {
+    const slug = categoryMatch[1];
+    if (currentCategories.some((item) => item.slug === slug)) {
+      return { type: 'category', slug };
+    }
+  }
+  const pageMatch = url.match(/^\/([^/]+)\/?$/);
+  if (pageMatch) {
+    const slug = pageMatch[1];
+    if (currentPages.some((item) => item.slug === slug)) {
+      return { type: 'page', slug };
+    }
+  }
+  return { type: 'custom', slug: null };
+}
+
+function syncNavTypeAndTarget(url) {
+  if (!navLinkTypeSelect) return;
+  const { type, slug } = inferNavLinkType(url);
+  navLinkTypeSelect.value = type;
+  renderNavTargetOptions();
+  if (navLinkTargetSelect) {
+    navLinkTargetSelect.value = slug || '';
+  }
 }
 
 function renderSiteNavigations() {
@@ -3045,17 +3248,38 @@ function renderSiteNavigations() {
   }
   const sorted = [...siteNavigations].sort((a, b) => {
     if (a.location !== b.location) return a.location.localeCompare(b.location);
+    const parentA = a.parent_id || '';
+    const parentB = b.parent_id || '';
+    if (parentA !== parentB) return parentA.localeCompare(parentB);
     if (a.order_index !== b.order_index) return a.order_index - b.order_index;
     return (a.created_at || 0) - (b.created_at || 0);
   });
+  const itemsByParent = new Map();
+  const itemById = new Map();
   sorted.forEach((item) => {
+    itemById.set(item.id, item);
+    const parentKey = item.parent_id || '';
+    if (!itemsByParent.has(parentKey)) {
+      itemsByParent.set(parentKey, []);
+    }
+    itemsByParent.get(parentKey).push(item);
+  });
+
+  const renderGroup = (parentId = '', depth = 0) => {
+    const items = itemsByParent.get(parentId) || [];
+    items.forEach((item) => {
     const container = document.createElement('div');
-    container.className = 'site-nav-item';
+    container.className = depth > 0 ? 'site-nav-item is-child' : 'site-nav-item';
     const meta = document.createElement('div');
     meta.className = 'site-nav-meta';
+    const parentLabel = item.parent_id ? itemById.get(item.parent_id)?.label : null;
     meta.innerHTML = `
       <strong>${item.label}</strong>
-      <span class="muted">${item.location === 'header' ? '헤더' : '푸터'} · 순서 ${item.order_index}</span>
+      <span class="muted">
+        ${item.location === 'header' ? '헤더' : '푸터'}
+        ${parentLabel ? `· 상위 ${parentLabel}` : ''}
+        · 순서 ${item.order_index}
+      </span>
     `;
     const urlEl = document.createElement('div');
     urlEl.className = 'muted';
@@ -3081,8 +3305,13 @@ function renderSiteNavigations() {
     editBtn.addEventListener('click', () => {
       editingNavId = item.id;
       if (navLocationInput) navLocationInput.value = item.location;
+      renderNavParentOptions(item.id);
+      if (navParentSelect) navParentSelect.value = item.parent_id || '';
       if (navLabelInput) navLabelInput.value = item.label;
       if (navUrlInput) navUrlInput.value = item.url;
+      if (navLinkTypeSelect) {
+        syncNavTypeAndTarget(item.url);
+      }
       if (navStatus) setStatus(navStatus, '편집 모드입니다. 저장하면 기존 메뉴가 수정됩니다.');
     });
 
@@ -3097,7 +3326,9 @@ function renderSiteNavigations() {
     });
 
     const moveItem = async (direction) => {
-      const siblings = sorted.filter((nav) => nav.location === item.location);
+      const siblings = (itemsByParent.get(item.parent_id || '') || []).filter(
+        (nav) => nav.location === item.location
+      );
       const index = siblings.findIndex((nav) => nav.id === item.id);
       const targetIndex = direction === 'up' ? index - 1 : index + 1;
       if (targetIndex < 0 || targetIndex >= siblings.length) return;
@@ -3121,7 +3352,11 @@ function renderSiteNavigations() {
 
     upBtn.addEventListener('click', () => moveItem('up'));
     downBtn.addEventListener('click', () => moveItem('down'));
+    renderGroup(item.id, depth + 1);
   });
+  };
+
+  renderGroup('', 0);
 }
 
 function renderHomeLayoutEditor() {
@@ -3193,6 +3428,24 @@ function renderHomeLayoutEditor() {
       return { field, select };
     };
 
+    const createCheckboxField = (labelText, checked, onChange) => {
+      const field = document.createElement('label');
+      field.className = 'field';
+      const wrap = document.createElement('div');
+      wrap.className = 'checkbox-row';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = Boolean(checked);
+      input.addEventListener('change', () => onChange(input.checked));
+      const label = document.createElement('span');
+      label.className = 'muted';
+      label.textContent = labelText;
+      wrap.appendChild(input);
+      wrap.appendChild(label);
+      field.appendChild(wrap);
+      return { field, input };
+    };
+
     if (['hero', 'latest', 'popular', 'pick'].includes(section.type)) {
       const { field: titleField } = createInputField('섹션 타이틀', section.title || '', (value) => {
         section.title = value;
@@ -3209,29 +3462,122 @@ function renderHomeLayoutEditor() {
       fields.appendChild(titleField);
       fields.appendChild(limitField);
 
-      if (section.type === 'pick') {
+      const createPostPicker = (targetSection, labelText) => {
         const picksWrapper = document.createElement('div');
         picksWrapper.className = 'site-layout-picks';
         const pickLabel = document.createElement('span');
         pickLabel.className = 'muted';
-        pickLabel.textContent = 'Pick 게시글 선택';
-        const select = document.createElement('select');
-        select.multiple = true;
-        allPosts.forEach((post) => {
-          const option = document.createElement('option');
-          option.value = post.id;
-          option.textContent = post.title || post.slug;
-          if (Array.isArray(section.post_ids) && section.post_ids.includes(post.id)) {
-            option.selected = true;
+        pickLabel.textContent = labelText;
+        const pickSearch = document.createElement('input');
+        pickSearch.type = 'search';
+        pickSearch.placeholder = '게시글 검색';
+        const pickList = document.createElement('div');
+        pickList.className = 'pick-list';
+        const selectedIds = new Set(Array.isArray(targetSection.post_ids) ? targetSection.post_ids : []);
+        const posts = allPosts.filter((post) => (post.type || 'post') === 'post');
+        const toTimestamp = (value) => {
+          if (!value) return 0;
+          const date = new Date(value);
+          return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+        };
+        const sortedPosts = posts.slice().sort((a, b) => {
+          const aDate = toTimestamp(a.publishedAt || a.updatedAt);
+          const bDate = toTimestamp(b.publishedAt || b.updatedAt);
+          return bDate - aDate;
+        });
+        const renderPickList = () => {
+          const query = pickSearch.value.trim().toLowerCase();
+          pickList.innerHTML = '';
+          const filtered = query
+            ? sortedPosts.filter((post) => {
+                const title = (post.title || '').toLowerCase();
+                const slug = (post.slug || '').toLowerCase();
+                return title.includes(query) || slug.includes(query);
+              })
+            : sortedPosts;
+          if (!filtered.length) {
+            const empty = document.createElement('div');
+            empty.className = 'muted';
+            empty.textContent = '검색 결과가 없습니다.';
+            pickList.appendChild(empty);
+            return;
           }
-          select.appendChild(option);
-        });
-        select.addEventListener('change', () => {
-          section.post_ids = Array.from(select.selectedOptions).map((option) => option.value);
-        });
+          filtered.forEach((post) => {
+            const row = document.createElement('label');
+            row.className = 'pick-option';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = selectedIds.has(post.id);
+            checkbox.addEventListener('change', () => {
+              if (checkbox.checked) {
+                selectedIds.add(post.id);
+              } else {
+                selectedIds.delete(post.id);
+              }
+              targetSection.post_ids = Array.from(selectedIds);
+            });
+            const title = document.createElement('span');
+            title.textContent = post.title || post.slug || '제목 없음';
+            const slug = document.createElement('span');
+            slug.className = 'muted';
+            slug.textContent = post.slug || '';
+            row.appendChild(checkbox);
+            row.appendChild(title);
+            row.appendChild(slug);
+            pickList.appendChild(row);
+          });
+        };
+        pickSearch.addEventListener('input', renderPickList);
+        renderPickList();
         picksWrapper.appendChild(pickLabel);
-        picksWrapper.appendChild(select);
-        fields.appendChild(picksWrapper);
+        picksWrapper.appendChild(pickSearch);
+        picksWrapper.appendChild(pickList);
+        return picksWrapper;
+      };
+
+      if (section.type === 'hero') {
+        const { field: orderField } = createSelectField(
+          '정렬',
+          section.order_by || 'latest',
+          [
+            { value: 'latest', label: '최신순' },
+            { value: 'popular', label: '인기순' },
+            { value: 'manual', label: '직접 선택' },
+          ],
+          (value) => {
+            section.order_by = value;
+            renderHomeLayoutEditor();
+          }
+        );
+        const { field: sliderField, input: sliderInput } = createCheckboxField(
+          '슬라이드 사용',
+          Boolean(section.enable_slider),
+          (checked) => {
+            section.enable_slider = checked;
+          }
+        );
+        const updateSliderState = () => {
+          const count = Number(section.limit || 0);
+          const canSlide = Number.isFinite(count) && count > 1;
+          sliderInput.disabled = !canSlide;
+          if (!canSlide) {
+            sliderInput.checked = false;
+            section.enable_slider = false;
+          }
+        };
+        limitInput.addEventListener('input', updateSliderState);
+        updateSliderState();
+        fields.appendChild(orderField);
+        fields.appendChild(sliderField);
+        if (section.order_by === 'manual') {
+          if (!Array.isArray(section.post_ids)) section.post_ids = [];
+          fields.appendChild(createPostPicker(section, 'Hero 게시글 선택'));
+        }
+      }
+
+      if (section.type === 'pick') {
+        if (!Array.isArray(section.post_ids)) section.post_ids = [];
+        fields.appendChild(createPostPicker(section, 'Pick 게시글 선택'));
       }
     } else if (section.type === 'banner') {
       const { field: titleField } = createInputField('제목', section.title || '', (value) => {
@@ -3396,6 +3742,7 @@ async function fetchSiteConfig() {
       logo_url: data?.config?.logo_url || '',
       footer_text: data?.config?.footer_text || '',
       home_layout: ensureHomeLayoutIds(Array.isArray(data?.config?.home_layout) ? data.config.home_layout : []),
+      search_enabled: resolveSearchEnabled(data?.config?.search_enabled),
     };
     renderSiteConfigForm();
     renderHomeLayoutEditor();
@@ -3416,6 +3763,7 @@ async function saveSiteConfig(payloadOverrides = {}, statusEl = siteConfigSaveSt
       logo_url: siteLogoInput ? siteLogoInput.value.trim() : siteConfig.logo_url,
       footer_text: siteFooterInput ? siteFooterInput.value.trim() : siteConfig.footer_text,
       home_layout: ensureHomeLayoutIds(siteConfig.home_layout),
+      search_enabled: siteSearchEnabledInput ? siteSearchEnabledInput.checked : siteConfig.search_enabled,
       ...payloadOverrides,
     };
     const data = await apiFetch('/cms/site-config', { method: 'PUT', body: payload });
@@ -3423,6 +3771,7 @@ async function saveSiteConfig(payloadOverrides = {}, statusEl = siteConfigSaveSt
       logo_url: data?.config?.logo_url || '',
       footer_text: data?.config?.footer_text || '',
       home_layout: ensureHomeLayoutIds(Array.isArray(data?.config?.home_layout) ? data.config.home_layout : []),
+      search_enabled: resolveSearchEnabled(data?.config?.search_enabled),
     };
     renderSiteConfigForm();
     renderHomeLayoutEditor();
@@ -3440,6 +3789,8 @@ async function fetchSiteNavigations() {
     const data = await apiFetch('/cms/site-navigations');
     siteNavigations = data?.items || [];
     renderSiteNavigations();
+    renderNavTargetOptions();
+    renderNavParentOptions();
     setStatus(navStatus, '');
   } catch (error) {
     setStatus(navStatus, formatError(error), true);
@@ -3460,6 +3811,7 @@ async function saveNavigationItem(payload) {
       if (navStatus) setStatus(navStatus, '추가 완료');
     }
     renderSiteNavigations();
+    renderNavParentOptions();
   } catch (error) {
     if (navStatus) setStatus(navStatus, formatError(error), true);
   }
@@ -4141,9 +4493,9 @@ async function maybeOpenInitialPost() {
   const postId = params.get('postId');
   if (isNew) {
     const typeParam = params.get('type');
-    if (typeParam === 'page' && postTypeSelect) {
-      postTypeSelect.value = 'page';
+    if (typeParam === 'page') {
       currentDraft.type = 'page';
+      setActiveTab('pages');
     }
     await createNewPost();
     return;
@@ -4211,6 +4563,10 @@ async function fetchPosts() {
 
     syncSelectedPosts();
     currentPosts = allPosts.slice();
+    if (postsView.type === 'page') {
+      currentPages = allPosts.filter((post) => (post.type || 'post') === 'page');
+      renderNavTargetOptions();
+    }
     renderPosts();
     updatePostFilterButtons();
     renderHomeLayoutEditor();
@@ -4251,13 +4607,17 @@ async function selectPost(post) {
     categorySlug: next.categorySlug || '',
     publishAt: next.publishAt,
   });
+  if (isEditorPage) {
+    setActiveTab(next.type === 'page' ? 'pages' : 'content');
+  }
   titleInput.value = next.title || '';
   if (categorySelect) {
     categorySelect.value = next.categorySlug || '';
   }
-  if (postTypeSelect) {
-    postTypeSelect.value = next.type || 'post';
+  if (postSlugInput) {
+    postSlugInput.value = next.slug || '';
   }
+  updatePostSlugFieldVisibility();
   await setEditorContent({ bodyJson: next.bodyJson, bodyMd: next.body || '' });
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPosts();
@@ -4438,6 +4798,10 @@ async function createNewPost() {
   try {
     renderPostsState({ message: '새 글 생성 중...', isLoading: true });
     const postType = getSelectedPostType();
+    const slugValue = getPostSlugForSave();
+    if (!validateReservedSlug(slugValue, (message) => renderPostsState({ message, isError: true }))) {
+      return;
+    }
     const emptyBodyJson = editorMode === 'rich' ? JSON.stringify({ blocks: [{ type: 'paragraph', data: { text: '' } }] }) : null;
     const bodyPayload = emptyBodyJson
       ? { body_json: emptyBodyJson, body_md: ' ' }
@@ -4446,6 +4810,7 @@ async function createNewPost() {
       title: '제목 없음',
       ...bodyPayload,
       category_slug: categorySelect?.value || undefined,
+      slug: slugValue || undefined,
       type: postType,
     });
     const newPost = normalizePost(created?.post || created);
@@ -4768,6 +5133,11 @@ publishBtn.addEventListener('click', async () => {
 
   const title = titleInput.value.trim() || '제목 없음';
   const categorySlug = categorySelect?.value || undefined;
+  const postType = getSelectedPostType();
+  const slugValue = getPostSlugForSave();
+  if (!validateReservedSlug(slugValue, (message) => setStatus(publishMessage, message, true))) {
+    return;
+  }
 
   try {
     setStatus(publishMessage, '발행 요청 중…');
@@ -4784,11 +5154,15 @@ publishBtn.addEventListener('click', async () => {
       title,
       ...bodyPayload,
       category_slug: categorySlug,
+      slug: slugValue || undefined,
+      type: postType,
     });
     const response = await apiPostWithFallback(`/cms/posts/${postId}/publish`, {
       title,
       ...bodyPayload,
       category_slug: categorySlug,
+      slug: slugValue || undefined,
+      type: postType,
     });
     const deployJob = response?.deploy_job;
     const jobId = deployJob?.id;
@@ -5063,15 +5437,26 @@ if (refreshNavBtn) {
   });
 }
 
-if (navCategorySelect) {
-  navCategorySelect.addEventListener('change', () => {
-    const slug = navCategorySelect.value;
-    if (!slug) return;
-    if (navUrlInput) navUrlInput.value = `/category/${slug}/`;
-    const category = currentCategories.find((item) => item.slug === slug);
-    if (category && navLabelInput && !navLabelInput.value.trim()) {
-      navLabelInput.value = category.name || category.slug;
+if (navLocationInput) {
+  navLocationInput.addEventListener('change', () => {
+    renderNavParentOptions(editingNavId);
+  });
+}
+
+if (navLinkTypeSelect) {
+  navLinkTypeSelect.addEventListener('change', () => {
+    renderNavTargetOptions();
+    if (navLinkTypeSelect.value === 'custom') {
+      if (navLinkTargetSelect) navLinkTargetSelect.value = '';
+      return;
     }
+    syncNavTargetSelection();
+  });
+}
+
+if (navLinkTargetSelect) {
+  navLinkTargetSelect.addEventListener('change', () => {
+    syncNavTargetSelection();
   });
 }
 
@@ -5079,17 +5464,27 @@ if (navForm) {
   navForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const location = navLocationInput?.value || 'header';
+    const parentId = navParentSelect?.value || '';
     const label = navLabelInput?.value.trim();
     const url = navUrlInput?.value.trim();
+    const linkType = getNavLinkType();
+    if (linkType !== 'custom' && navLinkTargetSelect && !navLinkTargetSelect.value) {
+      if (navStatus) setStatus(navStatus, '대상을 선택하세요.', true);
+      return;
+    }
     if (!label || !url) {
       if (navStatus) setStatus(navStatus, '라벨과 URL을 입력하세요.', true);
       return;
     }
-    await saveNavigationItem({ location, label, url });
+    await saveNavigationItem({ location, label, url, parent_id: location === 'header' ? parentId : null });
     if (!editingNavId) {
       navLabelInput.value = '';
       navUrlInput.value = '';
-      if (navCategorySelect) navCategorySelect.value = '';
+      if (navLinkTypeSelect) navLinkTypeSelect.value = 'custom';
+      if (navLinkTargetSelect) navLinkTargetSelect.value = '';
+      if (navParentSelect) navParentSelect.value = '';
+      renderNavTargetOptions();
+      renderNavParentOptions();
     }
   });
 }
@@ -5435,9 +5830,10 @@ function hydrateFromStorage() {
   if (categorySelect) {
     categorySelect.value = currentDraft.categorySlug || '';
   }
-  if (postTypeSelect) {
-    postTypeSelect.value = currentDraft.type || 'post';
+  if (postSlugInput) {
+    postSlugInput.value = currentDraft.slug || '';
   }
+  updatePostSlugFieldVisibility();
   renderAutosaveSavedAt(currentDraft.savedAt);
   renderPreview();
   renderSelectedPostMeta();
@@ -5454,6 +5850,7 @@ fetchSession();
 fetchPosts();
 fetchDeployJobs();
 fetchCategories();
+fetchPagesForNav();
 fetchInquiries();
 fetchPrCampaigns();
 fetchSiteConfig();
