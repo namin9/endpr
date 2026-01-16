@@ -29,7 +29,16 @@ function resolveSiteBaseUrl() {
 let siteBaseUrl = "";
 let themeStyle = "";
 let analyticsConfig = { apiBase: "", tenantSlug: "" };
-let siteConfig = { logo_url: null, footer_text: null, navigations: { header: [], footer: [] } };
+let siteConfig = {
+  logo_url: null,
+  site_name: null,
+  site_description: null,
+  og_image_url: null,
+  og_image_use_logo: 0,
+  favicon_url: null,
+  footer_text: null,
+  navigations: { header: [], footer: [] },
+};
 let homeSections = [];
 let siteTitle = "News Portal";
 
@@ -752,7 +761,7 @@ async function generateHomepage(posts) {
 
   const html = layoutHtml({
     title: siteTitle,
-    description: "News highlights and latest coverage.",
+    description: siteConfig?.site_description || "News highlights and latest coverage.",
     content,
   });
 
@@ -918,6 +927,9 @@ async function build() {
   siteConfig = site || siteConfig;
   homeSections = home?.sections || [];
   siteTitle = process.env.SITE_TITLE || meta?.tenantSlug || "News Portal";
+  if (siteConfig?.site_name) {
+    siteTitle = siteConfig.site_name;
+  }
 
   if (theme?.tokens) {
     themeStyle = buildThemeStyle(theme.tokens);

@@ -37,14 +37,19 @@ router.post('/cms/banners', async (c) => {
   if (body?.is_active !== undefined && typeof body?.is_active !== 'boolean') {
     return c.json({ error: 'is_active must be boolean' }, 400);
   }
+  if (body?.enable_slider !== undefined && typeof body?.enable_slider !== 'boolean') {
+    return c.json({ error: 'enable_slider must be boolean' }, 400);
+  }
   const orderIndex = Number.isFinite(Number(body?.order_index)) ? Number(body.order_index) : undefined;
   const isActive = typeof body?.is_active === 'boolean' ? (body.is_active ? 1 : 0) : 1;
+  const enableSlider = typeof body?.enable_slider === 'boolean' ? (body.enable_slider ? 1 : 0) : 0;
   const banner = await createBanner(c.env.DB, tenant.id, {
     location,
     image_url: imageUrl,
     link_url: linkUrl,
     order_index: orderIndex,
     is_active: isActive,
+    enable_slider: enableSlider,
   });
   return c.json({ banner }, 201);
 });
@@ -68,8 +73,12 @@ router.put('/cms/banners/:id', async (c) => {
   if (body?.is_active !== undefined && typeof body?.is_active !== 'boolean') {
     return c.json({ error: 'is_active must be boolean' }, 400);
   }
+  if (body?.enable_slider !== undefined && typeof body?.enable_slider !== 'boolean') {
+    return c.json({ error: 'enable_slider must be boolean' }, 400);
+  }
   const orderIndex = Number.isFinite(Number(body?.order_index)) ? Number(body.order_index) : undefined;
   const isActive = body?.is_active === undefined ? undefined : body.is_active ? 1 : 0;
+  const enableSlider = body?.enable_slider === undefined ? undefined : body.enable_slider ? 1 : 0;
 
   const banner = await updateBanner(c.env.DB, tenant.id, id, {
     location,
@@ -77,6 +86,7 @@ router.put('/cms/banners/:id', async (c) => {
     link_url: linkUrl,
     order_index: orderIndex,
     is_active: isActive,
+    enable_slider: enableSlider,
   });
   return c.json({ banner });
 });

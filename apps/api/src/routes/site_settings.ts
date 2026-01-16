@@ -1,11 +1,15 @@
 import { Hono } from 'hono';
 import { requireRole, sessionMiddleware } from '../middleware/rbac';
+import { SessionData } from '../session';
 import {
   createSiteNavigation,
+  createDeployJob,
   deleteSiteNavigation,
   getSiteConfig,
   listSiteNavigations,
+  mapDeployJob,
   updateSiteNavigation,
+  updateDeployJobStatus,
   upsertSiteConfig,
 } from '../db';
 
@@ -19,13 +23,30 @@ const DEFAULT_HOME_LAYOUT = [
 
 type HomeSection = {
   id?: string;
-  type: 'hero' | 'latest' | 'popular' | 'pick';
+  type: 'hero' | 'latest' | 'popular' | 'pick' | 'banner' | 'features' | 'html';
   title?: string | null;
+  subtitle?: string | null;
+  image_url?: string | null;
+  button_text?: string | null;
+  button_link?: string | null;
+  height_size?: string | null;
+  items?:
+    | Array<{
+        icon?: string | null;
+        title?: string | null;
+        subtitle?: string | null;
+        description?: string | null;
+        image_url?: string | null;
+        button_text?: string | null;
+        button_link?: string | null;
+      }>
+    | null;
   limit?: number | null;
   order_by?: 'latest' | 'popular' | 'manual' | null;
   enable_slider?: boolean | null;
   post_ids?: string[] | null;
   post_slugs?: string[] | null;
+  raw_content?: string | null;
 };
 
 function normalizeHomeLayout(input: unknown): HomeSection[] {
@@ -79,6 +100,11 @@ router.get('/cms/site-config', async (c) => {
   return c.json({
     config: {
       logo_url: config?.logo_url ?? null,
+      site_name: config?.site_name ?? null,
+      site_description: config?.site_description ?? null,
+      og_image_url: config?.og_image_url ?? null,
+      og_image_use_logo: config?.og_image_use_logo ?? 0,
+      favicon_url: config?.favicon_url ?? null,
       footer_text: config?.footer_text ?? null,
       home_layout: homeLayout,
       search_enabled: config?.search_enabled ?? 1,
@@ -92,25 +118,74 @@ router.put('/cms/site-config', async (c) => {
   const body = await c.req.json();
   const existing = await getSiteConfig(c.env.DB, tenant.id);
   const logoUrl = sanitizeString(body?.logo_url);
+  const siteName = sanitizeString(body?.site_name);
+  const siteDescription = sanitizeString(body?.site_description);
+  const ogImageUrl = sanitizeString(body?.og_image_url);
+  const ogImageUseLogo = sanitizeBoolean(body?.og_image_use_logo);
+  const faviconUrl = sanitizeString(body?.favicon_url);
   const footerText = sanitizeString(body?.footer_text);
   const searchEnabled = sanitizeBoolean(body?.search_enabled);
   const payload = {
     logo_url: logoUrl === undefined ? existing?.logo_url ?? null : logoUrl,
+    site_name: siteName === undefined ? existing?.site_name ?? null : siteName,
+    site_description: siteDescription === undefined ? existing?.site_description ?? null : siteDescription,
+    og_image_url: ogImageUrl === undefined ? existing?.og_image_url ?? null : ogImageUrl,
+    og_image_use_logo: ogImageUseLogo === undefined ? existing?.og_image_use_logo ?? 0 : ogImageUseLogo,
+    favicon_url: faviconUrl === undefined ? existing?.favicon_url ?? null : faviconUrl,
     footer_text: footerText === undefined ? existing?.footer_text ?? null : footerText,
     home_layout: serializeHomeLayout(body?.home_layout ?? existing?.home_layout ?? null),
     search_enabled: searchEnabled === undefined ? existing?.search_enabled ?? 1 : searchEnabled,
   };
   const config = await upsertSiteConfig(c.env.DB, tenant.id, payload);
   const homeLayout = normalizeHomeLayout(config.home_layout || null);
+  const shouldDeploy = Boolean(body?.trigger_deploy);
+  let deployJob = null;
+  if (shouldDeploy) {
+    const session = c.get('session') as SessionData;
+    const job = await createDeployJob(c.env.DB, tenant.id, session?.userId ?? null, 'queued', 'Site config update');
+    const buildingJob = await updateDeployJobStatus(c.env.DB, job.id, 'building', 'Deploy hook triggered');
+
+    let status: 'building' | 'success' | 'failed' = 'building';
+    let message: string | null = 'Deploy hook triggered';
+
+    if (!tenant?.pages_deploy_hook_url) {
+      status = 'failed';
+      message = 'pages_deploy_hook_url not configured';
+    } else {
+      try {
+        const resp = await fetch(tenant.pages_deploy_hook_url, { method: 'POST' });
+        if (!resp.ok) {
+          status = 'failed';
+          message = `Deploy hook failed with status ${resp.status}`;
+        } else {
+          status = 'building';
+          message = 'Deploy hook accepted; awaiting webhook';
+        }
+      } catch (error) {
+        status = 'failed';
+        message = 'Deploy hook request errored';
+        console.error('Deploy hook error', error);
+      }
+    }
+
+    const finalJob = await updateDeployJobStatus(c.env.DB, buildingJob.id, status, message);
+    deployJob = mapDeployJob(finalJob);
+  }
   return c.json({
     ok: true,
     config: {
       logo_url: config.logo_url ?? null,
+      site_name: config.site_name ?? null,
+      site_description: config.site_description ?? null,
+      og_image_url: config.og_image_url ?? null,
+      og_image_use_logo: config.og_image_use_logo ?? 0,
+      favicon_url: config.favicon_url ?? null,
       footer_text: config.footer_text ?? null,
       home_layout: homeLayout,
       search_enabled: config.search_enabled ?? 1,
       updated_at: config.updated_at ?? null,
     },
+    deploy_job: deployJob,
   });
 });
 
