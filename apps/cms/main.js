@@ -1416,6 +1416,15 @@ function isReservedSlug(value) {
   return RESERVED_SLUGS.has(value.toLowerCase());
 }
 
+function validateReservedSlug(value, onError) {
+  if (!value) return true;
+  if (!isReservedSlug(value)) return true;
+  if (typeof onError === 'function') {
+    onError('예약어 slug는 사용할 수 없습니다.');
+  }
+  return false;
+}
+
 function persistSession(session) {
   currentSession = session;
   save(SESSION_KEY, session);
@@ -1901,13 +1910,16 @@ async function applyScheduledPublish(publishAt, statusEl, { closeModal = false }
     setStatus(statusEl, '예약 시간을 먼저 설정하세요.', true);
     return;
   }
+  const slugValue = getPostSlugForSave();
+  if (!validateReservedSlug(slugValue, (message) => setStatus(statusEl, message, true))) {
+    return;
+  }
   try {
     setStatus(statusEl, '예약 저장 중...');
     setGlobalLoading(true, '예약 발행 저장 중...');
     const payload = await buildBodyPayload();
     const postId = await ensurePostId(titleInput.value.trim() || '제목 없음', payload);
     const postType = getSelectedPostType();
-    const slugValue = getPostSlugForSave();
     const bodyPayload = payload.bodyJson
       ? { body_json: payload.bodyJson, body_md: payload.bodyMd }
       : { body_md: payload.bodyMd };
@@ -2029,6 +2041,19 @@ async function saveDraftToApi(title) {
     return;
   }
 
+  const slugValue = getPostSlugForSave();
+  if (!validateReservedSlug(slugValue, (message) => {
+    autosaveState = {
+      ...autosaveState,
+      saving: false,
+      error: message,
+      dirty: true,
+    };
+    updateAutosaveStatus();
+  })) {
+    return;
+  }
+
   try {
     autosaveState = {
       ...autosaveState,
@@ -2040,7 +2065,6 @@ async function saveDraftToApi(title) {
     const postId = await ensurePostId(title, payload);
     const categorySlug = categorySelect?.value || undefined;
     const postType = getSelectedPostType();
-    const slugValue = getPostSlugForSave();
     const bodyPayload = payload.bodyJson
       ? { body_json: payload.bodyJson, body_md: payload.bodyMd }
       : { body_md: payload.bodyMd };
@@ -4775,6 +4799,9 @@ async function createNewPost() {
     renderPostsState({ message: '새 글 생성 중...', isLoading: true });
     const postType = getSelectedPostType();
     const slugValue = getPostSlugForSave();
+    if (!validateReservedSlug(slugValue, (message) => renderPostsState({ message, isError: true }))) {
+      return;
+    }
     const emptyBodyJson = editorMode === 'rich' ? JSON.stringify({ blocks: [{ type: 'paragraph', data: { text: '' } }] }) : null;
     const bodyPayload = emptyBodyJson
       ? { body_json: emptyBodyJson, body_md: ' ' }
@@ -5108,6 +5135,9 @@ publishBtn.addEventListener('click', async () => {
   const categorySlug = categorySelect?.value || undefined;
   const postType = getSelectedPostType();
   const slugValue = getPostSlugForSave();
+  if (!validateReservedSlug(slugValue, (message) => setStatus(publishMessage, message, true))) {
+    return;
+  }
 
   try {
     setStatus(publishMessage, '발행 요청 중…');
