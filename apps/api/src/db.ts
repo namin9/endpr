@@ -809,13 +809,22 @@ export async function listCategories(db: D1Database, tenantId: string): Promise<
 }
 
 export async function getSiteConfig(db: D1Database, tenantId: string): Promise<SiteConfigRow | null> {
+  const hasSearchEnabled = await supportsSiteConfigSearchEnabled(db);
+  if (hasSearchEnabled) {
+    const config = await db
+      .prepare(
+        'SELECT tenant_id, logo_url, footer_text, home_layout, search_enabled, updated_at FROM site_configs WHERE tenant_id = ?'
+      )
+      .bind(tenantId)
+      .first<SiteConfigRow>();
+    return config ?? null;
+  }
   const config = await db
-    .prepare(
-      'SELECT tenant_id, logo_url, footer_text, home_layout, search_enabled, updated_at FROM site_configs WHERE tenant_id = ?'
-    )
+    .prepare('SELECT tenant_id, logo_url, footer_text, home_layout, updated_at FROM site_configs WHERE tenant_id = ?')
     .bind(tenantId)
     .first<SiteConfigRow>();
-  return config ?? null;
+  if (!config) return null;
+  return { ...config, search_enabled: null };
 }
 
 export async function upsertSiteConfig(
@@ -823,27 +832,47 @@ export async function upsertSiteConfig(
   tenantId: string,
   updates: Partial<Pick<SiteConfigRow, 'logo_url' | 'footer_text' | 'home_layout' | 'search_enabled'>>
 ): Promise<SiteConfigRow> {
-  await db
-    .prepare(
-      `INSERT INTO site_configs (tenant_id, logo_url, footer_text, home_layout, search_enabled)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(tenant_id) DO UPDATE SET
-         logo_url = excluded.logo_url,
-         footer_text = excluded.footer_text,
-         home_layout = excluded.home_layout,
-         search_enabled = excluded.search_enabled`
-    )
-    .bind(
-      tenantId,
-      updates.logo_url ?? null,
-      updates.footer_text ?? null,
-      updates.home_layout ?? null,
-      updates.search_enabled ?? null
-    )
-    .run();
+  const hasSearchEnabled = await supportsSiteConfigSearchEnabled(db);
+  if (hasSearchEnabled) {
+    await db
+      .prepare(
+        `INSERT INTO site_configs (tenant_id, logo_url, footer_text, home_layout, search_enabled)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(tenant_id) DO UPDATE SET
+           logo_url = excluded.logo_url,
+           footer_text = excluded.footer_text,
+           home_layout = excluded.home_layout,
+           search_enabled = excluded.search_enabled`
+      )
+      .bind(
+        tenantId,
+        updates.logo_url ?? null,
+        updates.footer_text ?? null,
+        updates.home_layout ?? null,
+        updates.search_enabled ?? null
+      )
+      .run();
+  } else {
+    await db
+      .prepare(
+        `INSERT INTO site_configs (tenant_id, logo_url, footer_text, home_layout)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(tenant_id) DO UPDATE SET
+           logo_url = excluded.logo_url,
+           footer_text = excluded.footer_text,
+           home_layout = excluded.home_layout`
+      )
+      .bind(tenantId, updates.logo_url ?? null, updates.footer_text ?? null, updates.home_layout ?? null)
+      .run();
+  }
   const config = await getSiteConfig(db, tenantId);
   if (!config) throw new Error('Failed to update site config');
   return config;
+}
+
+async function supportsSiteConfigSearchEnabled(db: D1Database): Promise<boolean> {
+  const { results } = await db.prepare("PRAGMA table_info('site_configs')").all<{ name: string }>();
+  return (results ?? []).some((row) => row.name === 'search_enabled');
 }
 
 export async function listSiteNavigations(db: D1Database, tenantId: string): Promise<SiteNavigationRow[]> {
