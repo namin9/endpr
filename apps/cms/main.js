@@ -149,12 +149,14 @@ const siteConfigStatus = document.getElementById('siteConfigStatus');
 const siteConfigForm = document.getElementById('siteConfigForm');
 const siteLogoInput = document.getElementById('siteLogoInput');
 const siteFooterInput = document.getElementById('siteFooterInput');
+const siteSearchEnabledInput = document.getElementById('siteSearchEnabledInput');
 const siteConfigSaveBtn = document.getElementById('siteConfigSaveBtn');
 const siteConfigSaveStatus = document.getElementById('siteConfigSaveStatus');
 const refreshSiteConfigBtn = document.getElementById('refreshSiteConfigBtn');
 const navForm = document.getElementById('navForm');
 const navLocationInput = document.getElementById('navLocationInput');
-const navCategorySelect = document.getElementById('navCategorySelect');
+const navLinkTypeSelect = document.getElementById('navLinkTypeSelect');
+const navLinkTargetSelect = document.getElementById('navLinkTargetSelect');
 const navLabelInput = document.getElementById('navLabelInput');
 const navUrlInput = document.getElementById('navUrlInput');
 const navStatus = document.getElementById('navStatus');
@@ -255,6 +257,7 @@ let currentPosts = [];
 let allPosts = [];
 let currentJobs = load(JOB_KEY, []);
 let currentCategories = [];
+let currentPages = [];
 let currentPrCampaigns = [];
 let currentPrMentions = [];
 let currentPrReports = [];
@@ -267,7 +270,7 @@ let currentThemeConfig = { presetId: 'minimal-clean', updatedAt: null };
 let selectedThemePresetId = null;
 let currentThemeTokens = null;
 let themeIsSuperAdmin = false;
-let siteConfig = { logo_url: '', footer_text: '', home_layout: [] };
+let siteConfig = { logo_url: '', footer_text: '', home_layout: [], search_enabled: true };
 let siteNavigations = [];
 let editingNavId = null;
 let currentTenants = [];
@@ -2327,9 +2330,22 @@ async function fetchCategories() {
     currentCategories = categories.map(normalizeCategory);
     renderCategories();
     renderPostsCategoryFilter();
-    renderNavCategoryOptions();
+    renderNavTargetOptions();
   } catch (error) {
     setStatus(categoriesStatus, formatError(error), true);
+  }
+}
+
+async function fetchPagesForNav() {
+  if (!navLinkTargetSelect) return;
+  if (!currentSession || isEditorSession()) return;
+  try {
+    const data = await apiFetch('/cms/posts?type=page');
+    const posts = data?.posts || data?.items || [];
+    currentPages = posts.map(normalizePost).filter((post) => post.type === 'page');
+    renderNavTargetOptions();
+  } catch (error) {
+    if (navStatus) setStatus(navStatus, formatError(error), true);
   }
 }
 
@@ -3074,17 +3090,92 @@ function renderSiteConfigForm() {
   if (!siteLogoInput || !siteFooterInput) return;
   siteLogoInput.value = siteConfig.logo_url || '';
   siteFooterInput.value = siteConfig.footer_text || '';
+  if (siteSearchEnabledInput) {
+    siteSearchEnabledInput.checked = siteConfig.search_enabled !== false;
+  }
 }
 
-function renderNavCategoryOptions() {
-  if (!navCategorySelect) return;
-  navCategorySelect.innerHTML = '<option value="">직접 입력</option>';
-  currentCategories.forEach((category) => {
-    const option = document.createElement('option');
-    option.value = category.slug;
-    option.textContent = category.name || category.slug;
-    navCategorySelect.appendChild(option);
-  });
+function getNavLinkType() {
+  return navLinkTypeSelect?.value || 'custom';
+}
+
+function renderNavTargetOptions() {
+  if (!navLinkTargetSelect) return;
+  const type = getNavLinkType();
+  navLinkTargetSelect.innerHTML = '<option value="">선택하세요</option>';
+  if (type === 'category') {
+    currentCategories.forEach((category) => {
+      if (!category.slug) return;
+      const option = document.createElement('option');
+      option.value = category.slug;
+      option.textContent = category.name || category.slug;
+      navLinkTargetSelect.appendChild(option);
+    });
+  }
+  if (type === 'page') {
+    currentPages.forEach((page) => {
+      if (!page.slug) return;
+      const option = document.createElement('option');
+      option.value = page.slug;
+      option.textContent = page.title || page.slug || '제목 없음';
+      navLinkTargetSelect.appendChild(option);
+    });
+  }
+  navLinkTargetSelect.disabled = type === 'custom';
+}
+
+function applyNavTargetSelection(slug, type = getNavLinkType()) {
+  if (!slug) return;
+  if (navUrlInput) {
+    navUrlInput.value = type === 'category' ? `/category/${slug}/` : `/${slug}/`;
+  }
+  if (navLabelInput && !navLabelInput.value.trim()) {
+    if (type === 'category') {
+      const category = currentCategories.find((item) => item.slug === slug);
+      if (category) navLabelInput.value = category.name || category.slug;
+    }
+    if (type === 'page') {
+      const page = currentPages.find((item) => item.slug === slug);
+      if (page) navLabelInput.value = page.title || page.slug;
+    }
+  }
+}
+
+function syncNavTargetSelection() {
+  if (!navLinkTargetSelect) return;
+  const slug = navLinkTargetSelect.value;
+  if (!slug) return;
+  applyNavTargetSelection(slug, getNavLinkType());
+}
+
+function inferNavLinkType(url) {
+  if (!url) return { type: 'custom', slug: null };
+  if (/^https?:\/\//i.test(url)) return { type: 'custom', slug: null };
+  const categoryMatch = url.match(/^\/category\/([^/]+)\/?$/);
+  if (categoryMatch) {
+    const slug = categoryMatch[1];
+    if (currentCategories.some((item) => item.slug === slug)) {
+      return { type: 'category', slug };
+    }
+  }
+  const pageMatch = url.match(/^\/([^/]+)\/?$/);
+  if (pageMatch) {
+    const slug = pageMatch[1];
+    if (currentPages.some((item) => item.slug === slug)) {
+      return { type: 'page', slug };
+    }
+  }
+  return { type: 'custom', slug: null };
+}
+
+function syncNavTypeAndTarget(url) {
+  if (!navLinkTypeSelect) return;
+  const { type, slug } = inferNavLinkType(url);
+  navLinkTypeSelect.value = type;
+  renderNavTargetOptions();
+  if (navLinkTargetSelect) {
+    navLinkTargetSelect.value = slug || '';
+  }
 }
 
 function renderSiteNavigations() {
@@ -3137,6 +3228,9 @@ function renderSiteNavigations() {
       if (navLocationInput) navLocationInput.value = item.location;
       if (navLabelInput) navLabelInput.value = item.label;
       if (navUrlInput) navUrlInput.value = item.url;
+      if (navLinkTypeSelect) {
+        syncNavTypeAndTarget(item.url);
+      }
       if (navStatus) setStatus(navStatus, '편집 모드입니다. 저장하면 기존 메뉴가 수정됩니다.');
     });
 
@@ -3450,6 +3544,7 @@ async function fetchSiteConfig() {
       logo_url: data?.config?.logo_url || '',
       footer_text: data?.config?.footer_text || '',
       home_layout: ensureHomeLayoutIds(Array.isArray(data?.config?.home_layout) ? data.config.home_layout : []),
+      search_enabled: data?.config?.search_enabled !== false,
     };
     renderSiteConfigForm();
     renderHomeLayoutEditor();
@@ -3470,6 +3565,7 @@ async function saveSiteConfig(payloadOverrides = {}, statusEl = siteConfigSaveSt
       logo_url: siteLogoInput ? siteLogoInput.value.trim() : siteConfig.logo_url,
       footer_text: siteFooterInput ? siteFooterInput.value.trim() : siteConfig.footer_text,
       home_layout: ensureHomeLayoutIds(siteConfig.home_layout),
+      search_enabled: siteSearchEnabledInput ? siteSearchEnabledInput.checked : siteConfig.search_enabled,
       ...payloadOverrides,
     };
     const data = await apiFetch('/cms/site-config', { method: 'PUT', body: payload });
@@ -3477,6 +3573,7 @@ async function saveSiteConfig(payloadOverrides = {}, statusEl = siteConfigSaveSt
       logo_url: data?.config?.logo_url || '',
       footer_text: data?.config?.footer_text || '',
       home_layout: ensureHomeLayoutIds(Array.isArray(data?.config?.home_layout) ? data.config.home_layout : []),
+      search_enabled: data?.config?.search_enabled !== false,
     };
     renderSiteConfigForm();
     renderHomeLayoutEditor();
@@ -3494,6 +3591,7 @@ async function fetchSiteNavigations() {
     const data = await apiFetch('/cms/site-navigations');
     siteNavigations = data?.items || [];
     renderSiteNavigations();
+    renderNavTargetOptions();
     setStatus(navStatus, '');
   } catch (error) {
     setStatus(navStatus, formatError(error), true);
@@ -4265,6 +4363,10 @@ async function fetchPosts() {
 
     syncSelectedPosts();
     currentPosts = allPosts.slice();
+    if (postsView.type === 'page') {
+      currentPages = allPosts.filter((post) => (post.type || 'post') === 'page');
+      renderNavTargetOptions();
+    }
     renderPosts();
     updatePostFilterButtons();
     renderHomeLayoutEditor();
@@ -5129,15 +5231,20 @@ if (refreshNavBtn) {
   });
 }
 
-if (navCategorySelect) {
-  navCategorySelect.addEventListener('change', () => {
-    const slug = navCategorySelect.value;
-    if (!slug) return;
-    if (navUrlInput) navUrlInput.value = `/category/${slug}/`;
-    const category = currentCategories.find((item) => item.slug === slug);
-    if (category && navLabelInput && !navLabelInput.value.trim()) {
-      navLabelInput.value = category.name || category.slug;
+if (navLinkTypeSelect) {
+  navLinkTypeSelect.addEventListener('change', () => {
+    renderNavTargetOptions();
+    if (navLinkTypeSelect.value === 'custom') {
+      if (navLinkTargetSelect) navLinkTargetSelect.value = '';
+      return;
     }
+    syncNavTargetSelection();
+  });
+}
+
+if (navLinkTargetSelect) {
+  navLinkTargetSelect.addEventListener('change', () => {
+    syncNavTargetSelection();
   });
 }
 
@@ -5147,6 +5254,11 @@ if (navForm) {
     const location = navLocationInput?.value || 'header';
     const label = navLabelInput?.value.trim();
     const url = navUrlInput?.value.trim();
+    const linkType = getNavLinkType();
+    if (linkType !== 'custom' && navLinkTargetSelect && !navLinkTargetSelect.value) {
+      if (navStatus) setStatus(navStatus, '대상을 선택하세요.', true);
+      return;
+    }
     if (!label || !url) {
       if (navStatus) setStatus(navStatus, '라벨과 URL을 입력하세요.', true);
       return;
@@ -5155,7 +5267,9 @@ if (navForm) {
     if (!editingNavId) {
       navLabelInput.value = '';
       navUrlInput.value = '';
-      if (navCategorySelect) navCategorySelect.value = '';
+      if (navLinkTypeSelect) navLinkTypeSelect.value = 'custom';
+      if (navLinkTargetSelect) navLinkTargetSelect.value = '';
+      renderNavTargetOptions();
     }
   });
 }
@@ -5521,6 +5635,7 @@ fetchSession();
 fetchPosts();
 fetchDeployJobs();
 fetchCategories();
+fetchPagesForNav();
 fetchInquiries();
 fetchPrCampaigns();
 fetchSiteConfig();

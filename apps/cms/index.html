@@ -277,6 +277,7 @@
         <div class="tab-panel tab-panel--with-sidebar" data-tab-panel="site" role="tabpanel">
           <aside class="panel-sidebar" aria-label="사이트 설정 바로가기">
             <button type="button" class="ghost" data-scroll-target="#site-config-heading">기본 정보</button>
+            <button type="button" class="ghost" data-scroll-target="#categories-heading">카테고리</button>
             <button type="button" class="ghost" data-scroll-target="#site-nav-heading">메뉴 관리</button>
             <button type="button" class="ghost" data-scroll-target="#home-layout-heading">홈페이지 에디터</button>
             <button type="button" id="homeLayoutSidebarSaveBtn" class="primary">홈페이지 반영</button>
@@ -297,11 +298,38 @@
                   <span>카피라이트 텍스트</span>
                   <textarea id="siteFooterInput" rows="2" placeholder="© 2025 Company"></textarea>
                 </label>
+                <label class="field">
+                  <span>검색창 표시</span>
+                  <div class="checkbox-row">
+                    <input id="siteSearchEnabledInput" type="checkbox" />
+                    <span class="muted">헤더 검색창을 표시합니다.</span>
+                  </div>
+                </label>
                 <div class="row gap">
                   <button type="submit" id="siteConfigSaveBtn" class="primary">저장</button>
                   <span id="siteConfigSaveStatus" class="muted"></span>
                 </div>
               </form>
+            </section>
+
+            <section class="card" aria-labelledby="categories-heading">
+              <div class="card-header">
+                <h2 id="categories-heading">카테고리</h2>
+                <button type="button" id="refreshCategoriesBtn" class="ghost">새로고침</button>
+              </div>
+              <form id="categoryForm" class="stack">
+                <label class="field">
+                  <span>이름</span>
+                  <input id="categoryNameInput" required placeholder="예: 뉴스" />
+                </label>
+                <label class="field">
+                  <span>슬러그(선택)</span>
+                  <input id="categorySlugInput" placeholder="news" />
+                </label>
+                <button type="submit" class="primary">카테고리 추가</button>
+              </form>
+              <p id="categoriesStatus" class="muted">로딩 전</p>
+              <div id="categoriesList" class="category-list"></div>
             </section>
 
             <section class="card" aria-labelledby="site-nav-heading">
@@ -319,9 +347,17 @@
                     </select>
                   </label>
                   <label class="field">
-                    <span>카테고리</span>
-                    <select id="navCategorySelect">
-                      <option value="">직접 입력</option>
+                    <span>링크 유형</span>
+                    <select id="navLinkTypeSelect">
+                      <option value="custom">직접 입력</option>
+                      <option value="category">카테고리</option>
+                      <option value="page">페이지</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>대상</span>
+                    <select id="navLinkTargetSelect" disabled>
+                      <option value="">선택하세요</option>
                     </select>
                   </label>
                   <label class="field">
@@ -330,7 +366,7 @@
                   </label>
                   <label class="field">
                     <span>URL</span>
-                    <input id="navUrlInput" placeholder="/category/news/" />
+                    <input id="navUrlInput" placeholder="https://www.naver.com 또는 /category/news/" />
                   </label>
                 </div>
                 <div class="row gap">
@@ -450,25 +486,6 @@
             </form>
           </section>
 
-          <section class="card" aria-labelledby="categories-heading">
-            <div class="card-header">
-              <h2 id="categories-heading">카테고리</h2>
-              <button type="button" id="refreshCategoriesBtn" class="ghost">새로고침</button>
-            </div>
-            <form id="categoryForm" class="stack">
-              <label class="field">
-                <span>이름</span>
-                <input id="categoryNameInput" required placeholder="예: 뉴스" />
-              </label>
-              <label class="field">
-                <span>슬러그(선택)</span>
-                <input id="categorySlugInput" placeholder="news" />
-              </label>
-              <button type="submit" class="primary">카테고리 추가</button>
-            </form>
-            <p id="categoriesStatus" class="muted">로딩 전</p>
-            <div id="categoriesList" class="category-list"></div>
-          </section>
         </div>
 
         <div class="tab-panel" data-tab-panel="pr" role="tabpanel">

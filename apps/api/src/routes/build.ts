@@ -135,6 +135,7 @@ router.get('/build/site', async (c) => {
   return c.json({
     logo_url: config?.logo_url ?? null,
     footer_text: config?.footer_text ?? null,
+    search_enabled: config?.search_enabled ?? 1,
     navigations: { header, footer },
   });
 });

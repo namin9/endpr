@@ -30,6 +30,7 @@ function resolveSiteBaseUrl() {
 let siteBaseUrl = "";
 let themeStyle = "";
 let analyticsConfig = { apiBase: "", tenantSlug: "" };
+let searchEnabled = true;
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -67,7 +68,7 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
       categories: parsed.categories || [],
       theme: parsed.theme || null,
       meta: { tenantSlug: process.env.TENANT_SLUG || null },
-      siteConfig: parsed.siteConfig || { config: { logo_url: null, footer_text: null }, navigations: [] },
+      siteConfig: parsed.siteConfig || { config: { logo_url: null, footer_text: null, search_enabled: true }, navigations: [] },
       homeSections: parsed.homeSections || parsed.home_sections || [],
     };
   }
@@ -102,12 +103,13 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
   const metaResp = await fetchJson(`${apiBase}/build/meta`, buildToken);
   const metaTenant = metaResp?.tenant || {};
   const meta = { tenantSlug: metaTenant.slug || null };
-  let siteConfig = { config: { logo_url: null, footer_text: null }, navigations: [] };
+  let siteConfig = { config: { logo_url: null, footer_text: null, search_enabled: true }, navigations: [] };
   try {
     const siteResp = await fetchJson(`${apiBase}/build/site`, buildToken);
     const config = {
       logo_url: siteResp?.logo_url ?? null,
       footer_text: siteResp?.footer_text ?? null,
+      search_enabled: siteResp?.search_enabled ?? 1,
     };
     const navigations = [
       ...(siteResp?.navigations?.header || []),
@@ -483,6 +485,7 @@ function summarizeBodyFormat(post) {
 }
 
 function renderSearchShell() {
+  if (!searchEnabled) return "";
   return `<form class="search-shell" action="/search/" method="get">
     <span aria-hidden="true">🔍</span>
     <input type="search" name="q" placeholder="검색" data-search-input />
@@ -1354,6 +1357,7 @@ async function build() {
     apiBase: analyticsBase || "",
     tenantSlug: meta?.tenantSlug || "",
   };
+  searchEnabled = siteConfig?.config?.search_enabled !== false && siteConfig?.config?.search_enabled !== 0;
 
   const layoutType = theme?.layout_type || "portal";
   if (theme?.tokens) {

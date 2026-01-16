@@ -191,12 +191,20 @@
                 <span>카피라이트 텍스트</span>
                 <textarea id="siteFooterInput" rows="2" placeholder="© 2025 Company"></textarea>
               </label>
+              <label class="field">
+                <span>검색창 표시</span>
+                <div class="checkbox-row">
+                  <input id="siteSearchEnabledInput" type="checkbox" />
+                  <span class="muted">헤더 검색창을 표시합니다.</span>
+                </div>
+              </label>
               <div class="row gap">
                 <button type="submit" id="siteConfigSaveBtn" class="primary">저장</button>
                 <span id="siteConfigSaveStatus" class="muted"></span>
               </div>
             </form>
           </section>
+
 
           <section class="card" aria-labelledby="site-nav-heading">
             <div class="card-header">
@@ -213,9 +221,17 @@
                   </select>
                 </label>
                 <label class="field">
-                  <span>카테고리</span>
-                  <select id="navCategorySelect">
-                    <option value="">직접 입력</option>
+                  <span>링크 유형</span>
+                  <select id="navLinkTypeSelect">
+                    <option value="custom">직접 입력</option>
+                    <option value="category">카테고리</option>
+                    <option value="page">페이지</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>대상</span>
+                  <select id="navLinkTargetSelect" disabled>
+                    <option value="">선택하세요</option>
                   </select>
                 </label>
                 <label class="field">
@@ -224,7 +240,7 @@
                 </label>
                 <label class="field">
                   <span>URL</span>
-                  <input id="navUrlInput" placeholder="/category/news/" />
+                  <input id="navUrlInput" placeholder="https://www.naver.com 또는 /category/news/" />
                 </label>
               </div>
               <div class="row gap">

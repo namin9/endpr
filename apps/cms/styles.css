@@ -487,6 +487,12 @@ body.page-editor .editor-card[data-view-mode='preview'] .editor-pane {
   gap: 8px;
 }
 
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 input,
 textarea,
 select,

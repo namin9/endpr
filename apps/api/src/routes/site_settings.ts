@@ -54,6 +54,13 @@ function sanitizeString(value: unknown): string | null | undefined {
   return trimmed ? trimmed : null;
 }
 
+function sanitizeBoolean(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  return null;
+}
+
 router.use('/cms/site-config/*', sessionMiddleware);
 router.use('/cms/site-config', sessionMiddleware);
 router.use('/cms/site-navigations/*', sessionMiddleware);
@@ -72,6 +79,7 @@ router.get('/cms/site-config', async (c) => {
       logo_url: config?.logo_url ?? null,
       footer_text: config?.footer_text ?? null,
       home_layout: homeLayout,
+      search_enabled: config?.search_enabled ?? 1,
       updated_at: config?.updated_at ?? null,
     },
   });
@@ -83,10 +91,12 @@ router.put('/cms/site-config', async (c) => {
   const existing = await getSiteConfig(c.env.DB, tenant.id);
   const logoUrl = sanitizeString(body?.logo_url);
   const footerText = sanitizeString(body?.footer_text);
+  const searchEnabled = sanitizeBoolean(body?.search_enabled);
   const payload = {
     logo_url: logoUrl === undefined ? existing?.logo_url ?? null : logoUrl,
     footer_text: footerText === undefined ? existing?.footer_text ?? null : footerText,
     home_layout: serializeHomeLayout(body?.home_layout ?? existing?.home_layout ?? null),
+    search_enabled: searchEnabled === undefined ? existing?.search_enabled ?? 1 : searchEnabled,
   };
   const config = await upsertSiteConfig(c.env.DB, tenant.id, payload);
   const homeLayout = normalizeHomeLayout(config.home_layout || null);
@@ -96,6 +106,7 @@ router.put('/cms/site-config', async (c) => {
       logo_url: config.logo_url ?? null,
       footer_text: config.footer_text ?? null,
       home_layout: homeLayout,
+      search_enabled: config.search_enabled ?? 1,
       updated_at: config.updated_at ?? null,
     },
   });

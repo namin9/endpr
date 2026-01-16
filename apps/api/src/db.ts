@@ -87,6 +87,7 @@ export type SiteConfigRow = {
   logo_url: string | null;
   footer_text: string | null;
   home_layout: string | null;
+  search_enabled: number | null;
   updated_at: number;
 };
 
@@ -809,7 +810,9 @@ export async function listCategories(db: D1Database, tenantId: string): Promise<
 
 export async function getSiteConfig(db: D1Database, tenantId: string): Promise<SiteConfigRow | null> {
   const config = await db
-    .prepare('SELECT tenant_id, logo_url, footer_text, home_layout, updated_at FROM site_configs WHERE tenant_id = ?')
+    .prepare(
+      'SELECT tenant_id, logo_url, footer_text, home_layout, search_enabled, updated_at FROM site_configs WHERE tenant_id = ?'
+    )
     .bind(tenantId)
     .first<SiteConfigRow>();
   return config ?? null;
@@ -818,18 +821,25 @@ export async function getSiteConfig(db: D1Database, tenantId: string): Promise<S
 export async function upsertSiteConfig(
   db: D1Database,
   tenantId: string,
-  updates: Partial<Pick<SiteConfigRow, 'logo_url' | 'footer_text' | 'home_layout'>>
+  updates: Partial<Pick<SiteConfigRow, 'logo_url' | 'footer_text' | 'home_layout' | 'search_enabled'>>
 ): Promise<SiteConfigRow> {
   await db
     .prepare(
-      `INSERT INTO site_configs (tenant_id, logo_url, footer_text, home_layout)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO site_configs (tenant_id, logo_url, footer_text, home_layout, search_enabled)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(tenant_id) DO UPDATE SET
          logo_url = excluded.logo_url,
          footer_text = excluded.footer_text,
-         home_layout = excluded.home_layout`
+         home_layout = excluded.home_layout,
+         search_enabled = excluded.search_enabled`
     )
-    .bind(tenantId, updates.logo_url ?? null, updates.footer_text ?? null, updates.home_layout ?? null)
+    .bind(
+      tenantId,
+      updates.logo_url ?? null,
+      updates.footer_text ?? null,
+      updates.home_layout ?? null,
+      updates.search_enabled ?? null
+    )
     .run();
   const config = await getSiteConfig(db, tenantId);
   if (!config) throw new Error('Failed to update site config');
