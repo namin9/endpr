@@ -136,6 +136,11 @@ router.get('/build/site', async (c) => {
   const footer = items.filter((item) => item.location === 'footer');
   return c.json({
     logo_url: config?.logo_url ?? null,
+    site_name: config?.site_name ?? null,
+    site_description: config?.site_description ?? null,
+    og_image_url: config?.og_image_url ?? null,
+    og_image_use_logo: config?.og_image_use_logo ?? 0,
+    favicon_url: config?.favicon_url ?? null,
     footer_text: config?.footer_text ?? null,
     search_enabled: config?.search_enabled ?? 1,
     navigations: { header, footer },

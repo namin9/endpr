@@ -68,7 +68,20 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
       categories: parsed.categories || [],
       theme: parsed.theme || null,
       meta: { tenantSlug: process.env.TENANT_SLUG || null },
-      siteConfig: parsed.siteConfig || { config: { logo_url: null, footer_text: null, search_enabled: true }, navigations: [] },
+      siteConfig:
+        parsed.siteConfig || {
+          config: {
+            logo_url: null,
+            site_name: null,
+            site_description: null,
+            og_image_url: null,
+            og_image_use_logo: 0,
+            favicon_url: null,
+            footer_text: null,
+            search_enabled: true,
+          },
+          navigations: [],
+        },
       homeSections: parsed.homeSections || parsed.home_sections || [],
     };
   }
@@ -103,11 +116,28 @@ async function loadBuildData({ apiBase, buildToken, useMock }) {
   const metaResp = await fetchJson(`${apiBase}/build/meta`, buildToken);
   const metaTenant = metaResp?.tenant || {};
   const meta = { tenantSlug: metaTenant.slug || null };
-  let siteConfig = { config: { logo_url: null, footer_text: null, search_enabled: true }, navigations: [] };
+  let siteConfig = {
+    config: {
+      logo_url: null,
+      site_name: null,
+      site_description: null,
+      og_image_url: null,
+      og_image_use_logo: 0,
+      favicon_url: null,
+      footer_text: null,
+      search_enabled: true,
+    },
+    navigations: [],
+  };
   try {
     const siteResp = await fetchJson(`${apiBase}/build/site`, buildToken);
     const config = {
       logo_url: siteResp?.logo_url ?? null,
+      site_name: siteResp?.site_name ?? null,
+      site_description: siteResp?.site_description ?? null,
+      og_image_url: siteResp?.og_image_url ?? null,
+      og_image_use_logo: siteResp?.og_image_use_logo ?? 0,
+      favicon_url: siteResp?.favicon_url ?? null,
       footer_text: siteResp?.footer_text ?? null,
       search_enabled: siteResp?.search_enabled ?? 1,
     };
@@ -560,14 +590,15 @@ function renderNavLinks(items = []) {
   return renderGroup("");
 }
 
-function renderLayout({ title, content, navLinks, logoUrl, footerText, layoutType, postNav }) {
+function renderLayout({ title, brandTitle, content, navLinks, logoUrl, footerText, layoutType, postNav }) {
   const type = layoutType || "portal";
+  const headerTitle = brandTitle || title;
   const header =
     type === "brand"
-      ? renderHeaderSimple({ title, navLinks, logoUrl })
+      ? renderHeaderSimple({ title: headerTitle, navLinks, logoUrl })
       : type === "tech"
-        ? renderHeaderMinimal({ title, navLinks, logoUrl })
-        : renderHeaderPortal({ title, navLinks, logoUrl });
+        ? renderHeaderMinimal({ title: headerTitle, navLinks, logoUrl })
+        : renderHeaderPortal({ title: headerTitle, navLinks, logoUrl });
   const footer = footerText ? `<footer class="site-footer">${footerText}</footer>` : "";
   const mainClass = `site-main ${type}`;
   return `<div class="layout layout-${type}">
@@ -601,9 +632,20 @@ function layoutHtml({
     : [];
   const navLinks = renderNavLinks(headerNav);
   const logoUrl = siteConfig?.config?.logo_url ? sanitizeUrl(siteConfig.config.logo_url) : null;
+  const siteName = siteConfig?.config?.site_name || "";
+  const siteDescription = siteConfig?.config?.site_description || "";
+  const faviconUrl = siteConfig?.config?.favicon_url ? sanitizeUrl(siteConfig.config.favicon_url) : null;
+  const ogImageFromConfig =
+    siteConfig?.config?.og_image_use_logo && logoUrl
+      ? logoUrl
+      : siteConfig?.config?.og_image_url
+        ? sanitizeUrl(siteConfig.config.og_image_url, { allowDataImage: true })
+        : null;
   const footerText = siteConfig?.config?.footer_text ? escapeHtml(siteConfig.config.footer_text) : "";
-  const resolvedOgImage = ogImage || logoUrl || null;
+  const resolvedOgImage = ogImage || ogImageFromConfig || logoUrl || null;
   const ogUrl = siteBaseUrl ? buildUrl(siteBaseUrl, pagePath) : null;
+  const metaDescription = description || siteDescription || "";
+  const pageTitle = siteName && title && title !== siteName ? `${title} | ${siteName}` : title;
   const baseStyles = `<style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
@@ -686,6 +728,11 @@ function layoutHtml({
   .hero-banner.lg { min-height: 440px; }
   .hero-banner .hero-content { max-width: 720px; margin: 0 auto; backdrop-filter: blur(2px); }
   .hero-banner .hero-button { display: inline-block; margin-top: 16px; padding: 10px 18px; border-radius: 999px; background: #fff; color: #111827; text-decoration: none; font-weight: 600; }
+  .carousel { position: relative; overflow: hidden; }
+  .carousel-slide { opacity: 0; pointer-events: none; position: absolute; inset: 0; transition: opacity 0.5s ease; }
+  .carousel-slide.is-active { opacity: 1; pointer-events: auto; position: relative; }
+  .hero-carousel { margin: 24px 0; }
+  .banner-carousel { margin-bottom: 32px; }
   .post-nav { display: flex; justify-content: space-between; gap: 12px; padding: 16px 0; border-top: 1px solid var(--border, #e2e8f0); }
   .post-nav a { text-decoration: none; }
   @media (max-width: 960px) {
@@ -716,6 +763,7 @@ function layoutHtml({
     : "";
   const layoutMarkup = renderLayout({
     title,
+    brandTitle: siteName || title,
     content,
     navLinks,
     logoUrl,
@@ -723,15 +771,45 @@ function layoutHtml({
     layoutType,
     postNav,
   });
+  const carouselScript = `<script>
+(function() {
+  var carousels = document.querySelectorAll('[data-carousel]');
+  carousels.forEach(function(carousel) {
+    var slides = carousel.querySelectorAll('.carousel-slide');
+    if (!slides.length || slides.length < 2) {
+      if (slides[0]) {
+        slides[0].classList.add('is-active');
+        slides[0].setAttribute('aria-hidden', 'false');
+      }
+      return;
+    }
+    var index = 0;
+    slides.forEach(function(slide, idx) {
+      slide.classList.toggle('is-active', idx === 0);
+      slide.setAttribute('aria-hidden', idx === 0 ? 'false' : 'true');
+    });
+    var interval = parseInt(carousel.getAttribute('data-carousel-interval') || '5000', 10);
+    if (!Number.isFinite(interval) || interval < 2000) interval = 5000;
+    setInterval(function() {
+      slides[index].classList.remove('is-active');
+      slides[index].setAttribute('aria-hidden', 'true');
+      index = (index + 1) % slides.length;
+      slides[index].classList.add('is-active');
+      slides[index].setAttribute('aria-hidden', 'false');
+    }, interval);
+  });
+})();
+</script>`;
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${escapeHtml(title)}</title>
-  <meta name="description" content="${escapeHtml(description)}" />
-  <meta property="og:title" content="${escapeHtml(title)}" />
-  <meta property="og:description" content="${escapeHtml(description)}" />
+  <title>${escapeHtml(pageTitle)}</title>
+  ${faviconUrl ? `<link rel="icon" href="${escapeHtml(faviconUrl)}" />` : ""}
+  <meta name="description" content="${escapeHtml(metaDescription)}" />
+  <meta property="og:title" content="${escapeHtml(pageTitle)}" />
+  <meta property="og:description" content="${escapeHtml(metaDescription)}" />
   ${ogUrl ? `<meta property="og:url" content="${escapeHtml(ogUrl)}" />` : ""}
   ${resolvedOgImage ? `<meta property="og:image" content="${escapeHtml(resolvedOgImage)}" />` : ""}
   <meta name="twitter:card" content="${resolvedOgImage ? "summary_large_image" : "summary"}" />
@@ -741,6 +819,7 @@ function layoutHtml({
 <body>
   ${layoutMarkup}
   ${scripts}
+  ${carouselScript}
 </body>
 </html>`;
 }
@@ -948,32 +1027,28 @@ function renderPostList(posts, layoutType) {
   </div>`;
 }
 
-function renderHero(section, layoutType) {
-  const posts = Array.isArray(section.posts) ? section.posts : [];
-  const post = posts[0];
-  const title = section.title || post?.title || "Hero";
-  const subtitle = post?.excerpt || section.subtitle || "";
-  const link = post ? getPostUrl(post) : null;
-  const imageUrl = extractFirstImageUrl(post) || sanitizeUrl(section.image_url || "");
+function renderHeroSlide({ title, subtitle, link, imageUrl, layoutType }) {
   if (layoutType === "brand") {
-    return `<section class="hero brand"${imageUrl ? ` style="background-image:url('${escapeHtml(imageUrl)}')"` : ""}>
+    return `<div class="hero brand"${
+      imageUrl ? ` style="background-image:url('${escapeHtml(imageUrl)}')"` : ""
+    }>
   <div class="hero-content">
     <h2>${escapeHtml(title)}</h2>
     ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ""}
     ${link ? `<a class="btn btn-primary" href="${link}">읽어보기</a>` : ""}
   </div>
-</section>`;
+</div>`;
   }
   if (layoutType === "tech") {
-    return `<section class="hero tech">
+    return `<div class="hero tech">
   <div class="hero-content">
     <h2>${escapeHtml(title)}</h2>
     ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ""}
     ${link ? `<a class="btn btn-secondary" href="${link}">읽어보기</a>` : ""}
   </div>
-</section>`;
+</div>`;
   }
-  return `<section class="hero portal"${
+  return `<div class="hero portal"${
     imageUrl
       ? ` style="background-image:url('${escapeHtml(imageUrl)}'); background-size: cover; background-position: center;"`
       : ""
@@ -983,7 +1058,31 @@ function renderHero(section, layoutType) {
     ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ""}
     ${link ? `<a class="btn btn-secondary" href="${link}">읽어보기</a>` : ""}
   </div>
+</div>`;
+}
+
+function renderHero(section, layoutType) {
+  const posts = Array.isArray(section.posts) ? section.posts : [];
+  const useSlider = Boolean(section.enable_slider) && posts.length > 1;
+  const buildHeroData = (post) => {
+    const title = section.title || post?.title || "Hero";
+    const subtitle = post?.excerpt || section.subtitle || "";
+    const link = post ? getPostUrl(post) : null;
+    const imageUrl = extractFirstImageUrl(post) || sanitizeUrl(section.image_url || "");
+    return { title, subtitle, link, imageUrl, layoutType };
+  };
+
+  if (useSlider) {
+    const slides = posts
+      .map((post) => `<div class="carousel-slide">${renderHeroSlide(buildHeroData(post))}</div>`)
+      .join("\n");
+    return `<section class="hero-carousel carousel" data-carousel data-carousel-interval="5000">
+  ${slides}
 </section>`;
+  }
+
+  const post = posts[0];
+  return `<section>${renderHeroSlide(buildHeroData(post))}</section>`;
 }
 
 function renderGridSection(section, layoutType) {
@@ -1014,18 +1113,41 @@ function renderSection(section, layoutType) {
   if (!section || !section.type) return "";
   const type = section.type;
   if (type === "banner") {
-    const backgroundUrl = sanitizeUrl(section.image_url || "");
     const heightClass = ["sm", "md", "lg"].includes(section.height_size) ? section.height_size : "md";
-    const buttonLink = sanitizeUrl(section.button_link || "");
-    return `<section class="hero-banner ${heightClass}"${
-      backgroundUrl ? ` style="background-image:url('${escapeHtml(backgroundUrl)}')"` : ""
-    }>
+    const items =
+      Array.isArray(section.items) && section.items.length
+        ? section.items
+        : [
+            {
+              title: section.title,
+              subtitle: section.subtitle,
+              image_url: section.image_url,
+              button_text: section.button_text,
+              button_link: section.button_link,
+            },
+          ];
+    const renderBannerSlide = (item, wrapperTag = "div") => {
+      const backgroundUrl = sanitizeUrl(item.image_url || "");
+      const buttonLink = sanitizeUrl(item.button_link || "");
+      return `<${wrapperTag} class="hero-banner ${heightClass}"${
+        backgroundUrl ? ` style="background-image:url('${escapeHtml(backgroundUrl)}')"` : ""
+      }>
   <div class="hero-content">
-    <h2>${escapeHtml(section.title || "")}</h2>
-    <p>${escapeHtml(section.subtitle || "")}</p>
-    ${buttonLink ? `<a class="hero-button" href="${escapeHtml(buttonLink)}">${escapeHtml(section.button_text || "자세히 보기")}</a>` : ""}
+    <h2>${escapeHtml(item.title || "")}</h2>
+    <p>${escapeHtml(item.subtitle || "")}</p>
+    ${buttonLink ? `<a class="hero-button" href="${escapeHtml(buttonLink)}">${escapeHtml(item.button_text || "자세히 보기")}</a>` : ""}
   </div>
+</${wrapperTag}>`;
+    };
+    if (section.enable_slider && items.length > 1) {
+      const slides = items
+        .map((item) => `<div class="carousel-slide">${renderBannerSlide(item)}</div>`)
+        .join("\n");
+      return `<section class="banner-carousel carousel" data-carousel data-carousel-interval="5000">
+  ${slides}
 </section>`;
+    }
+    return renderBannerSlide(items[0], "section");
   }
   if (type === "features") {
     const items = Array.isArray(section.items) ? section.items : [];
@@ -1170,10 +1292,12 @@ async function generateHomepage(sections, siteConfig, layoutType) {
   const content = safeSections.length
     ? safeSections.map((section) => renderSection(section, layoutType)).join("\n")
     : `<section class="post-section"><p>섹션이 없습니다.</p></section>`;
+  const siteName = siteConfig?.config?.site_name || "Home";
+  const siteDescription = siteConfig?.config?.site_description || "Latest posts from the blog.";
 
   const html = layoutHtml({
-    title: "Home",
-    description: "Latest posts from the blog.",
+    title: siteName,
+    description: siteDescription,
     content,
     siteConfig,
     pagePath: "/",

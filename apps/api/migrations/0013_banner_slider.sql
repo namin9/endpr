@@ -1,0 +1,1 @@
+ALTER TABLE banners ADD COLUMN enable_slider INTEGER DEFAULT 0;

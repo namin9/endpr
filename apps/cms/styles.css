@@ -469,6 +469,17 @@ body.page-editor .editor-card[data-view-mode='preview'] .editor-pane {
   width: 100%;
 }
 
+.scroll-top-button {
+  position: sticky;
+  bottom: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+  width: 100%;
+}
+
 .panel-content {
   display: flex;
   flex-direction: column;
@@ -510,6 +521,18 @@ select {
   padding: 10px 12px;
   transition: border 0.2s ease, box-shadow 0.2s ease;
   resize: vertical;
+}
+
+select,
+option {
+  background: var(--card);
+  color: var(--text);
+}
+
+input[type='file'] {
+  padding: 8px 0;
+  border: none;
+  background: transparent;
 }
 
 input:focus,
@@ -688,7 +711,31 @@ button:active {
   display: flex;
   gap: 6px;
   justify-content: flex-end;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+
+.site-nav-actions .icon-button {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.action-edit {
+  background: rgba(59, 130, 246, 0.18);
+  color: #bfdbfe;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+.action-delete {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fecaca;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.site-nav-edit-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .site-layout-list {
@@ -713,6 +760,28 @@ button:active {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.site-layout-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.site-layout-actions .icon-button {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.site-layout-summary {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed var(--border);
+  font-size: 14px;
 }
 
 .site-layout-fields {
@@ -762,6 +831,46 @@ button:active {
 .pick-option .muted {
   grid-column: 2 / -1;
   font-size: 12px;
+}
+
+.post-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.post-picker-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 6px 4px;
+  border-bottom: 1px dashed var(--border);
+}
+
+.post-picker-row:last-child {
+  border-bottom: none;
+}
+
+.post-picker-row .muted {
+  font-size: 12px;
+  grid-column: 2 / -1;
+}
+
+.selected-posts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 13px;
 }
 
 .site-layout-features {

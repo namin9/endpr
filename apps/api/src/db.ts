@@ -85,6 +85,11 @@ export type CategoryRow = {
 export type SiteConfigRow = {
   tenant_id: string;
   logo_url: string | null;
+  site_name: string | null;
+  site_description: string | null;
+  og_image_url: string | null;
+  og_image_use_logo: number | null;
+  favicon_url: string | null;
   footer_text: string | null;
   home_layout: string | null;
   search_enabled: number | null;
@@ -123,6 +128,7 @@ export type BannerRow = {
   link_url: string;
   order_index: number;
   is_active: number;
+  enable_slider: number;
 };
 
 export type PrCampaignRow = {
@@ -810,70 +816,100 @@ export async function listCategories(db: D1Database, tenantId: string): Promise<
 }
 
 export async function getSiteConfig(db: D1Database, tenantId: string): Promise<SiteConfigRow | null> {
-  const hasSearchEnabled = await supportsSiteConfigSearchEnabled(db);
-  if (hasSearchEnabled) {
-    const config = await db
-      .prepare(
-        'SELECT tenant_id, logo_url, footer_text, home_layout, search_enabled, updated_at FROM site_configs WHERE tenant_id = ?'
-      )
-      .bind(tenantId)
-      .first<SiteConfigRow>();
-    return config ?? null;
-  }
+  const columns = await getSiteConfigColumns(db);
+  const selectColumns = buildSiteConfigSelect(columns);
   const config = await db
-    .prepare('SELECT tenant_id, logo_url, footer_text, home_layout, updated_at FROM site_configs WHERE tenant_id = ?')
+    .prepare(`SELECT ${selectColumns} FROM site_configs WHERE tenant_id = ?`)
     .bind(tenantId)
     .first<SiteConfigRow>();
   if (!config) return null;
-  return { ...config, search_enabled: null };
+  return normalizeSiteConfigRow(config, columns);
 }
 
 export async function upsertSiteConfig(
   db: D1Database,
   tenantId: string,
-  updates: Partial<Pick<SiteConfigRow, 'logo_url' | 'footer_text' | 'home_layout' | 'search_enabled'>>
+  updates: Partial<
+    Pick<
+      SiteConfigRow,
+      | 'logo_url'
+      | 'site_name'
+      | 'site_description'
+      | 'og_image_url'
+      | 'og_image_use_logo'
+      | 'favicon_url'
+      | 'footer_text'
+      | 'home_layout'
+      | 'search_enabled'
+    >
+  >
 ): Promise<SiteConfigRow> {
-  const hasSearchEnabled = await supportsSiteConfigSearchEnabled(db);
-  if (hasSearchEnabled) {
-    await db
-      .prepare(
-        `INSERT INTO site_configs (tenant_id, logo_url, footer_text, home_layout, search_enabled)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(tenant_id) DO UPDATE SET
-           logo_url = excluded.logo_url,
-           footer_text = excluded.footer_text,
-           home_layout = excluded.home_layout,
-           search_enabled = excluded.search_enabled`
-      )
-      .bind(
-        tenantId,
-        updates.logo_url ?? null,
-        updates.footer_text ?? null,
-        updates.home_layout ?? null,
-        updates.search_enabled ?? null
-      )
-      .run();
-  } else {
-    await db
-      .prepare(
-        `INSERT INTO site_configs (tenant_id, logo_url, footer_text, home_layout)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(tenant_id) DO UPDATE SET
-           logo_url = excluded.logo_url,
-           footer_text = excluded.footer_text,
-           home_layout = excluded.home_layout`
-      )
-      .bind(tenantId, updates.logo_url ?? null, updates.footer_text ?? null, updates.home_layout ?? null)
-      .run();
-  }
+  const columns = await getSiteConfigColumns(db);
+  const insertColumns: string[] = ['tenant_id'];
+  const values: unknown[] = [tenantId];
+  const addColumn = (name: string, value: unknown) => {
+    if (!columns.has(name)) return;
+    insertColumns.push(name);
+    values.push(value ?? null);
+  };
+  addColumn('logo_url', updates.logo_url);
+  addColumn('site_name', updates.site_name);
+  addColumn('site_description', updates.site_description);
+  addColumn('og_image_url', updates.og_image_url);
+  addColumn('og_image_use_logo', updates.og_image_use_logo);
+  addColumn('favicon_url', updates.favicon_url);
+  addColumn('footer_text', updates.footer_text);
+  addColumn('home_layout', updates.home_layout);
+  addColumn('search_enabled', updates.search_enabled);
+
+  const placeholders = insertColumns.map(() => '?').join(', ');
+  const updateColumns = insertColumns.filter((column) => column !== 'tenant_id');
+  const updateClause = updateColumns.map((column) => `${column} = excluded.${column}`).join(', ');
+  await db
+    .prepare(
+      `INSERT INTO site_configs (${insertColumns.join(', ')})
+       VALUES (${placeholders})
+       ON CONFLICT(tenant_id) DO UPDATE SET
+         ${updateClause}`
+    )
+    .bind(...values)
+    .run();
   const config = await getSiteConfig(db, tenantId);
   if (!config) throw new Error('Failed to update site config');
   return config;
 }
 
-async function supportsSiteConfigSearchEnabled(db: D1Database): Promise<boolean> {
+async function getSiteConfigColumns(db: D1Database): Promise<Set<string>> {
   const { results } = await db.prepare("PRAGMA table_info('site_configs')").all<{ name: string }>();
-  return (results ?? []).some((row) => row.name === 'search_enabled');
+  return new Set((results ?? []).map((row) => row.name));
+}
+
+function buildSiteConfigSelect(columns: Set<string>): string {
+  const fields = ['tenant_id', 'logo_url', 'footer_text', 'home_layout'];
+  if (columns.has('search_enabled')) fields.push('search_enabled');
+  if (columns.has('site_name')) fields.push('site_name');
+  if (columns.has('site_description')) fields.push('site_description');
+  if (columns.has('og_image_url')) fields.push('og_image_url');
+  if (columns.has('og_image_use_logo')) fields.push('og_image_use_logo');
+  if (columns.has('favicon_url')) fields.push('favicon_url');
+  fields.push('updated_at');
+  return fields.join(', ');
+}
+
+function normalizeSiteConfigRow(config: SiteConfigRow, columns: Set<string>): SiteConfigRow {
+  return {
+    tenant_id: config.tenant_id,
+    logo_url: config.logo_url ?? null,
+    site_name: columns.has('site_name') ? config.site_name ?? null : null,
+    site_description: columns.has('site_description') ? config.site_description ?? null : null,
+    og_image_url: columns.has('og_image_url') ? config.og_image_url ?? null : null,
+    og_image_use_logo: columns.has('og_image_use_logo') ? config.og_image_use_logo ?? null : null,
+    favicon_url: columns.has('favicon_url') ? config.favicon_url ?? null : null,
+    footer_text: config.footer_text ?? null,
+    home_layout: config.home_layout ?? null,
+    search_enabled: columns.has('search_enabled') ? config.search_enabled ?? null : null,
+    updated_at: config.updated_at,
+  };
 }
 
 export async function listSiteNavigations(db: D1Database, tenantId: string): Promise<SiteNavigationRow[]> {
@@ -1046,10 +1082,14 @@ export async function deletePopup(db: D1Database, tenantId: string, id: string):
 }
 
 export async function listBanners(db: D1Database, tenantId: string, location?: BannerRow['location']): Promise<BannerRow[]> {
+  const hasSlider = await supportsBannerSlider(db);
+  const selectFields = hasSlider
+    ? 'id, tenant_id, location, image_url, link_url, order_index, is_active, enable_slider'
+    : 'id, tenant_id, location, image_url, link_url, order_index, is_active';
   const query = location
     ? db
         .prepare(
-          `SELECT id, tenant_id, location, image_url, link_url, order_index, is_active
+          `SELECT ${selectFields}
            FROM banners
            WHERE tenant_id = ? AND location = ?
            ORDER BY order_index ASC, id ASC`
@@ -1057,20 +1097,24 @@ export async function listBanners(db: D1Database, tenantId: string, location?: B
         .bind(tenantId, location)
     : db
         .prepare(
-          `SELECT id, tenant_id, location, image_url, link_url, order_index, is_active
+          `SELECT ${selectFields}
            FROM banners
            WHERE tenant_id = ?
            ORDER BY location ASC, order_index ASC, id ASC`
         )
         .bind(tenantId);
   const { results } = await query.all<BannerRow>();
-  return (results ?? []) as BannerRow[];
+  const rows = (results ?? []) as BannerRow[];
+  if (hasSlider) return rows;
+  return rows.map((row) => ({ ...row, enable_slider: 0 }));
 }
 
 export async function createBanner(
   db: D1Database,
   tenantId: string,
-  input: Pick<BannerRow, 'location' | 'image_url' | 'link_url' | 'is_active'> & { order_index?: number | null }
+  input: Pick<BannerRow, 'location' | 'image_url' | 'link_url' | 'is_active' | 'enable_slider'> & {
+    order_index?: number | null;
+  }
 ): Promise<BannerRow> {
   const id = uuidv4();
   let orderIndex = input.order_index;
@@ -1085,29 +1129,56 @@ export async function createBanner(
       .first<{ max_order: number }>();
     orderIndex = (row?.max_order ?? -1) + 1;
   }
-  await db
-    .prepare(
-      `INSERT INTO banners (id, tenant_id, location, image_url, link_url, order_index, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    )
-    .bind(id, tenantId, input.location, input.image_url, input.link_url, orderIndex, input.is_active)
-    .run();
+  const hasSlider = await supportsBannerSlider(db);
+  const insertColumns = hasSlider
+    ? 'id, tenant_id, location, image_url, link_url, order_index, is_active, enable_slider'
+    : 'id, tenant_id, location, image_url, link_url, order_index, is_active';
+  const insertValues = hasSlider ? '?, ?, ?, ?, ?, ?, ?, ?' : '?, ?, ?, ?, ?, ?, ?';
+  const insertBindings = hasSlider
+    ? [
+        id,
+        tenantId,
+        input.location,
+        input.image_url,
+        input.link_url,
+        orderIndex,
+        input.is_active,
+        input.enable_slider ?? 0,
+      ]
+    : [id, tenantId, input.location, input.image_url, input.link_url, orderIndex, input.is_active];
+  await db.prepare(`INSERT INTO banners (${insertColumns}) VALUES (${insertValues})`).bind(...insertBindings).run();
+  const selectFields = hasSlider
+    ? 'id, tenant_id, location, image_url, link_url, order_index, is_active, enable_slider'
+    : 'id, tenant_id, location, image_url, link_url, order_index, is_active';
   const created = await db
-    .prepare(
-      'SELECT id, tenant_id, location, image_url, link_url, order_index, is_active FROM banners WHERE id = ? AND tenant_id = ?'
-    )
+    .prepare(`SELECT ${selectFields} FROM banners WHERE id = ? AND tenant_id = ?`)
     .bind(id, tenantId)
     .first<BannerRow>();
   if (!created) throw new Error('Failed to create banner');
-  return created;
+  return hasSlider ? created : { ...created, enable_slider: 0 };
 }
 
 export async function updateBanner(
   db: D1Database,
   tenantId: string,
   id: string,
-  updates: Partial<Pick<BannerRow, 'location' | 'image_url' | 'link_url' | 'order_index' | 'is_active'>>
+  updates: Partial<
+    Pick<BannerRow, 'location' | 'image_url' | 'link_url' | 'order_index' | 'is_active' | 'enable_slider'>
+  >
 ): Promise<BannerRow> {
+  const hasSlider = await supportsBannerSlider(db);
+  const sliderUpdateClause = hasSlider ? ', enable_slider = COALESCE(?, enable_slider)' : '';
+  const updateBindings = [
+    updates.location ?? null,
+    updates.image_url ?? null,
+    updates.link_url ?? null,
+    updates.order_index ?? null,
+    updates.is_active ?? null,
+  ];
+  if (hasSlider) {
+    updateBindings.push(updates.enable_slider ?? null);
+  }
+  updateBindings.push(id, tenantId);
   await db
     .prepare(
       `UPDATE banners SET
@@ -1116,30 +1187,29 @@ export async function updateBanner(
         link_url = COALESCE(?, link_url),
         order_index = COALESCE(?, order_index),
         is_active = COALESCE(?, is_active)
+        ${sliderUpdateClause}
        WHERE id = ? AND tenant_id = ?`
     )
-    .bind(
-      updates.location ?? null,
-      updates.image_url ?? null,
-      updates.link_url ?? null,
-      updates.order_index ?? null,
-      updates.is_active ?? null,
-      id,
-      tenantId
-    )
+    .bind(...updateBindings)
     .run();
+  const selectFields = hasSlider
+    ? 'id, tenant_id, location, image_url, link_url, order_index, is_active, enable_slider'
+    : 'id, tenant_id, location, image_url, link_url, order_index, is_active';
   const updated = await db
-    .prepare(
-      'SELECT id, tenant_id, location, image_url, link_url, order_index, is_active FROM banners WHERE id = ? AND tenant_id = ?'
-    )
+    .prepare(`SELECT ${selectFields} FROM banners WHERE id = ? AND tenant_id = ?`)
     .bind(id, tenantId)
     .first<BannerRow>();
   if (!updated) throw new Error('Failed to update banner');
-  return updated;
+  return hasSlider ? updated : { ...updated, enable_slider: 0 };
 }
 
 export async function deleteBanner(db: D1Database, tenantId: string, id: string): Promise<void> {
   await db.prepare('DELETE FROM banners WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+}
+
+async function supportsBannerSlider(db: D1Database): Promise<boolean> {
+  const { results } = await db.prepare("PRAGMA table_info('banners')").all<{ name: string }>();
+  return (results ?? []).some((row) => row.name === 'enable_slider');
 }
 
 export async function createCategory(

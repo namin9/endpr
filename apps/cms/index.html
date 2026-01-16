@@ -241,6 +241,10 @@
                     <span>활성</span>
                     <input id="bannerActiveInput" type="checkbox" checked />
                   </label>
+                  <label class="field inline">
+                    <span>슬라이드</span>
+                    <input id="bannerSliderInput" type="checkbox" />
+                  </label>
                 </div>
                 <div class="row gap">
                   <button type="submit" class="primary">저장</button>
@@ -281,6 +285,9 @@
             <button type="button" class="ghost" data-scroll-target="#site-nav-heading">메뉴 관리</button>
             <button type="button" class="ghost" data-scroll-target="#home-layout-heading">홈페이지 에디터</button>
             <button type="button" id="homeLayoutSidebarSaveBtn" class="primary">홈페이지 반영</button>
+            <button type="button" id="scrollTopBtn" class="ghost scroll-top-button" aria-label="맨 위로 가기">
+              ▲ Top
+            </button>
           </aside>
           <div class="panel-content">
             <section class="card" aria-labelledby="site-config-heading">
@@ -291,8 +298,31 @@
               <p id="siteConfigStatus" class="muted">로딩 전</p>
               <form id="siteConfigForm" class="stack">
                 <label class="field">
-                  <span>로고 URL</span>
+                  <span>홈페이지 로고</span>
                   <input id="siteLogoInput" placeholder="https://..." />
+                  <input id="siteLogoUploadInput" type="file" accept="image/*" />
+                </label>
+                <label class="field">
+                  <span>홈페이지 이름</span>
+                  <input id="siteNameInput" placeholder="예: EndPR" />
+                </label>
+                <label class="field">
+                  <span>홈페이지 소개</span>
+                  <textarea id="siteDescriptionInput" rows="3" placeholder="검색 결과에 보여질 설명을 입력하세요."></textarea>
+                </label>
+                <label class="field">
+                  <span>OG 이미지</span>
+                  <input id="siteOgImageInput" placeholder="https://..." />
+                  <input id="siteOgImageUploadInput" type="file" accept="image/*" />
+                  <div class="checkbox-row">
+                    <input id="siteOgUseLogoInput" type="checkbox" />
+                    <span class="muted">로고와 동일하게 설정</span>
+                  </div>
+                </label>
+                <label class="field">
+                  <span>파비콘</span>
+                  <input id="siteFaviconInput" placeholder="https://..." />
+                  <input id="siteFaviconUploadInput" type="file" accept="image/*" />
                 </label>
                 <label class="field">
                   <span>카피라이트 텍스트</span>
@@ -402,6 +432,7 @@
                   </select>
                 </label>
                 <button type="button" id="addSectionBtn" class="ghost">섹션 추가</button>
+                <button type="button" id="homeLayoutQuickSaveBtn" class="ghost">레이아웃 저장</button>
               </div>
               <p id="homeLayoutStatus" class="muted">로딩 전</p>
               <div id="homeLayoutList" class="site-layout-list"></div>
@@ -727,6 +758,28 @@
       <div class="global-loading-card">
         <span class="spinner" aria-hidden="true"></span>
         <span id="globalLoadingMessage">처리 중...</span>
+      </div>
+    </div>
+
+    <div class="modal hidden" id="postPickerModal" role="dialog" aria-modal="true" aria-labelledby="postPickerTitle">
+      <div class="modal-card modal-card--wide">
+        <div class="modal-header">
+          <h3 id="postPickerTitle">게시글 선택</h3>
+          <button type="button" id="postPickerCloseBtn" class="ghost">닫기</button>
+        </div>
+        <div class="modal-body">
+          <label class="field">
+            <span>검색</span>
+            <input id="postPickerSearchInput" type="search" placeholder="게시글 제목 검색" />
+          </label>
+          <div class="post-picker-actions row gap">
+            <button type="button" id="postPickerClearBtn" class="ghost">선택 항목 모두 해제</button>
+          </div>
+          <div id="postPickerList" class="post-picker-list"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="postPickerConfirmBtn" class="primary">선택 완료</button>
+        </div>
       </div>
     </div>
 
