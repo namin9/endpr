@@ -271,6 +271,7 @@ let editor = null;
 let editorReady = false;
 let editorDataCache = null;
 let editorChangeTimer = null;
+let editorToolsAvailable = new Set();
 let initialPostRequestHandled = false;
 let postsView = {
   search: '',
@@ -709,6 +710,7 @@ function initEditorJs() {
   if (window.Delimiter) {
     tools.delimiter = window.Delimiter;
   }
+  editorToolsAvailable = new Set(Object.keys(tools));
   editor = new EditorJS({
     holder: editorJsContainer,
     placeholder: '내용을 입력하면 자동 저장됩니다',
@@ -876,6 +878,10 @@ function insertEditorBlock(tool, data = {}) {
     setStatus(autosaveStatus, '에디터가 아직 준비되지 않았습니다.', true);
     return;
   }
+  if (!editorToolsAvailable.has(tool)) {
+    setStatus(autosaveStatus, '해당 블록 도구를 불러올 수 없습니다.', true);
+    return;
+  }
   editor.blocks.insert(tool, data);
   handleAutosave();
 }
@@ -900,45 +906,53 @@ function handleImageUpload(file) {
 function initCustomToolbar() {
   if (!customToolbar || !toolbarButtons.length) return;
   toolbarButtons.forEach((button) => {
+    const tool = button.dataset.tool;
+    if (tool) {
+      button.disabled = !editorToolsAvailable.has(tool);
+    }
     button.addEventListener('click', () => {
-      const tool = button.dataset.tool;
-      if (!tool) return;
-      if (tool === 'header') {
-        const level = Number(button.dataset.level) || 2;
-        insertEditorBlock('header', { level });
+      const selectedTool = button.dataset.tool;
+      if (!selectedTool) return;
+      if (!editorToolsAvailable.has(selectedTool)) {
+        setStatus(autosaveStatus, '해당 블록 도구를 불러올 수 없습니다.', true);
         return;
       }
-      if (tool === 'list') {
+      if (selectedTool === 'header') {
+        const level = Number(button.dataset.level) || 2;
+        insertEditorBlock('header', { level, text: '' });
+        return;
+      }
+      if (selectedTool === 'list') {
         insertEditorBlock('list', { style: 'unordered', items: [''] });
         return;
       }
-      if (tool === 'checklist') {
+      if (selectedTool === 'checklist') {
         insertEditorBlock('checklist', { items: [{ text: '', checked: false }] });
         return;
       }
-      if (tool === 'quote') {
+      if (selectedTool === 'quote') {
         insertEditorBlock('quote', { text: '', caption: '' });
         return;
       }
-      if (tool === 'image') {
+      if (selectedTool === 'image') {
         if (imageUploadInput) {
           imageUploadInput.click();
         }
         return;
       }
-      if (tool === 'table') {
+      if (selectedTool === 'table') {
         insertEditorBlock('table', { withHeadings: true, content: [['']] });
         return;
       }
-      if (tool === 'code') {
+      if (selectedTool === 'code') {
         insertEditorBlock('code', { code: '' });
         return;
       }
-      if (tool === 'warning') {
+      if (selectedTool === 'warning') {
         insertEditorBlock('warning', { title: '', message: '' });
         return;
       }
-      if (tool === 'delimiter') {
+      if (selectedTool === 'delimiter') {
         insertEditorBlock('delimiter', {});
       }
     });

@@ -312,6 +312,11 @@ body.page-editor .editor-card[data-view-mode='preview'] .editor-pane {
   background: rgba(148, 163, 184, 0.3);
 }
 
+.toolbar-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .editorjs-container {
   border: 1px solid var(--border);
   border-radius: 10px;
