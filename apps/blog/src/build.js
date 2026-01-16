@@ -483,11 +483,11 @@ function summarizeBodyFormat(post) {
 }
 
 function renderSearchShell() {
-  return `<div class="search-shell">
+  return `<form class="search-shell" action="/search/" method="get">
     <span aria-hidden="true">🔍</span>
-    <input type="search" placeholder="검색" data-search-input />
-    <div class="search-results hidden" data-search-results></div>
-  </div>`;
+    <input type="search" name="q" placeholder="검색" data-search-input />
+    <button type="submit">검색</button>
+  </form>`;
 }
 
 function renderBrandTitle(title, logoUrl) {
@@ -600,10 +600,14 @@ function layoutHtml({
   .site-footer { padding: 32px 0; border-top: 1px solid var(--border, #e5e7eb); text-align: center; }
   .search-shell { display: flex; align-items: center; gap: 8px; position: relative; }
   .search-shell input { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border, #e2e8f0); background: var(--bg, #fff); color: var(--fg, #111827); }
-  .search-results { position: absolute; top: 38px; left: 0; right: 0; background: var(--bg, #fff); border: 1px solid var(--border, #e2e8f0); border-radius: 8px; padding: 8px; display: grid; gap: 6px; z-index: 20; }
-  .search-results.hidden { display: none; }
-  .search-results a { text-decoration: none; color: inherit; padding: 4px 6px; border-radius: 6px; }
-  .search-results a:hover { background: rgba(148, 163, 184, 0.15); }
+  .search-shell button { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border, #e2e8f0); background: var(--bg, #fff); color: inherit; cursor: pointer; }
+  .search-shell button:hover { background: rgba(148, 163, 184, 0.12); }
+  .search-page { display: grid; gap: 16px; }
+  .search-results-page { display: grid; gap: 12px; }
+  .search-result-item { padding: 12px 0; border-bottom: 1px solid var(--border, #e5e7eb); }
+  .search-result-item:last-child { border-bottom: 0; }
+  .search-pagination { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .search-pagination a { text-decoration: none; }
   .callout { padding: 16px; border-radius: 12px; border-left: 4px solid; background: rgba(148, 163, 184, 0.15); margin: 16px 0; }
   .callout-info { border-color: #38bdf8; }
   .callout-warn { border-color: #f59e0b; }
@@ -667,7 +671,6 @@ function layoutHtml({
     .search-shell { width: 100%; }
   }
   </style>`;
-  const searchScript = `(function(){var input=document.querySelector('[data-search-input]');var results=document.querySelector('[data-search-results]');if(!input||!results){return;}var cache=null;function render(list){results.innerHTML='';if(!input.value.trim()){results.classList.add('hidden');return;}if(!list.length){results.innerHTML='<div class=\"muted\">검색 결과가 없습니다.</div>';results.classList.remove('hidden');return;}var items=list.map(function(item){return '<a href=\"/'+item.slug+'/\">'+(item.title||item.slug)+'</a>';}).join('');results.innerHTML=items;results.classList.remove('hidden');}function filter(){var q=input.value.trim().toLowerCase();if(!q){render([]);return;}if(!cache){fetch('/search.json').then(function(resp){return resp.ok?resp.json():[];}).then(function(data){cache=Array.isArray(data)?data:[];applyFilter();}).catch(function(){render([]);});return;}applyFilter();function applyFilter(){var filtered=cache.filter(function(item){return (item.title||'').toLowerCase().includes(q)||(item.slug||'').toLowerCase().includes(q)||(item.excerpt||'').toLowerCase().includes(q);}).slice(0,10);render(filtered);}}input.addEventListener('input',filter);})();`;
   const navigationLinks = [];
   if (prevPost) {
     navigationLinks.push(
@@ -711,7 +714,6 @@ function layoutHtml({
 <body>
   ${layoutMarkup}
   ${scripts}
-  <script>${searchScript}</script>
 </body>
 </html>`;
 }
@@ -1230,6 +1232,25 @@ async function generateSearchIndex(posts) {
   await writeFile(path.join(DIST_DIR, "search.json"), JSON.stringify(items));
 }
 
+async function generateSearchPage(siteConfig, layoutType) {
+  const searchScript = `(function(){var input=document.querySelector('[data-search-input]');var status=document.querySelector('[data-search-status]');var list=document.querySelector('[data-search-results]');var pagination=document.querySelector('[data-search-pagination]');if(!status||!list||!pagination){return;}var params=new URLSearchParams(window.location.search);var query=(params.get('q')||'').trim();var pageNumber=parseInt(params.get('page')||'1',10);if(!Number.isFinite(pageNumber)||pageNumber<1){pageNumber=1;}if(input){input.value=query;}function escapeHtml(value){return String(value||'').replace(/[&<>\"']/g,function(match){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\\'':'&#39;'}[match];});}function renderEmpty(message){status.textContent=message;list.innerHTML='';pagination.innerHTML='';}if(!query){renderEmpty('검색어를 입력해 주세요.');return;}fetch('/search.json').then(function(resp){return resp.ok?resp.json():[];}).then(function(data){var items=Array.isArray(data)?data:[];var lowered=query.toLowerCase();var filtered=items.filter(function(item){var title=(item.title||'').toLowerCase();var slug=(item.slug||'').toLowerCase();var excerpt=(item.excerpt||'').toLowerCase();return title.includes(lowered)||slug.includes(lowered)||excerpt.includes(lowered);});var pageSize=10;var total=filtered.length;var totalPages=Math.max(1,Math.ceil(total/pageSize));if(pageNumber>totalPages){pageNumber=totalPages;}var start=(pageNumber-1)*pageSize;var pageItems=filtered.slice(start,start+pageSize);status.textContent='총 '+total+'개 결과';if(!pageItems.length){list.innerHTML='<p class=\"muted\">검색 결과가 없습니다.</p>';pagination.innerHTML='';return;}list.innerHTML=pageItems.map(function(item){var title=escapeHtml(item.title||item.slug||'');var excerpt=escapeHtml(item.excerpt||'');var slug=escapeHtml(item.slug||'');return '<article class=\"search-result-item\"><h3><a href=\"/'+slug+'/\">'+title+'</a></h3>'+(excerpt?'<p class=\"muted\">'+excerpt+'</p>':'')+'</article>';}).join('');var prevLink=pageNumber>1?'<a href=\"/search/?q='+encodeURIComponent(query)+'&page='+(pageNumber-1)+'\">이전</a>':'';var nextLink=pageNumber<totalPages?'<a href=\"/search/?q='+encodeURIComponent(query)+'&page='+(pageNumber+1)+'\">다음</a>':'';pagination.innerHTML='<span>페이지 '+pageNumber+' / '+totalPages+'</span>'+(prevLink?' '+prevLink:'')+(nextLink?' '+nextLink:'');}).catch(function(){renderEmpty('검색 데이터를 불러오지 못했습니다.');});})();`;
+  const html = layoutHtml({
+    title: "검색",
+    description: "검색 결과",
+    content: `<section class="search-page">
+  <h2>검색 결과</h2>
+  <p class="muted" data-search-status></p>
+  <div class="search-results-page" data-search-results></div>
+  <div class="search-pagination" data-search-pagination></div>
+</section>`,
+    siteConfig,
+    pagePath: "/search/",
+    layoutType,
+    scripts: `<script>${searchScript}</script>`,
+  });
+  await writeHtml(path.join(DIST_DIR, "search", "index.html"), html);
+}
+
 async function generateRobots() {
   const content = `User-agent: *
 Allow: /
@@ -1369,6 +1390,7 @@ async function build() {
   await generateStaticPages(pageEntries, siteConfig, layoutType);
   await generateSitemap(postEntries, categories, pageEntries);
   await generateSearchIndex(postEntries);
+  await generateSearchPage(siteConfig, layoutType);
   await generateRobots();
   await generate404Page(siteConfig, layoutType);
 }
